@@ -18,8 +18,9 @@ Guidelines for the packages in `tom_ai/secrets_manager` (`tom_secrets_core`,
   the repository's `LICENSE`; no package's dependency closure may hold a
   GPL-licensed or other copyleft package.
 - **Quality per change:** `dart analyze` clean (no Problems pane issue), tests
-  run with `testkit` from the package root, and the repository's manual CI
-  (`tom_secrets_build` in `app_secrets_manager`) once it exists.
+  run with `testkit` from the package root, and the manual CI
+  `app_secrets_manager/tom_secrets_build/ci.sh :all`, which covers this
+  repository too.
 - **CLI tools** are built on `tom_build_base`.
 - **Locks:** a library keeps its `pubspec.lock` ignored; an application
   package (a tracked `bin/*.dart`, or a Flutter app) tracks it with an
