@@ -1,0 +1,20 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+# Libraries keep their pubspec.lock ignored; an application package re-includes
+# its own with an anchored `!/pubspec.lock` in its .gitignore (/tom_app_locks).
+pubspec.lock
+# Node (TypeScript client, browser extension)
+node_modules/
+dist/
+# Editors and OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+# Workspace scratch and test artifacts
+ztmp/
+testlog/
