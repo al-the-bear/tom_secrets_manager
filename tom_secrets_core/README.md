@@ -40,6 +40,38 @@ service parse references with one implementation.
   **TOTP** (`TomSecretsTotp`, RFC 6238): the three conventions `otp`,
   `OTPAuth` and `TimeOtp-*`, read in that order and written together.
 
+- **Vault locators** (`TomSecretsVaultLocator`): `file:<absolute path>`,
+  `github:<owner>/<repo>[@<branch>]/<path>`, and `git:` (recognised, not
+  advertised in phase A).
+- **The GitHub cycle** (`TomSecretsVaultUnit`, DP-81): a vault as one
+  `tom_core_sync` sync unit over a `tom_core_storage` backend —
+  `TomGitHubStorage` for `github:`, the REST API, no clone. Open reads the
+  head and the file at it (re-reading until the head is the same before and
+  after); save commits one file on top of the base and moves the branch
+  without force; a refused move reads the new head, merges three-way and
+  commits again, up to `maxPushAttempts`, then throws
+  `TomCasExhaustedException` (the work stays local); a transport failure
+  throws `TomCommitFailedException` for the engine's journal. Commit messages
+  name the vault and the device (`tsm: fleet.kdbx from bigbeast`). The outer
+  encryption plugs in as a `TomSecretsVaultCodec`. `TomSyncEngine` drives it
+  (pull, merge, push, retries, journal, status).
+- **The merge** (`tomSecretsMergeVaults`, DP-7): entries and groups are
+  records keyed by UUID (`tomMergeKeyed`); a field only one side changed takes
+  that side; a real conflict keeps the newer value, puts the loser into the
+  entry's history (addressed by its modification time, never pruned while
+  open) and records a `TomSecretsEntryConflict` in the entry's custom data
+  `tsm.conflict` until `tomSecretsSettleConflicts`; a deletion against no
+  change deletes, an edit against a deletion stands and is reported; moves
+  (overlay groups included) are an attribute; history is the union of both
+  sides, pruned to the vault's limit; deletions and the recycle bin carry
+  over; meta custom data merges per key; another product format major
+  (`tsm.format`) or another vault is refused (`TomMergeRefusedException`).
+  A null base merges a force-pushed branch.
+- **The primary vault** (`TomSecretsPrimaryVaults`, BP-8): the group
+  `.tom-secrets/vaults` holds one entry per further vault (locator, master
+  password, key file, outer key, GitHub token); the primary cannot list
+  itself, and the group never resolves.
+
 ```dart
 final resolver = TomSecretsResolver(
   stores: [TomSecretsStore.fromFile(file, name: 'fleet')],

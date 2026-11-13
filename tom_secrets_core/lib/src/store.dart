@@ -10,6 +10,7 @@ import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 
 import 'mapping.dart';
 import 'metadata.dart';
+import 'primary.dart';
 
 final RegExp _storeName = RegExp(r'^[a-z0-9][a-z0-9_-]*$');
 final RegExp _dimensionName = RegExp(r'^[a-z][a-z0-9_-]*$');
@@ -136,7 +137,11 @@ final class TomSecretsStore {
       for (final child in group.groups) {
         if (bin != null && child.uuid == bin.uuid) continue;
         final childName = child.name.get() ?? '';
-        if (groups.isEmpty && childName == tomSecretsGrantsGroup) continue;
+        if (groups.isEmpty &&
+            (childName == tomSecretsGrantsGroup ||
+                childName == tomSecretsProductGroup)) {
+          continue;
+        }
         walk(child, [...groups, childName]);
       }
     }

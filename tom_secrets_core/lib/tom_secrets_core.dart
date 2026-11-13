@@ -7,8 +7,12 @@
 library;
 
 export 'src/config.dart';
+export 'src/locator.dart';
 export 'src/mapping.dart';
 export 'src/metadata.dart';
+export 'src/primary.dart';
 export 'src/resolution.dart';
 export 'src/store.dart';
 export 'src/totp.dart';
+export 'src/vault_merge.dart';
+export 'src/vault_sync.dart';

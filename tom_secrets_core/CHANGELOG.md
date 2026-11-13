@@ -8,3 +8,6 @@
   with its rank vectors, ambiguity and fields (string fields, attachments,
   `totp`, refused passkey fields), the KDBX mapping and TOTP (RFC 6238, the
   three conventions).
+- Vault locators, the GitHub cycle as a `tom_core_sync` sync unit over
+  `tom_core_storage` (`TomGitHubStorage`, no clone), the three-way vault merge
+  with conflict records, and the primary vault's `.tom-secrets/vaults`.
