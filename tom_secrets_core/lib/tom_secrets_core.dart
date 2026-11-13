@@ -7,9 +7,11 @@
 library;
 
 export 'src/config.dart';
+export 'src/key_file.dart';
 export 'src/locator.dart';
 export 'src/mapping.dart';
 export 'src/metadata.dart';
+export 'src/outer.dart';
 export 'src/primary.dart';
 export 'src/resolution.dart';
 export 'src/store.dart';

@@ -70,6 +70,27 @@ service parse references with one implementation.
   over; meta custom data merges per key; another product format major
   (`tsm.format`) or another vault is refused (`TomMergeRefusedException`).
   A null base merges a force-pushed branch.
+- **Key files** (`TomSecretsKeyFile`, BP-18): a KeePass 2.0 XML key file
+  (32 random bytes with their hash, written as KeePass 2.5x writes it), read
+  back with its hash checked; `credentials(password)` is the composite key
+  (`Credentials.composite`). It never goes to GitHub; the primary vault keeps
+  it as an attachment.
+- **The outer encryption** (`tomSecretsOuterEncrypt` / `Decrypt`,
+  `TomSecretsOuterCodec`, DP-80, DP-84): a vault stored as
+  `<vault>.kdbx.tsmx`, encrypted once under a fresh random file key that is
+  wrapped under each repository key in a key slot (phase A writes one). The
+  layout (magic `TSMX`, version, cipher id, slots of key id, nonce and wrapped
+  key, content nonce, ciphertext) and the authenticated data (the header and
+  the file's path) are documented in `lib/src/outer.dart`. Cipher id 2,
+  XChaCha20-Poly1305 with a 192-bit nonce, is the default; cipher id 1,
+  AES-256-GCM with a 96-bit nonce, is selectable per repository; both from
+  `cryptography`. A file no held key has a slot for is a
+  `TomKeyRequiredException`, so the sync engine asks for a key; an altered or
+  moved file is a `TomSecretsOuterException`. The codec plugs into
+  `TomSecretsVaultUnit`. `TomSecretsRepositoryKey` (256 bits, key id = the
+  first 8 bytes of its SHA-256) moves as base64 (`tsm.outer-key` in the
+  primary vault). `test/fixtures/outer/` holds phase-A files every later
+  version must open.
 - **The primary vault** (`TomSecretsPrimaryVaults`, BP-8): the group
   `.tom-secrets/vaults` holds one entry per further vault (locator, master
   password, key file, outer key, GitHub token); the primary cannot list

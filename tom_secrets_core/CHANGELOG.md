@@ -14,3 +14,7 @@
 - `tomSecretsDeviceCommitter`: the device as author and committer of the
   cycle's commits (`<device>@tsm.invalid`), for `TomGitHubStorage.committer`
   (tom_core_storage 0.1.1).
+- Key files (`TomSecretsKeyFile`, KeePass 2.0 XML) in the composite key, and
+  the `.tsmx` outer format with key slots under XChaCha20-Poly1305 (default)
+  or AES-256-GCM (`tomSecretsOuterEncrypt` / `Decrypt`,
+  `TomSecretsOuterCodec`, `TomSecretsRepositoryKey`).

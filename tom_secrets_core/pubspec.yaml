@@ -26,6 +26,8 @@ dependencies:
   yaml: ^3.1.0
   # TOTP codes (HMAC-SHA-1/256/512).
   crypto: ^3.0.6
+  # The outer layer's ciphers, XChaCha20-Poly1305 and AES-256-GCM (DP-8, DP-80).
+  cryptography: ^2.9.0
 
 dev_dependencies:
   lints: ^6.0.0
