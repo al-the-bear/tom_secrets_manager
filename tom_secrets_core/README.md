@@ -144,6 +144,18 @@ service parse references with one implementation.
   documents as binaries, SSH keys as notes with the key attached. CSV rows are
   matched on re-import by a hash of title, URL and user name. The fixtures in
   `test/fixtures/1password/` are synthetic.
+- **Enpass** (`tomSecretsReadEnpassJson`, `tomSecretsReadEnpassCsv`, one
+  vault per export): folders nest as subgroups of the target, an item in
+  several folders goes into the first with the others as tags, `section`
+  fields name the fields after them, `deleted` fields are dropped, and
+  trashed items are always left out. Passkeys that carry their private key are
+  written into KeePassXC's `KPEX_PASSKEY_*` fields of the site's login
+  (`TomSecretsPasskey`, DP-120); the key is converted to PKCS#8 PEM from PEM,
+  DER, a raw P-256 scalar or a JWK (`tomSecretsPasskeyPem`). The report names
+  them "passkey kept, not yet usable". `tomSecretsExportEnpassJson` writes a
+  vault, or one group, in Enpass's JSON export layout (DP-40); what it leaves
+  behind is in its `lost`. The fixtures in `test/fixtures/enpass/` are
+  synthetic.
 - **The primary vault** (`TomSecretsPrimaryVaults`, BP-8): the group
   `.tom-secrets/vaults` holds one entry per further vault (locator, master
   password, key file, outer key, GitHub token); the primary cannot list

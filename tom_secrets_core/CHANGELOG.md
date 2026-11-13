@@ -31,3 +31,8 @@
 - Imports (`tomSecretsImport`, `TomSecretsImportSource`, the report) and the
   1Password importer for 1PUX and CSV (`tomSecretsRead1Pux`,
   `tomSecretsRead1PasswordCsv`).
+- The Enpass importer for JSON and CSV (`tomSecretsReadEnpassJson`,
+  `tomSecretsReadEnpassCsv`) with passkeys into `KPEX_PASSKEY_*`
+  (`TomSecretsPasskey`, `tomSecretsPasskeyPem`), and the Enpass JSON export
+  (`tomSecretsExportEnpassJson`). Imports know folders, trashed items and
+  kept passkeys.

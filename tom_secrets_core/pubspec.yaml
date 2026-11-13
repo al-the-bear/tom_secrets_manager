@@ -26,6 +26,9 @@ dependencies:
   yaml: ^3.1.0
   # 1Password's 1PUX export (a ZIP) read in memory, without extracting it.
   archive: ^4.0.0
+  # P-256 for passkey keys: the public key of an imported private key, when
+  # its PKCS#8 is written (DP-120).
+  pointycastle: ^4.0.0
   # TOTP codes (HMAC-SHA-1/256/512).
   crypto: ^3.0.6
   # A compaction's push over the git protocol (no git binary), DP-82, and

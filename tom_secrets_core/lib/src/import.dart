@@ -30,6 +30,7 @@ import 'dart:typed_data';
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 
 import 'mapping.dart';
+import 'passkey.dart';
 import 'totp.dart';
 import 'vault_merge.dart';
 
@@ -121,6 +122,9 @@ final class TomSecretsImportItem {
     this.created,
     this.updated,
     this.expires,
+    this.folders = const [],
+    this.trashed = false,
+    this.passkey,
   });
 
   /// The item's identity across exports.
@@ -180,6 +184,17 @@ final class TomSecretsImportItem {
 
   /// When it expires, when it does.
   final DateTime? expires;
+
+  /// The folder path inside the target group (the source's nested folders),
+  /// empty for the target group itself.
+  final List<String> folders;
+
+  /// Whether the source has it in its trash: always left out.
+  final bool trashed;
+
+  /// A passkey with its private key, kept in the `KPEX_PASSKEY_*` fields
+  /// (DP-120).
+  final TomSecretsPasskey? passkey;
 }
 
 /// One vault of an export.
@@ -280,6 +295,9 @@ enum TomSecretsImportOutcome {
 
   /// In the vault from an earlier import, no longer in the export: kept.
   notInExport,
+
+  /// A passkey kept in the entry, not yet usable (phase C uses it).
+  passkeyKept,
 }
 
 /// One line of the report: an entry and what happened to it, no values.
@@ -448,6 +466,7 @@ TomSecretsImportReport tomSecretsImport(
       final path = [
         for (final s in target.group) tomSecretsImportGroupName(s),
         if (item.archived) 'Archive',
+        for (final f in item.folders) tomSecretsImportGroupName(f),
         if (item.kind == TomSecretsImportKind.other)
           tomSecretsImportGroupName(item.category ?? 'Other Items'),
       ];
@@ -462,7 +481,9 @@ TomSecretsImportReport tomSecretsImport(
             ),
           );
 
-      if (item.archived && !includeArchived) {
+      if (item.trashed) {
+        line(TomSecretsImportOutcome.leftOut, reason: 'trashed');
+      } else if (item.archived && !includeArchived) {
         line(TomSecretsImportOutcome.leftOut, reason: 'archived');
       } else if (index.binned.contains(item.sourceId)) {
         line(
@@ -515,6 +536,12 @@ TomSecretsImportReport tomSecretsImport(
             line(TomSecretsImportOutcome.conflict, group: group);
             if (!dryRun) writer.writeConflict(existing, at);
           }
+        }
+        if (item.passkey != null) {
+          line(
+            TomSecretsImportOutcome.passkeyKept,
+            reason: 'passkey kept, not yet usable',
+          );
         }
       }
       onProgress?.call(++done, total);
@@ -639,7 +666,9 @@ final class _Writer {
     }
     for (final f in item.fields) {
       final name =
-          _standard.contains(f.name) || tomSecretsIsReservedName(f.name)
+          _standard.contains(f.name) ||
+              tomSecretsIsReservedName(f.name) ||
+              tomSecretsIsPasskeyField(f.name)
           ? '${f.name} (${item.category ?? 'imported'})'
           : f.name;
       put(name, f.value, protected: f.isProtected);
@@ -655,6 +684,12 @@ final class _Writer {
     put(tomSecretsImportVersionField(source).key, item.version);
     put(tomSecretsImportedAtField(source).key, _modified.toIso8601String());
     put(tomSecretsImportCategoryField(source).key, item.category);
+    final passkey = item.passkey;
+    if (passkey != null) {
+      for (final MapEntry(:key, :value) in passkey.fields.entries) {
+        out[key.key] = value;
+      }
+    }
     return out;
   }
 
