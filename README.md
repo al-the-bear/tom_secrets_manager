@@ -15,8 +15,9 @@ In the workspace this repository is the submodule `tom_ai/secrets_manager`
 | `tom_secrets_core` | vaults and locators, the GitHub cycle, the offline cache, the entry-level merge, key files and the outer encryption with key slots, dimensions and resolution, the KDBX mapping, the importers, the hybrid pairing and signature crypto |
 | `tom_secrets_service` | the secrets service executable: the client and admin endpoints, approval, grants, the audit log, lock modes |
 
-The packages are created by the quest's phase-A todos; until then the
-repository holds only its frame.
+`tom_secrets_core` holds the model and resolution so far
+([README](tom_secrets_core/README.md)); the rest of it and the service are
+created by the quest's phase-A todos.
 
 ## Licence and boundaries
 

@@ -1,0 +1,14 @@
+// Copyright (c) 2026 Peter Nicolai Alexis Kyaw
+// SPDX-License-Identifier: BSD-3-Clause
+
+/// The core of the Tom Secrets Manager: stores over KDBX files, the metadata
+/// entry and the shared configuration, dimensions, overlays and resolution
+/// (part-structure). The reference grammar is `tom_secrets_client`'s.
+library;
+
+export 'src/config.dart';
+export 'src/mapping.dart';
+export 'src/metadata.dart';
+export 'src/resolution.dart';
+export 'src/store.dart';
+export 'src/totp.dart';

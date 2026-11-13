@@ -1,0 +1,209 @@
+// Copyright (c) 2026 Peter Nicolai Alexis Kyaw
+// SPDX-License-Identifier: BSD-3-Clause
+
+/// The metadata entry `.tom-secrets` in the root group of every file the
+/// product writes (part-structure, BP-36).
+library;
+
+import 'package:tom_kdbx_store/tom_kdbx_store.dart';
+
+import 'config.dart';
+
+/// The title of the metadata entry.
+const String tomSecretsMetadataTitle = '.tom-secrets';
+
+/// The metadata format this library reads and writes.
+const int tomSecretsMetadataFormat = 1;
+
+/// The field names of the metadata entry.
+abstract final class TomSecretsMetadataFields {
+  /// The metadata format.
+  static const format = KdbxKey('tsm.format');
+
+  /// The suggested store name.
+  static const store = KdbxKey('tsm.store');
+
+  /// `personal`, `shared` or `system`.
+  static const kind = KdbxKey('tsm.kind');
+
+  /// Free text shown in the app.
+  static const purpose = KdbxKey('tsm.purpose');
+
+  /// The file binding, `env=prod;region=eu`.
+  static const dimensions = KdbxKey('tsm.dimensions');
+
+  /// The shared configuration (primary vault only).
+  static const config = KdbxKey('tsm.config');
+}
+
+/// What a vault is for (BP-25).
+enum TomSecretsVaultKind {
+  /// A person's own secrets (the default).
+  personal,
+
+  /// Shared between people.
+  shared,
+
+  /// System secrets for processes.
+  system,
+}
+
+/// Metadata that cannot be read.
+final class TomSecretsMetadataException implements Exception {
+  /// A metadata problem described by [message].
+  TomSecretsMetadataException(this.message);
+
+  /// What is wrong.
+  final String message;
+
+  @override
+  String toString() => 'TomSecretsMetadataException: $message';
+}
+
+final RegExp _name = RegExp(r'^[a-z][a-z0-9_-]*$');
+final RegExp _store = RegExp(r'^[a-z0-9][a-z0-9_-]*$');
+
+/// Reads a file binding (`env=prod;region=eu`); an empty text binds nothing.
+Map<String, String> tomSecretsParseFileBinding(String text) {
+  final out = <String, String>{};
+  for (final part in text.split(';')) {
+    final item = part.trim();
+    if (item.isEmpty) continue;
+    final eq = item.indexOf('=');
+    if (eq <= 0 || eq == item.length - 1) {
+      throw TomSecretsMetadataException('not a binding: "$item"');
+    }
+    final name = item.substring(0, eq).trim();
+    final value = item.substring(eq + 1).trim();
+    if (!_name.hasMatch(name) || value.isEmpty) {
+      throw TomSecretsMetadataException('not a binding: "$item"');
+    }
+    if (out.containsKey(name)) {
+      throw TomSecretsMetadataException('the file binds $name twice');
+    }
+    out[name] = value;
+  }
+  return out;
+}
+
+/// The content of a metadata entry.
+final class TomSecretsMetadata {
+  /// Metadata with these members.
+  TomSecretsMetadata({
+    this.format = tomSecretsMetadataFormat,
+    this.store,
+    this.kind = TomSecretsVaultKind.personal,
+    this.purpose,
+    Map<String, String> binding = const {},
+    this.configYaml,
+  }) : binding = Map.unmodifiable(binding);
+
+  /// The metadata of a file without a metadata entry: no binding, kind
+  /// `personal`, the store name from the file name.
+  factory TomSecretsMetadata.absent() => TomSecretsMetadata();
+
+  /// The metadata entry of [file] (`.tom-secrets` in the root group), or
+  /// [TomSecretsMetadata.absent] when it has none.
+  factory TomSecretsMetadata.read(KdbxFile file) {
+    final entry = tomSecretsMetadataEntry(file);
+    if (entry == null) return TomSecretsMetadata.absent();
+    String? text(KdbxKey key) {
+      final value = entry.getString(key)?.getText();
+      return value == null || value.isEmpty ? null : value;
+    }
+
+    final formatText = text(TomSecretsMetadataFields.format);
+    final format = formatText == null ? 1 : int.tryParse(formatText);
+    if (format == null) {
+      throw TomSecretsMetadataException('tsm.format is "$formatText"');
+    }
+    if (format > tomSecretsMetadataFormat) {
+      throw TomSecretsMetadataException(
+        'tsm.format $format is newer than this library ($tomSecretsMetadataFormat)',
+      );
+    }
+    final store = text(TomSecretsMetadataFields.store);
+    if (store != null && !_store.hasMatch(store)) {
+      throw TomSecretsMetadataException(
+        'tsm.store is not a store name: $store',
+      );
+    }
+    final kindText = text(TomSecretsMetadataFields.kind);
+    final kind = kindText == null
+        ? TomSecretsVaultKind.personal
+        : TomSecretsVaultKind.values
+              .where((k) => k.name == kindText)
+              .firstOrNull;
+    if (kind == null) {
+      throw TomSecretsMetadataException('tsm.kind is "$kindText"');
+    }
+    return TomSecretsMetadata(
+      format: format,
+      store: store,
+      kind: kind,
+      purpose: text(TomSecretsMetadataFields.purpose),
+      binding: tomSecretsParseFileBinding(
+        text(TomSecretsMetadataFields.dimensions) ?? '',
+      ),
+      configYaml: text(TomSecretsMetadataFields.config),
+    );
+  }
+
+  /// The metadata format.
+  final int format;
+
+  /// The suggested store name, or null.
+  final String? store;
+
+  /// What the vault is for.
+  final TomSecretsVaultKind kind;
+
+  /// Free text, or null.
+  final String? purpose;
+
+  /// The file binding: every entry of the file carries these bindings.
+  final Map<String, String> binding;
+
+  /// `tsm.config` as written, or null (only the primary vault has one).
+  final String? configYaml;
+
+  /// The shared configuration of `tsm.config`, or null when absent.
+  TomSecretsConfig? get config =>
+      configYaml == null ? null : TomSecretsConfig.parse(configYaml!);
+
+  /// Writes this metadata into [file]'s metadata entry, creating it when the
+  /// file has none.
+  void writeTo(KdbxFile file) {
+    final root = file.body.rootGroup;
+    var entry = tomSecretsMetadataEntry(file);
+    if (entry == null) {
+      entry = KdbxEntry.create(file, root);
+      root.addEntry(entry);
+      entry.label = tomSecretsMetadataTitle;
+    }
+    final target = entry;
+    void set(KdbxKey key, String? value) => target.setString(
+      key,
+      value == null || value.isEmpty ? null : PlainValue(value),
+    );
+    target.modify(() {
+      set(TomSecretsMetadataFields.format, '$format');
+      set(TomSecretsMetadataFields.store, store);
+      set(TomSecretsMetadataFields.kind, kind.name);
+      set(TomSecretsMetadataFields.purpose, purpose);
+      set(
+        TomSecretsMetadataFields.dimensions,
+        binding.entries.map((e) => '${e.key}=${e.value}').join(';'),
+      );
+      set(TomSecretsMetadataFields.config, configYaml);
+    });
+  }
+}
+
+/// The metadata entry of [file], or null.
+KdbxEntry? tomSecretsMetadataEntry(KdbxFile file) {
+  for (final entry in file.body.rootGroup.entries) {
+    if (entry.label == tomSecretsMetadataTitle) return entry;
+  }
+  return null;
+}
