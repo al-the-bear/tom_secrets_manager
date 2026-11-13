@@ -365,7 +365,7 @@ void main() {
       final hostSide = TomSecretsLinkSession.respond(
         h,
         me: host,
-        approvers: {'mbp': approver.publicKey},
+        approvers: [(device: 'mbp', key: approver.publicKey)],
         host: 'bigbeast',
       );
       final approverSession = await TomSecretsLinkSession.initiate(
@@ -398,7 +398,7 @@ void main() {
       final wrongDevice = TomSecretsLinkSession.respond(
         h2,
         me: host,
-        approvers: {'bomber': approver.publicKey},
+        approvers: [(device: 'bomber', key: approver.publicKey)],
         host: 'bigbeast',
       );
       unawaited(
@@ -416,12 +416,15 @@ void main() {
       final unknown = TomSecretsLinkSession.respond(
         h3,
         me: host,
-        approvers: {
-          'mbp': (await TomSecretsLinkKey.fromSeeds(
-            Uint8List(32)..[1] = 9,
-            Uint8List(64)..[1] = 9,
-          )).publicKey,
-        },
+        approvers: [
+          (
+            device: 'mbp',
+            key: (await TomSecretsLinkKey.fromSeeds(
+              Uint8List(32)..[1] = 9,
+              Uint8List(64)..[1] = 9,
+            )).publicKey,
+          ),
+        ],
         host: 'bigbeast',
       );
       unawaited(

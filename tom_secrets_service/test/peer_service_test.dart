@@ -23,9 +23,9 @@ final class RecordingPolicy implements TomSecretsAccessPolicy {
   final List<TomSecretsAccessRequest> requests = [];
 
   @override
-  Future<TomSecretsAccess> check(TomSecretsAccessRequest request) async {
-    requests.add(request);
-    return const TomSecretsAccessAllowed();
+  Future<List<TomSecretsAccess>> check(TomSecretsAccessBatch batch) async {
+    requests.addAll(batch.items);
+    return [for (final _ in batch.items) const TomSecretsAccessAllowed()];
   }
 }
 

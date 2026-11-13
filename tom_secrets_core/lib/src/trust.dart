@@ -133,7 +133,9 @@ final class TomSecretsTrust {
     required this.approvers,
     required this.hosts,
     required this.cliApprovals,
-  }) : _approverSeeds = approverSeeds,
+    Map<String, String>? pins,
+  }) : pins = pins ?? {},
+       _approverSeeds = approverSeeds,
        _linkSeeds = linkSeeds;
 
   /// New trust material for [device]: fresh key pairs and audit-log key, no
@@ -164,6 +166,7 @@ final class TomSecretsTrust {
             TomSecretsRecordedHost.fromJson((h as Map).cast()),
         ],
         cliApprovals: json['cliApprovals'] == true,
+        pins: ((json['pins'] as Map?) ?? const {}).cast<String, String>(),
       );
 
   /// This device's id (its approver identity at pairing).
@@ -187,6 +190,12 @@ final class TomSecretsTrust {
   /// Whether `tsm` on this device may pre-approve and issue tokens (DP-19);
   /// switched only from the manager app.
   bool cliApprovals;
+
+  /// The SHA-256 recorded for each pinned grant of this host (grant id →
+  /// hex): a grant's signed members carry no hash, and the host keeps it
+  /// here, out of the synced vault, so no one who can write the vault can
+  /// move a pin (DP-18).
+  final Map<String, String> pins;
 
   /// This device's approver key pair.
   Future<TomSecretsApproverKey> approverKey() =>
@@ -226,6 +235,7 @@ final class TomSecretsTrust {
     'approvers': [for (final a in approvers) a.toJson()],
     'hosts': [for (final h in hosts) h.toJson()],
     'cliApprovals': cliApprovals,
+    'pins': pins,
   };
 
   @override

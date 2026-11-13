@@ -373,6 +373,9 @@ final class TomSecretsVaultSet {
   /// The open primary vault, or null.
   TomSecretsOpenedVault? get primary => _primary;
 
+  /// The primary's store name, while unlocked.
+  String? get primaryName => _primaryName;
+
   /// The resolver over the opened stores, or null while locked.
   TomSecretsResolver? get resolver => _resolver;
 

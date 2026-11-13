@@ -21,7 +21,7 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   admins (`unlock_needed`), sends `progress`, and is answered once the service
   is unlocked or the approval timeout passes (`locked`). Every resolved value
   is checked by a `TomSecretsAccessPolicy`; the default, `TomSecretsDenyAllPolicy`,
-  refuses every value until the allow list and approvals are configured.
+  refuses every value; without one the service's own approvals decide.
 - **Peer identity** (part-protocol, protocol.md 7.1; `TomSecretsSystemPeerMeasurer`):
   each accepted connection's process is measured once, never taken from
   what it says. The peer PID comes from `SO_PEERCRED` (Linux),
@@ -41,6 +41,39 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   `off`, relaxed until a date, recording the new hash meanwhile). The
   identity goes to the access policy (`TomSecretsAccessRequest.identity`)
   and into `unlock_needed`.
+- **Approvals and grants** (`TomSecretsApprovals`, protocol.md 7, 9; the
+  default policy). The allow list of this host is read from the primary
+  vault (`tsm.grants/<host>`); a grant counts only when an approver key the
+  device recorded at pairing (or its own) signed it with Ed25519 and
+  ML-DSA-65. The most specific grant decides (exe, script, `tsm-command`;
+  then folder; then interpreter; for one subject a reference beats a store
+  and a store beats `all`; `never` beats `allow` at equal rank), and a
+  pinned grant holds only while its file's hash is the one recorded
+  (relaxed pins record the new hash until their date). A request no grant
+  answers goes to the approvers: `approval_needed` to the attached app and
+  over the approval link, `progress {pending: approval}` to the client;
+  `once`, `always` and `folder` allow, `never` refuses, and a lasting
+  decision is written as a grant signed with this device's approver key.
+  With no approver attached the request gets an approval code; a
+  single-use token from a trusted device (`approval.issue` there,
+  `approval.redeem` here) or a signed approval record in the vault answers
+  it; the code timeout ends it `no_approver`, the approval timeout
+  `timeout`. Prompt flooding is held back (one prompt per identity and
+  reference, three per identity, three refusals in ten minutes hold the
+  identity back). `tsm` answers no prompt and pre-approves or issues tokens
+  only where the app switched command-line approvals on
+  (`approvers.cliSwitch`).
+- **The approval link** (`TomSecretsLinkServer`, protocol.md 9.7): while
+  unlocked, on the device setting `approvalLink` (a VPN or LAN address),
+  the Noise KK handshake with ML-KEM-768 against the recorded approvers'
+  link keys; a connected approver gets the prompts and sends answers,
+  signed grants (applied at once as pending copies), revocations, key
+  changes and new link keys.
+- **The audit log** (`TomSecretsAuditLog`): one record per resolved item
+  (time, host, identity, reference, outcome, grant or approver, entry UUID,
+  never a value), each encrypted with XChaCha20-Poly1305 under the audit-log
+  key, in a file per day under `<data>/audit/`, flushed in batches, deleted
+  after 90 days; `audit.query` reads it.
 - **Admin endpoint**: `admin.sock`, or `admin.port`. The admin's executable
   must be `tsm` or the manager app beside the service, or one named in
   `admin_executables:` of `bootstrap.yaml`; any other is refused before its
@@ -50,7 +83,10 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   issues a new admin key and revokes the old one. Failed authentications delay
   the next one (1 s, 2 s, 4 s … 60 s). Then `unlock`, `unlockStore`, `lock`,
   `status`, `subscribe` (the events `unlocked`, `locked`, `unlock_needed`,
-  `store_changed`), `vaultKeys`, `save` and `shutdown`.
+  `store_changed`, `approval_needed`, `approval_closed`, `rate_limited`),
+  `vaultKeys`, `save`, `approve`, `approval.redeem`, `approval.issue`,
+  `grants.list`, `grants.add`, `grants.revoke`, `approvers.cliSwitch`,
+  `audit.query` and `shutdown`.
 - **The editing path** (DP-13, protocol.md 6.4): `vaultKeys` hands the app the
   keys of the open vaults (`password`, `keyFile`, `outerKey`) and their
   locations; `save` takes the app's edited file, which must open with the
@@ -107,8 +143,12 @@ The service reaches KDBX only through `tom_secrets_core` (DP-29).
 ## Running it
 
 ```sh
-dart compile exe bin/tom_secrets_service.dart -o tom_secrets_service
+dart build cli --target bin/tom_secrets_service.dart -o build/service
 ```
+
+The bundle (`build/service/bundle/`) holds the executable in `bin/` and
+`tom_pqc`'s native library in `lib/`; they ship together (`dart compile exe`
+does not run `tom_pqc`'s build hook).
 
 It is started by the app or `tsm start`, not by hand: it expects the handover
 line on its standard input (`TomSecretsHandover`).

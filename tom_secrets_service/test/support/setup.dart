@@ -34,8 +34,9 @@ final class AllowAllPolicy implements TomSecretsAccessPolicy {
   const AllowAllPolicy();
 
   @override
-  Future<TomSecretsAccess> check(TomSecretsAccessRequest request) async =>
-      const TomSecretsAccessAllowed();
+  Future<List<TomSecretsAccess>> check(TomSecretsAccessBatch batch) async => [
+    for (final _ in batch.items) const TomSecretsAccessAllowed(),
+  ];
 }
 
 /// The identity of this process, for the tests' TCP runs on Linux and
@@ -145,7 +146,8 @@ final class Demo {
   /// Starts a service.
   Future<TomSecretsService> start({
     TomSecretsTransport transport = TomSecretsTransport.unix,
-    TomSecretsAccessPolicy policy = const AllowAllPolicy(),
+    // Null: the service's own approvals and grants.
+    TomSecretsAccessPolicy? policy = const AllowAllPolicy(),
     TomSecretStore? keychain,
     Duration Function(int)? authDelay,
     TomSecretsPeerMeasurer? peerMeasurer,

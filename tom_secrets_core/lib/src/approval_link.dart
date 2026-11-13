@@ -714,7 +714,9 @@ final class TomSecretsLinkSession {
     _closed = true;
     await _frames?.cancel();
     await _channel.close();
-    await _messages.close();
+    // Not awaited: a listener that paused (a StreamIterator between reads)
+    // would hold the close until it reads again.
+    unawaited(_messages.close());
   }
 
   /// The approver's side: the handshake with the host recorded as
@@ -764,14 +766,15 @@ final class TomSecretsLinkSession {
     }
   }
 
-  /// The host's side: reads message 1 from one of the [approvers] (device id
-  /// → recorded link key), answers as [host], and waits for `ready`. Throws
+  /// The host's side: reads message 1 from one of the [approvers] (a device
+  /// id with a recorded link key; a device may appear twice, its previous key
+  /// during the migration period), answers as [host], and waits for `ready`. Throws
   /// [TomSecretsLinkException] for an unknown peer, a device id that is not
   /// the one paired with the key, or anything that does not decrypt.
   static Future<TomSecretsLinkSession> respond(
     TomSecretsApprovalChannel channel, {
     required TomSecretsLinkKey me,
-    required Map<String, TomSecretsLinkPublicKey> approvers,
+    required List<({String device, TomSecretsLinkPublicKey key})> approvers,
     required String host,
     TomSecretsLinkRandom random = const TomSecretsSystemLinkRandom(),
     Duration timeout = const Duration(seconds: 15),
@@ -784,7 +787,7 @@ final class TomSecretsLinkSession {
       }
       // KK: the responder knows the initiator's key; with several paired
       // approvers, only the one whose key it is decrypts message 1.
-      for (final MapEntry(key: device, value: key) in approvers.entries) {
+      for (final (:device, :key) in approvers) {
         final responder = TomSecretsLinkResponder(me, key, random: random);
         final Uint8List payload;
         try {

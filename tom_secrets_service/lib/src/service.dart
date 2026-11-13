@@ -19,9 +19,12 @@ import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'access.dart';
 import 'admin_auth.dart';
+import 'approvals.dart';
+import 'audit.dart';
 import 'bootstrap.dart';
 import 'connection.dart';
 import 'identity.dart';
+import 'link_server.dart';
 import 'lock_policy.dart';
 import 'log.dart';
 import 'peer_identity.dart';
@@ -37,17 +40,7 @@ const String tomSecretsServiceVersion = '0.1.0';
 
 /// The admin requests of later parts the service does not answer yet; they
 /// are answered `unsupported` like an unknown `op`.
-const Set<String> tomSecretsLaterAdminOps = {
-  'reload',
-  'approve',
-  'approval.redeem',
-  'approval.issue',
-  'grants.list',
-  'grants.add',
-  'grants.revoke',
-  'approvers.cliSwitch',
-  'audit.query',
-};
+const Set<String> tomSecretsLaterAdminOps = {'reload'};
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -59,7 +52,7 @@ final class TomSecretsServiceConfig {
     this.opener = const TomSecretsFileOpener(),
     TomSecretsIdleSource? idleSource,
     this.keychain,
-    this.policy = const TomSecretsDenyAllPolicy(),
+    this.policy,
     String? host,
     this.lockCheckInterval = const Duration(seconds: 15),
     this.authDelay = tomSecretsAuthDelay,
@@ -93,8 +86,9 @@ final class TomSecretsServiceConfig {
   /// The OS keychain, or null where none is available.
   final TomSecretStore? keychain;
 
-  /// Who may read a value.
-  final TomSecretsAccessPolicy policy;
+  /// Who may read a value; null (the default): the service's own approvals
+  /// and grants ([TomSecretsApprovals]).
+  final TomSecretsAccessPolicy? policy;
 
   /// This machine's host name.
   final String host;
@@ -144,7 +138,7 @@ Set<String> tomSecretsAdminExecutables(
 }
 
 /// A running service.
-final class TomSecretsService {
+final class TomSecretsService implements TomSecretsApprovalHost {
   TomSecretsService._(this.config) : _adminKey = config.adminKey;
 
   /// Starts the service: prepares and locks the runtime directory, checks
@@ -185,6 +179,7 @@ final class TomSecretsService {
   Map<String, bool> _hardening = const {};
 
   /// The operational log.
+  @override
   TomSecretsLog get log => config.log;
 
   /// The configuration.
@@ -209,6 +204,10 @@ final class TomSecretsService {
     interval: config.lockCheckInterval,
   );
   TomSecretsDeviceContainer? _device;
+  TomSecretsTrust? _trust;
+  TomSecretsApprovals? _approvals;
+  TomSecretsAuditLog? _audit;
+  TomSecretsLinkServer? _linkServer;
   ServerSocket? _clientServer;
   ServerSocket? _adminServer;
   String _clientToken = '';
@@ -226,6 +225,7 @@ final class TomSecretsService {
   bool get isLocked => !_vaults.isUnlocked;
 
   /// The device settings (defaults while locked).
+  @override
   TomSecretsDeviceSettings get settings =>
       _device?.settings ?? const TomSecretsDeviceSettings();
 
@@ -310,7 +310,26 @@ final class TomSecretsService {
         key,
       );
       await _vaults.openStores(machine: machine, served: settings.servedStores);
+      _trust = await _device!.trust(config.host);
+      _audit = TomSecretsAuditLog(
+        '${config.bootstrap.dataDirectory}${Platform.pathSeparator}audit',
+        _trust!.auditKey,
+      );
+      final approvals = _approvals = TomSecretsApprovals(this);
+      await approvals.reload();
+      final link = settings.approvalLink;
+      if (link != null) {
+        _linkServer = await TomSecretsLinkServer.start(
+          address: link,
+          trust: _trust!,
+          host: config.host,
+          approvals: approvals,
+          log: log,
+        );
+        log.info('link_listening', {'address': _linkServer!.address});
+      }
     } on Object {
+      await _dropApprovals();
       _vaults.lock();
       _device = null;
       rethrow;
@@ -332,6 +351,7 @@ final class TomSecretsService {
   Future<void> lock({String reason = 'admin'}) async {
     if (isLocked) return;
     _lockTimer.stop();
+    await _dropApprovals();
     _vaults.lock();
     _device = null;
     _unlocked = Completer<void>();
@@ -388,6 +408,53 @@ final class TomSecretsService {
     'hardening': _hardening,
   };
 
+  Future<void> _dropApprovals() async {
+    _approvals?.abandonAll();
+    await _approvals?.closeLinks();
+    await _linkServer?.close();
+    await _audit?.close();
+    _approvals = null;
+    _linkServer = null;
+    _audit = null;
+    _trust = null;
+  }
+
+  /// The approvals and grants, while unlocked.
+  TomSecretsApprovals? get approvals => _approvals;
+
+  /// The approval link's listener, while unlocked and configured.
+  TomSecretsLinkServer? get linkServer => _linkServer;
+
+  // ── TomSecretsApprovalHost ───────────────────────────────────────────
+
+  @override
+  String get host => config.host;
+
+  @override
+  TomSecretsTrust get trust => _trust!;
+
+  @override
+  KdbxFile? get primary => _vaults.primary?.file;
+
+  @override
+  Future<void> savePrimary() => _vaults.writePrimary();
+
+  @override
+  Future<void> writeTrust() => _device!.writeTrust(_trust!);
+
+  @override
+  bool get hasLocalApprover => _admins.any((a) => a.subscribed && a.isApprover);
+
+  @override
+  void emitToApprovers(Map<String, Object?> event) {
+    for (final a in _admins) {
+      if (a.subscribed && a.isApprover) a.connection.send(event);
+    }
+  }
+
+  @override
+  TomSecretsAuditLog? get audit => _audit;
+
   /// Takes the app's edited file of [store] (protocol.md 6.4), tells the
   /// subscribers (`store_changed`) and logs it.
   Future<TomSecretsSaveResult> save(
@@ -406,6 +473,8 @@ final class TomSecretsService {
       'conflicts': result.conflicts,
     });
     _emit({'op': 'store_changed', 'store': store, 'revision': result.revision});
+    // The primary holds the grants and the approval records.
+    if (store == _vaults.primaryName) await _approvals?.reload();
     return result;
   }
 }
@@ -618,7 +687,31 @@ final class _ClientSession {
     // and are zeroed right after.
     final held = <TomSecretsFieldValue>[];
     try {
-      final results = [for (final item in items) await _resolve(item, held)];
+      final resolved = [for (final item in items) _resolve(item, held)];
+      final batch = [
+        for (final r in resolved)
+          if (r case (final TomSecretsAccessRequest request, null)) request,
+      ];
+      final decisions = batch.isEmpty
+          ? const <TomSecretsAccess>[]
+          : await (service.config.policy ?? service.approvals!).check(
+              TomSecretsAccessBatch(
+                identity: _identity!,
+                client: _client,
+                items: batch,
+                timeout: switch (m['timeoutMs']) {
+                  final int ms when ms >= 0 => Duration(milliseconds: ms),
+                  _ => null,
+                },
+                onProgress: (p) =>
+                    connection.send({'op': 'progress', 'id': id, ...p}),
+              ),
+            );
+      var next = 0;
+      final results = [
+        for (final (request, error) in resolved)
+          error ?? _answer(request!, decisions[next++]),
+      ];
       if (op == 'get') {
         connection.send({...results.single, 'id': id});
       } else {
@@ -643,49 +736,64 @@ final class _ClientSession {
     Map<String, Object?>? details,
   ]) => {'op': 'error', 'kind': kind, 'message': message, 'details': ?details};
 
-  /// The answer to [item]; its value, as a [TomSecretsSecretSlot], is added
+  /// [item] resolved, or the error it ends in; the resolved value is added
   /// to [held] for the caller to dispose once the frame is written.
-  Future<Map<String, Object?>> _resolve(
+  (TomSecretsAccessRequest?, Map<String, Object?>?) _resolve(
     Map<String, Object?> item,
     List<TomSecretsFieldValue> held,
-  ) async {
+  ) {
+    (TomSecretsAccessRequest?, Map<String, Object?>?) fail(
+      Map<String, Object?> error,
+    ) => (null, error);
     final ref = item['ref'];
     if (ref is! String) {
-      return _error('malformed', 'ref is missing', {'reason': 'ref'});
+      return fail(_error('malformed', 'ref is missing', {'reason': 'ref'}));
     }
     if (utf8.encode(ref).length > 1024) {
-      return _error('malformed', 'the reference is over 1 KiB', {
-        'reason': 'too_long',
-      });
+      return fail(
+        _error('malformed', 'the reference is over 1 KiB', {
+          'reason': 'too_long',
+        }),
+      );
     }
     final dims = item['dimensions'];
     if (dims != null &&
         (dims is! Map || dims.values.any((v) => v is! String))) {
-      return _error('malformed', 'dimensions map names to strings', {
-        'reason': 'dimensions',
-      });
+      return fail(
+        _error('malformed', 'dimensions map names to strings', {
+          'reason': 'dimensions',
+        }),
+      );
     }
     final field = item['field'];
     if (field != null && field is! String) {
-      return _error('malformed', 'field is a string', {'reason': 'field'});
+      return fail(
+        _error('malformed', 'field is a string', {'reason': 'field'}),
+      );
     }
     final storeName = _storeOf(ref);
     final status = storeName == null
         ? null
         : service.vaults.statusOf(storeName);
     if (status?.state == TomSecretsStoreState.needsUnlock) {
-      return _error('needs_unlock', 'the store needs its own unlock', {
-        'store': storeName,
-      });
+      return fail(
+        _error('needs_unlock', 'the store needs its own unlock', {
+          'store': storeName,
+        }),
+      );
     }
     if (status?.state == TomSecretsStoreState.unavailable) {
-      return _error('unavailable', 'the store could not be opened', {
-        'store': storeName,
-        'reason': 'no_cache',
-      });
+      return fail(
+        _error('unavailable', 'the store could not be opened', {
+          'store': storeName,
+          'reason': 'no_cache',
+        }),
+      );
     }
     final resolver = service.vaults.resolver;
-    if (resolver == null) return _error('locked', 'the service is locked');
+    if (resolver == null) {
+      return fail(_error('locked', 'the service is locked'));
+    }
     final TomSecretsResolution resolution;
     try {
       resolution = resolver.resolve(
@@ -696,21 +804,37 @@ final class _ClientSession {
         field: field as String?,
       );
     } on TomSecretsResolveException catch (e) {
-      return _error(e.kind.wireName, e.message, e.details);
+      return fail(_error(e.kind.wireName, e.message, e.details));
     }
-    final access = await service.config.policy.check(
+    held.add(resolution.value);
+    return (
       TomSecretsAccessRequest(
         reference: ref,
         resolution: resolution,
         client: _client,
         identity: _identity!,
       ),
+      null,
     );
-    final value = resolution.value;
-    held.add(value);
-    if (access is TomSecretsAccessDenied) {
-      return _error('denied', 'not allowed', {'reason': access.reason});
+  }
+
+  /// The answer to [request] under [access]: its value, or the refusal.
+  Map<String, Object?> _answer(
+    TomSecretsAccessRequest request,
+    TomSecretsAccess access,
+  ) {
+    if (access case TomSecretsAccessDenied(
+      :final kind,
+      :final reason,
+      :final details,
+    )) {
+      return _error(kind, 'not allowed', {
+        if (kind == 'denied') 'reason': reason,
+        ...details,
+      });
     }
+    final resolution = request.resolution;
+    final value = resolution.value;
     final entry = resolution.entry;
     final storeStatus = service.vaults.statusOf(entry.store);
     final fetchedAt = (storeStatus?.fetchedAt ?? DateTime.now()).toUtc();
@@ -774,6 +898,27 @@ final class _AdminSession {
   bool subscribed = false;
   bool _authenticating = false;
   late final Future<TomSecretsPeerMeasurement> _measured;
+  TomSecretsIdentity? _identity;
+
+  String get _exeName => (_identity?.exe ?? '')
+      .split(RegExp(r'[/\\]'))
+      .last
+      .toLowerCase()
+      .replaceAll('.exe', '');
+
+  /// Whether this admin is `tsm` (which cannot answer a prompt, DP-19).
+  bool get isTsm => _exeName == 'tsm';
+
+  /// Whether this admin is an approver: subscribed and not `tsm` (the
+  /// manager app, or, without an executable check, any admin).
+  bool get isApprover => !isTsm;
+
+  /// Whether this admin is the manager app's executable (or no executable
+  /// check is configured: an in-process service in tests).
+  bool get isApp =>
+      !isTsm &&
+      (service.config.adminExecutables == null ||
+          const {'tom_secrets_desktop', 'tom_secrets_app'}.contains(_exeName));
 
   /// Whether the admin's measured executable may administer (protocol.md
   /// 6.1); refuses and closes the connection otherwise.
@@ -784,6 +929,7 @@ final class _AdminSession {
       case TomSecretsPeerRefused(reason: final r):
         reason = r;
       case TomSecretsPeerMeasured(:final identity):
+        _identity = identity;
         final allowed = service.config.adminExecutables;
         if (allowed == null || allowed.contains(identity.exe)) return true;
         reason = 'wrong_executable';
@@ -910,6 +1056,194 @@ final class _AdminSession {
       'op': 'claimed',
       'adminKey': base64.encode(service._adminKey),
     });
+  }
+
+  /// The approval and grant requests (protocol.md 6.3, 7.2 to 7.5).
+  Future<void> _approvalRequest(
+    int id,
+    String op,
+    Map<String, Object?> m,
+  ) async {
+    void malformed(String reason) => connection.sendError(
+      id,
+      'malformed',
+      'the request cannot be read',
+      {'reason': reason},
+    );
+    void notAllowed() => connection.sendError(
+      id,
+      'denied',
+      'not from this program',
+      {'reason': 'not_allowed_op'},
+    );
+    final approvals = service.approvals;
+    if (approvals == null) {
+      connection.sendError(id, 'locked', 'unlock the service first');
+      return;
+    }
+    // tsm pre-approves and issues tokens only where command-line approvals
+    // are switched on (DP-19), and never answers a prompt.
+    final cli = service.trust.cliApprovals;
+    switch (op) {
+      case 'approve':
+        if (isTsm) return notAllowed();
+        final approvalId = m['approvalId'];
+        final decision = m['decision'];
+        final secret = m['secret'];
+        if (approvalId is! String || decision is! String || secret is! String) {
+          return malformed('approve');
+        }
+        try {
+          await approvals.approve(
+            approvalId,
+            TomSecretsApprovalAnswer(
+              decision: decision,
+              secret: secret,
+              folder: m['folder'] as String?,
+              pin: m['pin'],
+              approver: service.trust.device,
+            ),
+          );
+          connection.send({'op': 'ok', 'id': id});
+        } on StateError {
+          connection.sendError(id, 'not_found', 'no prompt $approvalId');
+        } on ArgumentError {
+          malformed('approve');
+        }
+      case 'approval.redeem':
+        final token = m['token'];
+        if (token is! String) return malformed('token');
+        final outcome = approvals.redeem(token);
+        if (outcome == 'answered') {
+          connection.send({'op': 'ok', 'id': id});
+        } else {
+          // A token that fails counts as a failed authentication (9.6).
+          if (outcome == 'bad') service._authFailures++;
+          service.log.info('token_refused', {'outcome': outcome});
+          connection.sendError(id, 'denied', 'the token answers nothing', {
+            'reason': 'bad_token',
+          });
+        }
+      case 'approval.issue':
+        if (isTsm && !cli) return notAllowed();
+        final host = m['host'];
+        final code = m['code'];
+        final decision = m['decision'];
+        if (host is! String ||
+            code is! String ||
+            decision is! String ||
+            !tomSecretsDecisions.contains(decision)) {
+          return malformed('approval');
+        }
+        try {
+          connection.send({
+            'op': 'approvalToken',
+            'id': id,
+            'token': approvals.issue(host, code, decision),
+          });
+        } on StateError {
+          connection.sendError(id, 'not_found', 'no paired host $host');
+        }
+      case 'grants.list':
+        final host = m['host'];
+        if (host != null && host is! String) return malformed('host');
+        connection.send({
+          'op': 'grantList',
+          'id': id,
+          'grants': await approvals.listGrants(host as String?),
+        });
+      case 'grants.add':
+        if (isTsm && !cli) return notAllowed();
+        final grant = m['grant'];
+        if (grant is! Map) return malformed('grant');
+        final spec = grant.cast<String, Object?>();
+        final subject = spec['subject'];
+        final secret = spec['secret'];
+        if (spec['host'] is! String ||
+            subject is! String ||
+            !RegExp(
+              r'^(exe|script|interpreter|folder|tsm-command) \S',
+            ).hasMatch(subject) ||
+            secret is! String ||
+            !(secret == 'all' ||
+                secret.startsWith('store ') ||
+                _parses(secret)) ||
+            !const ['allow', 'never'].contains(spec['decision'])) {
+          return malformed('grant');
+        }
+        final pin = spec['pin'];
+        if (pin != null) {
+          try {
+            TomSecretsPin.parse(pin);
+          } on FormatException {
+            return malformed('pin');
+          }
+        }
+        await approvals.addGrant({
+          'host': spec['host'],
+          'subject': subject,
+          'secret': secret == 'all' || secret.startsWith('store ')
+              ? secret
+              : TomSecretReference.parse(secret).canonical,
+          'decision': spec['decision'],
+          'pin': ?pin,
+        });
+        connection.send({'op': 'ok', 'id': id});
+      case 'grants.revoke':
+        final host = m['host'];
+        final grantId = m['grantId'];
+        if (host is! String || grantId is! String) return malformed('grant');
+        await approvals.revokeGrant(host, grantId);
+        connection.send({'op': 'ok', 'id': id});
+      case 'approvers.cliSwitch':
+        final on = m['on'];
+        if (on is! bool) return malformed('on');
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        service.trust.cliApprovals = on;
+        await service.writeTrust();
+        service.log.info('cli_approvals', {'on': on});
+        connection.send({'op': 'ok', 'id': id});
+      case 'audit.query':
+        final DateTime from;
+        final DateTime to;
+        try {
+          from = DateTime.parse(m['from']! as String).toUtc();
+          to = DateTime.parse(m['to']! as String).toUtc();
+        } on Object {
+          return malformed('time');
+        }
+        final records = await service.audit!.query(
+          from: from,
+          to: to,
+          subject: m['subject'] as String?,
+          ref: switch (m['ref']) {
+            final String r when _parses(r) => TomSecretReference.parse(
+              r,
+            ).canonical,
+            final String r => r,
+            _ => null,
+          },
+        );
+        connection.send({
+          'op': 'auditRecords',
+          'id': id,
+          'records': [for (final r in records) r.toJson()],
+        });
+    }
+  }
+
+  static bool _parses(String ref) {
+    try {
+      TomSecretReference.parse(ref);
+      return true;
+    } on Object {
+      return false;
+    }
   }
 
   Future<void> _request(int id, String op, Map<String, Object?> m) async {
@@ -1066,6 +1400,21 @@ final class _AdminSession {
       case 'subscribe':
         subscribed = true;
         connection.send({'op': 'ok', 'id': id});
+        // A prompt that waits gets to an approver who attaches late.
+        if (isApprover) {
+          for (final event in service.approvals?.waitingEvents ?? const []) {
+            connection.send(event);
+          }
+        }
+      case 'approve' ||
+          'approval.redeem' ||
+          'approval.issue' ||
+          'grants.list' ||
+          'grants.add' ||
+          'grants.revoke' ||
+          'approvers.cliSwitch' ||
+          'audit.query':
+        await _approvalRequest(id, op, m);
       default:
         connection.sendError(id, 'unsupported', 'unknown op $op', {'op': op});
     }

@@ -14,6 +14,9 @@
 - `tomSecretsDeviceCommitter`: the device as author and committer of the
   cycle's commits (`<device>@tsm.invalid`), for `TomGitHubStorage.committer`
   (tom_core_storage 0.1.1).
+- Signed objects, approval codes and tokens, the approval link (both roles),
+  the grants group `tsm.grants/<host>` and the device's trust material
+  (protocol.md 9; `tom_pqc` for ML-DSA-65 and ML-KEM-768).
 - `TomSecretsFieldValue` held as a `TomProtectedValue` (tom_crypto 1.5.0):
   `withBytes` hands out bytes zeroed after use, `dispose` zeroes it without
   touching the vault's attachment.

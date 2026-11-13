@@ -22,13 +22,16 @@ void main() {
 
   setUpAll(() async {
     final dir = Directory.systemTemp.createTempSync('tsmexe');
-    exe = '${dir.path}/tom_secrets_service';
+    // A bundle: tom_pqc's native library comes with the executable
+    // (dart build cli; dart compile exe takes no build hooks).
+    exe = '${dir.path}/bundle/bin/tom_secrets_service';
     final result = await Process.run(Platform.resolvedExecutable, [
-      'compile',
-      'exe',
+      'build',
+      'cli',
+      '--target',
       'bin/tom_secrets_service.dart',
       '-o',
-      exe,
+      dir.path,
     ]);
     expect(result.exitCode, 0, reason: '${result.stderr}');
     addTearDown(() => dir.deleteSync(recursive: true));

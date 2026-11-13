@@ -152,6 +152,7 @@ final class TomSecretsDeviceSettings {
     this.approvalTimeout = const Duration(seconds: 60),
     this.codeTimeout = const Duration(minutes: 5),
     this.startAtLogin = false,
+    this.approvalLink,
   });
 
   /// From the stored JSON; a value missing takes its default.
@@ -187,6 +188,7 @@ final class TomSecretsDeviceSettings {
         seconds: intOf('codeTimeoutSeconds', d.codeTimeout.inSeconds),
       ),
       startAtLogin: json['startAtLogin'] == true,
+      approvalLink: json['approvalLink'] as String?,
     );
   }
 
@@ -217,6 +219,10 @@ final class TomSecretsDeviceSettings {
   /// How long an approval code is valid.
   final Duration codeTimeout;
 
+  /// Where this host's approval link listens (`address:port`, its VPN or
+  /// LAN address, never all interfaces); null: no link (protocol.md 9.7).
+  final String? approvalLink;
+
   /// Whether the app starts at login [B].
   final bool startAtLogin;
 
@@ -231,6 +237,7 @@ final class TomSecretsDeviceSettings {
     'keyExpiryWarningDays': keyExpiryWarningDays,
     'approvalTimeoutSeconds': approvalTimeout.inSeconds,
     'codeTimeoutSeconds': codeTimeout.inSeconds,
+    'approvalLink': ?approvalLink,
     'startAtLogin': startAtLogin,
   };
 }

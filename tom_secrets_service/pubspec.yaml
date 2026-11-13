@@ -26,6 +26,8 @@ dependencies:
   tom_crypto: ^1.5.0
   # HMAC-SHA256 of the admin challenge.
   crypto: ^3.0.6
+  # XChaCha20-Poly1305 of the audit log's records.
+  cryptography: ^2.9.0
   # The idle time, the process hardening (prctl, setrlimit, the Windows
   # process DACL) and the Windows calls through FFI.
   ffi: ^2.1.0

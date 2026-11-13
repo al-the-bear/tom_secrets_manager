@@ -86,6 +86,22 @@ service parse references with one implementation.
   derived once, as KeePass derives it, so the same key file opens the vault in
   KeePass and KeePassXC). It never goes to GitHub; the primary vault keeps
   it as an attachment.
+- **Approvals' building blocks** (protocol.md 9; DP-160, TD-3): signed
+  objects (`TomSecretsApproverKey`, `tomSecretsSignedBytes`,
+  `tomSecretsAcceptedBy`, `tomSecretsAcceptKeyChange`: grants, revocations,
+  approval records, key-change statements, each signed with Ed25519 and
+  hedged ML-DSA-65 and accepted only when one recorded key signed with
+  both); the approval code and its token (`tomSecretsApprovalCode`,
+  `tomSecretsCodeToken`, `tomSecretsRedeemToken`); the approval link
+  (`TomSecretsLinkSession.initiate` / `respond`: Noise KK with ML-KEM-768
+  paired to every Diffie-Hellman, ChaCha20-Poly1305 transport with REKEY,
+  over a `TomSecretsApprovalChannel`); the grants group of the primary vault
+  (`TomSecretsGrantsGroup`, `tsm.grants/<host>`); and a device's trust
+  material in its device settings container (`TomSecretsTrust`: its
+  approver and link key pairs, the audit-log key, the approvers and hosts it
+  recorded with their approval-token keys, recorded pin hashes). Tested
+  byte for byte against `signatures.json`, `approval_codes.json` and
+  `link_handshake.json`.
 - **The outer encryption** (`tomSecretsOuterEncrypt` / `Decrypt`,
   `TomSecretsOuterCodec`, DP-80, DP-84): a vault stored as
   `<vault>.kdbx.tsmx`, encrypted once under a fresh random file key that is
