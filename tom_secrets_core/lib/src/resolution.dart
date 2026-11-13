@@ -6,6 +6,7 @@
 /// DP-12, DP-90, DP-120).
 library;
 
+import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
@@ -380,17 +381,24 @@ final class TomSecretsResolver {
       );
       final binary = winner.entry.getBinary(KdbxKey(name));
       if (binary == null) throw missing();
+      // A copy: the field value consumes its buffer, and the attachment
+      // stays in the vault.
       return TomSecretsFieldValue.bytes(
-        binary.value,
+        Uint8List.fromList(binary.value),
         isProtected: binary.isProtected,
       );
     }
     final value = winner.entry.getString(KdbxKey(field));
+    if (value is ProtectedValue) {
+      // Its bytes, never a String: binaryValue is a copy the field value
+      // consumes.
+      return TomSecretsFieldValue.utf8Bytes(
+        value.binaryValue,
+        isProtected: true,
+      );
+    }
     final text = value?.getText();
     if (value == null || text == null) throw missing();
-    return TomSecretsFieldValue.text(
-      text,
-      isProtected: value is ProtectedValue,
-    );
+    return TomSecretsFieldValue.text(text);
   }
 }

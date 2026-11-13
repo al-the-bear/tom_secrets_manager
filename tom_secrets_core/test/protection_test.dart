@@ -70,6 +70,27 @@ void main() {
       );
     });
 
+    test('KeePass\'s vaults under a key file open with the core\'s '
+        'credentials (the key derived once)', () async {
+      const corpus = '../../kdbx_store/test/corpus';
+      final keyFile = File('$corpus/keys/corpus_v2.keyx').readAsBytesSync();
+      final alone = await KdbxFormat().read(
+        File('$corpus/keepass2_41_argon2d_aes_keyfile.kdbx').readAsBytesSync(),
+        TomSecretsKeyFile.parse(keyFile).credentials(null),
+      );
+      expect(alone.body, isNotNull);
+      final both = await KdbxFormat().read(
+        File('$corpus/kxc_created_both.kdbx').readAsBytesSync(),
+        TomSecretsVaultKeys(
+          name: 'demo',
+          locator: 'file:/demo.kdbx',
+          password: 'corpus-demo',
+          keyFile: keyFile,
+        ).credentials,
+      );
+      expect(both.body, isNotNull);
+    });
+
     test('a wrong hash, another version or a short key is refused', () {
       final good = utf8.decode(TomSecretsKeyFile.generate().toBytes());
       for (final bad in [

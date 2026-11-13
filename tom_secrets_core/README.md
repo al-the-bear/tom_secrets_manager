@@ -35,7 +35,11 @@ service parse references with one implementation.
   rank vectors (2 bound to the value, 1 kept by the fallback, 0 unbound);
   ambiguity; the field (a string field, `attachment:<name>`, the virtual
   `totp`; passkey fields are `denied`). Failures are
-  `TomSecretsResolveException`s with the protocol's kinds and details.
+  `TomSecretsResolveException`s with the protocol's kinds and details. The
+  value (`TomSecretsFieldValue`) is held as a `TomProtectedValue` of
+  `tom_crypto`: masked, read with `withBytes` (bytes zeroed after use; a
+  protected field never passes through a `String`), and zeroed by
+  `dispose`, which leaves the vault's own bytes alone.
 - **The KDBX mapping** (`TomSecretsEntryFields`, `TomSecretsEntryType`) and
   **TOTP** (`TomSecretsTotp`, RFC 6238): the three conventions `otp`,
   `OTPAuth` and `TimeOtp-*`, read in that order and written together.
@@ -78,7 +82,9 @@ service parse references with one implementation.
 - **Key files** (`TomSecretsKeyFile`, BP-18): a KeePass 2.0 XML key file
   (32 random bytes with their hash, written as KeePass 2.5x writes it), read
   back with its hash checked; `credentials(password)` is the composite key
-  (`Credentials.composite`). It never goes to GitHub; the primary vault keeps
+  (`Credentials.composite` with the file's bytes, from which the key is
+  derived once, as KeePass derives it, so the same key file opens the vault in
+  KeePass and KeePassXC). It never goes to GitHub; the primary vault keeps
   it as an attachment.
 - **The outer encryption** (`tomSecretsOuterEncrypt` / `Decrypt`,
   `TomSecretsOuterCodec`, DP-80, DP-84): a vault stored as

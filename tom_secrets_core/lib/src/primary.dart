@@ -64,10 +64,11 @@ final class TomSecretsVaultKeys {
   /// A GitHub token for its repository, or null (the primary's applies).
   final String? githubToken;
 
-  /// The credentials that open the vault.
+  /// The credentials that open the vault (`Credentials.composite` takes the
+  /// key file's bytes and derives the key itself).
   Credentials get credentials => Credentials.composite(
     password == null ? null : ProtectedValue.fromString(password!),
-    keyFile == null ? null : Credentials.keyFileKey(keyFile!),
+    keyFile,
   );
 
   @override

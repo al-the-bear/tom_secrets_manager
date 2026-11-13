@@ -8,8 +8,11 @@ library;
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:tom_secrets_client/tom_secrets_client.dart';
+
+import 'secret_frame.dart';
 
 /// A connection to a client or an admin.
 final class TomSecretsConnection {
@@ -70,23 +73,41 @@ final class TomSecretsConnection {
     }
   }
 
-  /// Sends [message]; an answer over the answer limit is replaced by an
-  /// `internal` error.
+  /// Sends [message], its [TomSecretsSecretSlot]s written from their bytes
+  /// (`tomSecretsSecretFrame`); an answer over the answer limit is replaced
+  /// by an `internal` error. Frames are written in order, one at a time, and
+  /// each is zeroed once the socket has flushed it: `Socket.add` keeps the
+  /// buffer until it is written, so it cannot be wiped earlier.
   void send(Map<String, Object?> message) {
     if (_closed) return;
-    var frame = tomSecretsJsonFrame(message);
-    if (frame.length - 5 > tomSecretsMaxAnswerPayload) {
-      frame = tomSecretsJsonFrame({
-        'op': 'error',
-        'id': ?message['id'],
-        'kind': 'internal',
-        'message': 'the answer is larger than a frame',
-        'details': {'code': 'answer_too_large'},
-      });
-    }
-    // Not wiped here: the socket keeps the buffer until it is written.
-    socket.add(frame);
+    final frame =
+        tomSecretsSecretFrame(message) ??
+        tomSecretsJsonFrame({
+          'op': 'error',
+          'id': ?message['id'],
+          'kind': 'internal',
+          'message': 'the answer is larger than a frame',
+          'details': {'code': 'answer_too_large'},
+        });
+    _tail = _tail.then((_) => _write(frame));
   }
+
+  Future<void> _tail = Future<void>.value();
+
+  Future<void> _write(Uint8List frame) async {
+    try {
+      socket.add(frame);
+      await socket.flush();
+    } on Object {
+      // The peer went first; the connection closes on its own.
+    } finally {
+      frame.fillRange(0, frame.length, 0);
+      onFrameWritten?.call(frame);
+    }
+  }
+
+  /// Called with each frame after it was written and zeroed (tests).
+  void Function(Uint8List frame)? onFrameWritten;
 
   /// Sends an `error` of [kind]; without [id] it concerns the connection.
   void sendError(
@@ -107,11 +128,9 @@ final class TomSecretsConnection {
     if (_closed) return;
     _closed = true;
     await _subscription.cancel();
-    try {
-      await socket.flush();
-    } on Object {
-      // The peer went first.
-    }
+    // The queued frames are written (and wiped) first; a peer that stops
+    // reading does not hold the close up for long.
+    await _tail.timeout(const Duration(seconds: 5), onTimeout: () {});
     socket.destroy();
     onClosed();
   }

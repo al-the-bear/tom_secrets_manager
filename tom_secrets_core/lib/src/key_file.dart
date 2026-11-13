@@ -104,10 +104,11 @@ final class TomSecretsKeyFile {
   }
 
   /// The credential of [password] plus this key file
-  /// (`Credentials.composite`); a null [password] is the key file alone.
+  /// (`Credentials.composite`, which takes the file's bytes and derives the
+  /// key itself, as KeePass does); a null [password] is the key file alone.
   Credentials credentials(String? password) => Credentials.composite(
     password == null ? null : ProtectedValue.fromString(password),
-    Credentials.keyFileKey(toBytes()),
+    toBytes(),
   );
 
   /// Overwrites the key with zeros.

@@ -29,6 +29,9 @@ dependencies:
   # P-256 for passkey keys: the public key of an imported private key, when
   # its PKCS#8 is written (DP-120).
   pointycastle: ^4.0.0
+  # A resolved value held masked and read as bytes zeroed after use
+  # (TomProtectedValue).
+  tom_crypto: ^1.5.0
   # TOTP codes (HMAC-SHA-1/256/512).
   crypto: ^3.0.6
   # A compaction's push over the git protocol (no git binary), DP-82, and

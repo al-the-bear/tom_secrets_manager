@@ -19,6 +19,10 @@ import 'package:tom_core_storage/io.dart' show TomDesktopSecretStore;
 import 'package:tom_secrets_service/tom_secrets_service.dart';
 
 Future<void> main() async {
+  // First, before the admin key or anything secret is in memory: no core
+  // dumps, not dumpable, the Windows process DACL (status.hardening).
+  final hardening = tomSecretsHardenProcess();
+
   Future<Never> answer(Map<String, Object?> status, int code) async {
     stdout.writeln(jsonEncode(status));
     await stdout.flush();
@@ -61,6 +65,7 @@ Future<void> main() async {
         // (not available in a session without one: `auto` then takes the
         // vault, `keychain` refuses the start).
         keychain: TomDesktopSecretStore(service: tomSecretsKeychainService),
+        harden: () => hardening,
       ),
     );
   } on TomSecretsAlreadyRunning {

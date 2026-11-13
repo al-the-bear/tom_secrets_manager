@@ -6,6 +6,7 @@
 /// the field (attachments, totp, passkeys).
 library;
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:test/test.dart';
@@ -432,6 +433,19 @@ void main() {
       expect(() => a.value.text, throwsStateError);
     });
 
+    test('disposing a value zeroes it, never the vault\'s own bytes', () {
+      final a = r.resolve('mail.box#attachment%3Aid_demo');
+      a.value.dispose();
+      expect(() => a.value.bytes, throwsStateError);
+      final again = r.resolve('mail.box#attachment%3Aid_demo');
+      expect(again.value.bytes, [0, 1, 2, 255], reason: 'the vault keeps it');
+      final p = r.resolve('mail.box');
+      expect(p.value.isProtected, isTrue);
+      expect(p.value.withBytes(utf8.decode), 'pw');
+      p.value.dispose();
+      expect(r.resolve('mail.box').value.text, 'pw');
+    });
+
     test('totp is the current code (RFC 6238)', () {
       final t = r.resolve(
         'mail.box#totp',
@@ -492,7 +506,7 @@ void main() {
         expect(p.entry.uuid, matches(RegExp(r'^[0-9a-f]{32}$')));
         expect(p.value.toString(), isNot(contains('pw')));
         p.value.dispose();
-        expect(p.value.bytes, everyElement(0));
+        expect(() => p.value.bytes, throwsStateError, reason: 'zeroed');
       },
     );
   });

@@ -22,9 +22,12 @@ dependencies:
   tom_secrets_client:
     path: ../../secrets_clients/clients/dart/tom_secrets_client
   tom_core_storage: ^0.1.2
+  # Secrets held masked and read as bytes zeroed after use (memory hygiene).
+  tom_crypto: ^1.5.0
   # HMAC-SHA256 of the admin challenge.
   crypto: ^3.0.6
-  # The idle time and the Windows calls through FFI.
+  # The idle time, the process hardening (prctl, setrlimit, the Windows
+  # process DACL) and the Windows calls through FFI.
   ffi: ^2.1.0
   # bootstrap.yaml.
   yaml: ^3.1.0

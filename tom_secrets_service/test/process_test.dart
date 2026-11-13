@@ -59,7 +59,20 @@ void main() {
 
     final admin = await TomSecretsAdminClient.connect(runtime, key);
     await admin.unlock(primaryPassword);
-    expect((await admin.request('status'))['locked'], isFalse);
+    final status = await admin.request('status');
+    expect(status['locked'], isFalse);
+    expect(
+      status['hardening'],
+      Platform.isLinux
+          ? {'noCoreDumps': true, 'notDumpable': true}
+          : {'noCoreDumps': true},
+      reason: 'hardened at start, before the handover was read',
+    );
+    final log = File('${demo.dir}/data/service.log').readAsStringSync();
+    expect(log, contains(' INFO start '));
+    expect(log, contains(' INFO unlock '));
+    expect(log, isNot(contains(primaryPassword)));
+    expect(log, isNot(contains(base64.encode(key))));
     await admin.close();
 
     expect(

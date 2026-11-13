@@ -11,6 +11,7 @@
 /// device_key: auto                               # auto|keychain|vault|keyfile
 /// device_container: /Users/me/.tsm/device.kdbx  # default <data>/device-settings.kdbx
 /// host: bigbeast                                 # default the host name
+/// log_level: info                               # info|debug, default info
 /// ```
 library;
 
@@ -19,6 +20,8 @@ import 'dart:io';
 import 'package:tom_secrets_core/tom_secrets_core.dart'
     show TomSecretsDeviceKeyMode;
 import 'package:yaml/yaml.dart';
+
+import 'log.dart';
 
 /// The bootstrap file.
 final class TomSecretsBootstrap {
@@ -32,6 +35,7 @@ final class TomSecretsBootstrap {
     this.runtimeDirectory,
     this.deviceKey = TomSecretsDeviceKeyMode.auto,
     this.host,
+    this.logLevel = TomSecretsLogLevel.info,
   }) : cacheDirectory =
            cacheDirectory ?? '$dataDirectory${Platform.pathSeparator}cache',
        deviceContainer =
@@ -75,6 +79,7 @@ final class TomSecretsBootstrap {
       deviceKey: TomSecretsDeviceKeyMode.parse(text('device_key') ?? 'auto'),
       deviceContainer: text('device_container'),
       host: text('host'),
+      logLevel: TomSecretsLogLevel.parse(text('log_level') ?? 'info'),
     );
   }
 
@@ -98,4 +103,10 @@ final class TomSecretsBootstrap {
 
   /// The host name override, or null.
   final String? host;
+
+  /// How much the operational log says.
+  final TomSecretsLogLevel logLevel;
+
+  /// The operational log's file, `<data>/service.log`.
+  String get logFile => '$dataDirectory${Platform.pathSeparator}service.log';
 }

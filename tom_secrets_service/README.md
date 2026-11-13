@@ -27,8 +27,36 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   admin key, protocol.md 6.1) or a `claim` with the master password, which
   issues a new admin key and revokes the old one. Failed authentications delay
   the next one (1 s, 2 s, 4 s … 60 s). Then `unlock`, `unlockStore`, `lock`,
-  `status`, `subscribe` (the events `unlocked`, `locked`, `unlock_needed`) and
-  `shutdown`.
+  `status`, `subscribe` (the events `unlocked`, `locked`, `unlock_needed`,
+  `store_changed`), `vaultKeys`, `save` and `shutdown`.
+- **The editing path** (DP-13, protocol.md 6.4): `vaultKeys` hands the app the
+  keys of the open vaults (`password`, `keyFile`, `outerKey`) and their
+  locations; `save` takes the app's edited file, which must open with the
+  store's keys. A file still at `baseRevision` is written as it is; a file
+  that moved meanwhile is merged three-way when the app edited the service's
+  copy, and refused (`stale_base`) otherwise. The store is reopened and
+  `store_changed` names the new revision. `file:` vaults are written on the
+  local disk; `github:` vaults are not opened yet (the GitHub opener comes
+  with the refresh) and answer `unavailable`.
+- **Memory hygiene**: the keys the service holds while unlocked are
+  `TomProtectedValue`s of `tom_crypto` (masked, zeroed on lock), and a
+  resolved value stays masked in `tom_secrets_core`'s field value. An answer
+  carrying a secret (`value`, `values`, `vaultKeySet`) is written into the
+  frame straight from bytes that are zeroed after use
+  (`tomSecretsSecretFrame`), never through a `String`, and the frame itself is
+  zeroed once the socket has flushed it.
+- **Process hardening** (`tomSecretsHardenProcess`, at start, before the
+  handover is read; best effort, reported in `status.hardening`): no core
+  files (`setrlimit(RLIMIT_CORE, 0)` on Linux and macOS, the error mode on
+  Windows), not dumpable on Linux (`prctl(PR_SET_DUMPABLE, 0)`), and on
+  Windows a process DACL that refuses `PROCESS_VM_READ` and
+  `PROCESS_VM_WRITE` to all but SYSTEM. The macOS hardened runtime is a
+  signing flag of the build.
+- **The operational log** (`TomSecretsLog`): `service.log` in the data
+  directory, rotated at 1 MiB with three older files kept. It never holds a
+  value, password, key or token; an exception is logged by its type and code,
+  never its message; references and client identities only at `debug` level
+  (`log_level: debug` in `bootstrap.yaml`).
 - **Unlock and lock**: the primary file first, then the device settings
   container, then the further vaults the primary names (a vault whose key does
   not open is `needs_unlock`, the others are still served). Locking drops the
@@ -69,5 +97,6 @@ line on its standard input (`TomSecretsHandover`).
 testkit :test
 ```
 
-`test/service_test.dart` and `test/process_test.dart` run on macOS and Linux,
-`test/windows_test.dart` on Windows.
+`test/process_test.dart` runs on macOS and Linux, `test/windows_test.dart` on
+Windows, the others (the service, the editing path and the log, the secret
+frames, the hardening seen from outside a hardened process) everywhere.

@@ -22,7 +22,9 @@ import 'admin_auth.dart';
 import 'bootstrap.dart';
 import 'connection.dart';
 import 'lock_policy.dart';
+import 'log.dart';
 import 'runtime.dart';
+import 'secret_frame.dart';
 import 'vault_set.dart';
 
 /// The service name of the product's items in the OS keychain.
@@ -35,8 +37,6 @@ const String tomSecretsServiceVersion = '0.1.0';
 /// are answered `unsupported` like an unknown `op`.
 const Set<String> tomSecretsLaterAdminOps = {
   'reload',
-  'vaultKeys',
-  'save',
   'approve',
   'approval.redeem',
   'approval.issue',
@@ -61,11 +61,14 @@ final class TomSecretsServiceConfig {
     String? host,
     this.lockCheckInterval = const Duration(seconds: 15),
     this.authDelay = tomSecretsAuthDelay,
+    this.harden,
+    TomSecretsLog? log,
   }) : idleSource = idleSource ?? tomSecretsSystemIdleSource(),
        host =
            host ??
            bootstrap.host ??
-           Platform.localHostname.split('.').first.toLowerCase();
+           Platform.localHostname.split('.').first.toLowerCase(),
+       log = log ?? TomSecretsLog(bootstrap.logFile, level: bootstrap.logLevel);
 
   /// The runtime directory.
   final TomSecretsRuntime runtime;
@@ -96,6 +99,14 @@ final class TomSecretsServiceConfig {
 
   /// The delay after a number of failed admin authentications.
   final Duration Function(int failures) authDelay;
+
+  /// Hardens the process at start and answers what it achieved
+  /// (`status.hardening`); the binary passes `tomSecretsHardenProcess`, an
+  /// in-process service (tests) none.
+  final Map<String, bool> Function()? harden;
+
+  /// The operational log (default `<data>/service.log`).
+  final TomSecretsLog log;
 }
 
 /// A running service.
@@ -111,6 +122,7 @@ final class TomSecretsService {
     TomSecretsServiceConfig config,
   ) async {
     final service = TomSecretsService._(config);
+    service._hardening = config.harden?.call() ?? const {};
     final runtime = config.runtime;
     await runtime.prepare();
     await runtime.acquire();
@@ -118,14 +130,28 @@ final class TomSecretsService {
       await service._deviceKeys.effectiveMode();
       await runtime.removeStaleEndpoints();
       await service._bind();
-    } on Object {
+    } on Object catch (e) {
+      config.log.error('start_failed', e);
       await service._closeServers();
       await runtime.removeEndpoints();
       await runtime.release();
       rethrow;
     }
+    config.log.info('start', {
+      'version': tomSecretsServiceVersion,
+      'pid': pid,
+      'platform': Platform.operatingSystem,
+      'transport': runtime.transport.name,
+      'host': config.host,
+      for (final e in service._hardening.entries) e.key: e.value,
+    });
     return service;
   }
+
+  Map<String, bool> _hardening = const {};
+
+  /// The operational log.
+  TomSecretsLog get log => config.log;
 
   /// The configuration.
   final TomSecretsServiceConfig config;
@@ -225,17 +251,25 @@ final class TomSecretsService {
     await _adminServer?.close();
   }
 
-  /// Unlocks with [credentials]: opens the primary, the device settings
-  /// container (its key where `bootstrap.yaml` says), then the stores the
-  /// machine serves; starts the lock policy. Throws
-  /// [KdbxInvalidKeyException] for a wrong password.
-  Future<void> unlock(Credentials credentials) async {
+  /// Unlocks with [keys] (the master password and key file, which the
+  /// service holds masked while unlocked): opens the primary, the device
+  /// settings container (its key where `bootstrap.yaml` says), then the
+  /// stores the machine serves; starts the lock policy. Throws
+  /// [KdbxInvalidKeyException] for a wrong password; [keys] are disposed
+  /// when the unlock fails.
+  Future<void> unlock(TomSecretsHeldKeys keys) async {
     final primaryLocator = config.bootstrap.primary;
-    final primary = await _vaults.openPrimary(primaryLocator, credentials);
+    final TomSecretsOpenedVault primary;
+    try {
+      primary = await _vaults.openPrimary(primaryLocator, keys);
+    } on Object {
+      keys.dispose();
+      rethrow;
+    }
     try {
       final key = await _deviceKeys.keyFor(
         primary: primary.file,
-        savePrimary: () => config.opener.save(primaryLocator, primary.file),
+        savePrimary: _vaults.writePrimary,
       );
       _device = await TomSecretsDeviceContainer.open(
         config.bootstrap.deviceContainer,
@@ -249,6 +283,13 @@ final class TomSecretsService {
     }
     _lockTimer.start(settings.serviceLock);
     if (!_unlocked.isCompleted) _unlocked.complete();
+    final states = _vaults.status.map((s) => s.state.wireName).toList();
+    log.info('unlock', {
+      'stores': states.length,
+      'current': states.where((s) => s == 'current').length,
+      'needsUnlock': states.where((s) => s == 'needs_unlock').length,
+      'unavailable': states.where((s) => s == 'unavailable').length,
+    });
     _emit({'op': 'unlocked'});
   }
 
@@ -260,6 +301,7 @@ final class TomSecretsService {
     _vaults.lock();
     _device = null;
     _unlocked = Completer<void>();
+    log.info('lock', {'reason': reason});
     _emit({'op': 'locked'});
   }
 
@@ -278,6 +320,7 @@ final class TomSecretsService {
     }
     await config.runtime.removeEndpoints();
     await config.runtime.release();
+    log.info('stop');
     if (!_done.isCompleted) _done.complete();
   }
 
@@ -308,23 +351,47 @@ final class TomSecretsService {
     'service': {'version': tomSecretsServiceVersion, 'start': startedAt},
     'stores': [for (final s in _vaults.status) s.toJson()],
     'admins': _admins.where((a) => a.authenticated).length,
-    'hardening': const <String>[],
+    'hardening': _hardening,
   };
+
+  /// Takes the app's edited file of [store] (protocol.md 6.4), tells the
+  /// subscribers (`store_changed`) and logs it.
+  Future<TomSecretsSaveResult> save(
+    String store,
+    Uint8List stored, {
+    String? baseRevision,
+  }) async {
+    final result = await _vaults.save(
+      store,
+      stored,
+      baseRevision: baseRevision,
+    );
+    log.info('save', {
+      'store': store,
+      'merged': result.merged,
+      'conflicts': result.conflicts,
+    });
+    _emit({'op': 'store_changed', 'store': store, 'revision': result.revision});
+    return result;
+  }
 }
 
-/// Reads a `Credentials` from a request's `password` and `keyFile` (base64).
-Credentials? _credentialsOf(Map<String, Object?> m) {
+/// The keys a request's `password` and `keyFile` (base64) carry, held masked;
+/// null when they cannot be read.
+TomSecretsHeldKeys? _keysOf(Map<String, Object?> m) {
   final password = m['password'];
   final keyFile = m['keyFile'];
   if (password is! String || (keyFile != null && keyFile is! String)) {
     return null;
   }
-  return Credentials.composite(
-    ProtectedValue.fromString(password),
-    keyFile == null
-        ? null
-        : Credentials.keyFileKey(base64.decode(keyFile as String)),
-  );
+  try {
+    return TomSecretsHeldKeys.of(
+      password: password,
+      keyFile: keyFile == null ? null : base64.decode(keyFile as String),
+    );
+  } on FormatException {
+    return null;
+  }
 }
 
 const int _maxId = 9007199254740991; // 2^53 - 1
@@ -417,6 +484,11 @@ final class _ClientSession {
     _greeted = true;
     final client = m['client'];
     _client = client is Map ? client.cast<String, Object?>() : const {};
+    service.log.debug('client', {
+      'name': _client['name'],
+      'version': _client['version'],
+      'language': _client['language'],
+    });
     connection.send({
       'op': 'welcome',
       'protocol': 1,
@@ -471,11 +543,26 @@ final class _ClientSession {
         return;
       }
     }
-    final results = [for (final item in items) await _resolve(item)];
-    if (op == 'get') {
-      connection.send({...results.single, 'id': id});
-    } else {
-      connection.send({'op': 'values', 'id': id, 'results': results});
+    // The values stay masked until the frame is written from their bytes,
+    // and are zeroed right after.
+    final held = <TomSecretsFieldValue>[];
+    try {
+      final results = [for (final item in items) await _resolve(item, held)];
+      if (op == 'get') {
+        connection.send({...results.single, 'id': id});
+      } else {
+        connection.send({'op': 'values', 'id': id, 'results': results});
+      }
+      service.log.info(op, {
+        'outcome': [for (final r in results) r['kind'] ?? 'value'],
+      });
+      service.log.debug(op, {
+        'refs': [for (final item in items) item['ref']],
+      });
+    } finally {
+      for (final value in held) {
+        value.dispose();
+      }
     }
   }
 
@@ -485,7 +572,12 @@ final class _ClientSession {
     Map<String, Object?>? details,
   ]) => {'op': 'error', 'kind': kind, 'message': message, 'details': ?details};
 
-  Future<Map<String, Object?>> _resolve(Map<String, Object?> item) async {
+  /// The answer to [item]; its value, as a [TomSecretsSecretSlot], is added
+  /// to [held] for the caller to dispose once the frame is written.
+  Future<Map<String, Object?>> _resolve(
+    Map<String, Object?> item,
+    List<TomSecretsFieldValue> held,
+  ) async {
     final ref = item['ref'];
     if (ref is! String) {
       return _error('malformed', 'ref is missing', {'reason': 'ref'});
@@ -542,35 +634,32 @@ final class _ClientSession {
         client: _client,
       ),
     );
+    final value = resolution.value;
+    held.add(value);
     if (access is TomSecretsAccessDenied) {
       return _error('denied', 'not allowed', {'reason': access.reason});
     }
-    final value = resolution.value;
     final entry = resolution.entry;
     final storeStatus = service.vaults.statusOf(entry.store);
     final fetchedAt = (storeStatus?.fetchedAt ?? DateTime.now()).toUtc();
-    try {
-      return {
-        'op': 'value',
-        'value': value.isText ? value.text : base64.encode(value.bytes),
-        'encoding': value.isText ? 'utf8' : 'base64',
-        'entry': {
-          'store': entry.store,
-          'uuid': tomSecretsUuidHex(entry.entry.uuid),
-          'source': storeStatus?.wireSource ?? 'github',
-          'fetchedAt': fetchedAt.toIso8601String(),
-        },
-        'bound': resolution.bound,
-        'version': {
-          'modified': (resolution.modified?.toUtc() ?? fetchedAt)
-              .toIso8601String(),
-          'revision': storeStatus?.revision ?? '',
-        },
-        'expires': ?resolution.expires?.toUtc().toIso8601String(),
-      };
-    } finally {
-      value.dispose();
-    }
+    return {
+      'op': 'value',
+      'value': TomSecretsSecretSlot.ofValue(value),
+      'encoding': value.isText ? 'utf8' : 'base64',
+      'entry': {
+        'store': entry.store,
+        'uuid': tomSecretsUuidHex(entry.entry.uuid),
+        'source': storeStatus?.wireSource ?? 'github',
+        'fetchedAt': fetchedAt.toIso8601String(),
+      },
+      'bound': resolution.bound,
+      'version': {
+        'modified': (resolution.modified?.toUtc() ?? fetchedAt)
+            .toIso8601String(),
+        'revision': storeStatus?.revision ?? '',
+      },
+      'expires': ?resolution.expires?.toUtc().toIso8601String(),
+    };
   }
 
   static String? _storeOf(String ref) {
@@ -647,6 +736,10 @@ final class _AdminSession {
 
   Future<void> _fail(String reason, String message) async {
     service._authFailures++;
+    service.log.info('admin_refused', {
+      'reason': reason,
+      'failures': service._authFailures,
+    });
     connection.sendError(null, 'denied', message, {'reason': reason});
     await connection.close();
   }
@@ -675,6 +768,7 @@ final class _AdminSession {
     }
     service._authFailures = 0;
     authenticated = true;
+    service.log.info('admin_authed');
     connection.send({
       'op': 'authed',
       'mac2': base64.encode(
@@ -690,14 +784,20 @@ final class _AdminSession {
   }
 
   Future<void> _claim(Map<String, Object?> m) async {
-    final credentials = _credentialsOf(m);
-    if (credentials == null ||
-        !await service.vaults.checkPrimary(
-          service.config.bootstrap.primary,
-          credentials,
-        )) {
-      return _fail('bad_password', 'the master password is wrong');
+    final keys = _keysOf(m);
+    final bool ok;
+    try {
+      ok =
+          keys != null &&
+          await service.vaults.checkPrimary(
+            service.config.bootstrap.primary,
+            keys.credentials,
+          );
+    } finally {
+      keys?.dispose();
     }
+    if (!ok) return _fail('bad_password', 'the master password is wrong');
+    service.log.info('claim');
     service._authFailures = 0;
     service._adminKey = tomSecretsRandomBytes();
     // The old key is revoked: every admin authenticated with it is dropped.
@@ -716,36 +816,75 @@ final class _AdminSession {
   Future<void> _request(int id, String op, Map<String, Object?> m) async {
     switch (op) {
       case 'unlock':
-        final credentials = _credentialsOf(m);
-        if (credentials == null) {
+        final keys = _keysOf(m);
+        if (keys == null) {
           connection.sendError(id, 'malformed', 'unlock needs a password', {
             'reason': 'password',
           });
           return;
         }
         if (!service.isLocked) {
+          keys.dispose();
           connection.send({'op': 'ok', 'id': id});
           return;
         }
         try {
-          await service.unlock(credentials);
+          await service.unlock(keys);
           connection.send({'op': 'ok', 'id': id});
         } on KdbxInvalidKeyException {
           service._authFailures++;
+          service.log.info('unlock_refused', {'reason': 'bad_password'});
           connection.sendError(id, 'denied', 'the master password is wrong', {
             'reason': 'bad_password',
           });
         } on Object catch (e) {
+          service.log.error('unlock_failed', e);
           connection.sendError(id, 'internal', 'the unlock failed', {
             'code': e.runtimeType.toString(),
           });
         }
       case 'unlockStore':
-        final credentials = _credentialsOf(m);
+        final keys = _keysOf(m);
         final store = m['store'];
-        if (credentials == null || store is! String) {
+        if (keys == null || store is! String) {
+          keys?.dispose();
           connection.sendError(id, 'malformed', 'store and password', {
             'reason': 'store',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          keys.dispose();
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        try {
+          await service.vaults.unlockStore(
+            store,
+            keys,
+            machine: service.machine,
+          );
+          service.log.info('unlock_store', {'store': store});
+          connection.send({'op': 'ok', 'id': id});
+        } on KdbxInvalidKeyException {
+          keys.dispose();
+          service.log.info('unlock_store_refused', {
+            'store': store,
+            'reason': 'bad_password',
+          });
+          connection.sendError(id, 'denied', 'the password is wrong', {
+            'reason': 'bad_password',
+          });
+        } on StateError {
+          keys.dispose();
+          connection.sendError(id, 'not_found', 'no store $store');
+        }
+      case 'vaultKeys':
+        final stores = m['stores'];
+        if (stores != null &&
+            (stores is! List || stores.any((s) => s is! String))) {
+          connection.sendError(id, 'malformed', 'stores is a list of names', {
+            'reason': 'stores',
           });
           return;
         }
@@ -754,18 +893,63 @@ final class _AdminSession {
           return;
         }
         try {
-          await service.vaults.unlockStore(
-            store,
-            credentials,
-            machine: service.machine,
+          final keys = service.vaults.vaultKeys(
+            stores: (stores as List?)?.cast<String>(),
           );
-          connection.send({'op': 'ok', 'id': id});
-        } on KdbxInvalidKeyException {
-          connection.sendError(id, 'denied', 'the password is wrong', {
-            'reason': 'bad_password',
+          connection.send({'op': 'vaultKeySet', 'id': id, 'stores': keys});
+          service.log.info('vault_keys', {'stores': keys.length});
+        } on StateError catch (e) {
+          connection.sendError(id, 'not_found', 'no open store ${e.message}', {
+            'store': e.message,
           });
-        } on StateError {
-          connection.sendError(id, 'not_found', 'no store $store');
+        }
+      case 'save':
+        final store = m['store'];
+        final bytes = m['bytes'];
+        final base = m['baseRevision'];
+        if (store is! String ||
+            bytes is! String ||
+            (base != null && base is! String)) {
+          connection.sendError(
+            id,
+            'malformed',
+            'save carries store and bytes',
+            {'reason': 'save'},
+          );
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        final Uint8List stored;
+        try {
+          stored = base64.decode(bytes);
+        } on FormatException {
+          connection.sendError(id, 'malformed', 'bytes is not base64', {
+            'reason': 'bytes',
+          });
+          return;
+        }
+        try {
+          await service.save(store, stored, baseRevision: base as String?);
+          connection.send({'op': 'ok', 'id': id});
+        } on TomSecretsSaveException catch (e) {
+          service.log.info('save_refused', {
+            'store': store,
+            'kind': e.kind,
+            'reason': e.reason,
+          });
+          connection.sendError(id, e.kind, e.message, {
+            if (e.kind == 'needs_unlock' || e.kind == 'unavailable')
+              'store': store,
+            'reason': ?e.reason,
+          });
+        } on Object catch (e) {
+          service.log.error('save_failed', e, {'store': store});
+          connection.sendError(id, 'internal', 'the save failed', {
+            'code': e.runtimeType.toString(),
+          });
         }
       case 'lock':
         await service.lock();

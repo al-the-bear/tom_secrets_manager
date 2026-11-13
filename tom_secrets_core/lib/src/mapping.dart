@@ -9,6 +9,7 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:tom_crypto/protected_value.dart';
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 
 /// The field names the product reserves (`tsm.` prefix) and the foreign
@@ -108,19 +109,26 @@ KdbxUuid tomSecretsUuidFromHex(String hex) {
 }
 
 /// The value of one field of an entry: text (a string field, the TOTP code)
-/// or bytes (an attachment). [dispose] overwrites the buffer.
+/// or bytes (an attachment), held as a [TomProtectedValue] (masked, read
+/// through [withBytes]). [dispose] zeroes it.
 final class TomSecretsFieldValue {
-  /// A text value.
+  /// A text value. The `String` handed in is the caller's to drop.
   TomSecretsFieldValue.text(String text, {this.isProtected = false})
     : isText = true,
-      _bytes = Uint8List.fromList(utf8.encode(text));
+      _value = TomProtectedValue.of(text);
 
-  /// A binary value.
+  /// A text value from its UTF-8 [bytes], which are consumed (zeroed).
+  TomSecretsFieldValue.utf8Bytes(Uint8List bytes, {this.isProtected = false})
+    : isText = true,
+      _value = TomProtectedValue.fromBytes(bytes);
+
+  /// A binary value; [bytes] are consumed (zeroed): pass a copy of bytes
+  /// that must stay.
   TomSecretsFieldValue.bytes(Uint8List bytes, {this.isProtected = false})
     : isText = false,
-      _bytes = bytes;
+      _value = TomProtectedValue.fromBytes(bytes);
 
-  final Uint8List _bytes;
+  final TomProtectedValue _value;
 
   /// Whether the value is text (sent as `utf8`); otherwise bytes (`base64`).
   final bool isText;
@@ -128,17 +136,25 @@ final class TomSecretsFieldValue {
   /// Whether the file keeps it protected (in-memory protection).
   final bool isProtected;
 
-  /// The value's bytes (text as its UTF-8).
-  Uint8List get bytes => _bytes;
+  /// The number of bytes (a text's UTF-8).
+  int get length => _value.length;
 
-  /// The text of a text value.
+  /// Calls [use] with the value's bytes (a text's UTF-8) and zeroes them when
+  /// it returns: the way to read a value without leaving a copy behind.
+  T withBytes<T>(T Function(Uint8List bytes) use) => _value.withRevealed(use);
+
+  /// A copy of the value's bytes (a text's UTF-8); the caller zeroes it.
+  Uint8List get bytes => withBytes(Uint8List.fromList);
+
+  /// The text of a text value, as a `String` that cannot be wiped: prefer
+  /// [withBytes] where bytes do.
   String get text {
     if (!isText) throw StateError('a binary value has no text');
-    return utf8.decode(_bytes);
+    return _value.reveal();
   }
 
-  /// Overwrites the buffer with zeros.
-  void dispose() => _bytes.fillRange(0, _bytes.length, 0);
+  /// Zeroes the value; reading it afterwards throws a [StateError].
+  void dispose() => _value.dispose();
 
   @override
   String toString() =>
