@@ -123,6 +123,27 @@ service parse references with one implementation.
   `.github/workflows/compact.yml` (no actions, no vault key; the user commits
   it), `.tsm/compact.sh` (the cut with git, `--force-with-lease`) and
   `.tsm/compaction.yaml` (`retention_days` 90, `interval_days` 30).
+- **Imports** (`tomSecretsImport`, part-password-manager): an export read
+  into a `TomSecretsImportSource` is written the same way for every source.
+  Each source vault goes to a target (`TomSecretsImportTarget`, default
+  `<source>/<vault name>`, or a file of its own). Archived items are left out
+  unless `includeArchived` (then `Archive` with the tag `archived`, DP-34).
+  Logins, notes and API credentials get the product's types, every other
+  category a subgroup named after it with all fields as custom fields (DP-35).
+  A re-import matches `tsm.import.<source>.id`: unchanged items are skipped,
+  items changed only in the source are updated (old values into the history),
+  items changed on both sides become a conflict (`tsm.conflict`), entries no
+  longer exported are listed and kept, entries deleted in the vault are not
+  re-added. `dryRun` is the preview, which writes nothing. The report names
+  entries and counts (`summary` is the commit message), never values. Saving is
+  the caller's after the user confirms; cancelling means not saving.
+- **1Password** (`tomSecretsRead1Pux`, `tomSecretsRead1PasswordCsv`): 1PUX
+  read in memory from the ZIP (`export.data`, `files/`), with sections as
+  `<section> · <label>` fields (concealed ones protected), TOTP into the
+  TOTP fields, password history as history versions, attachments and
+  documents as binaries, SSH keys as notes with the key attached. CSV rows are
+  matched on re-import by a hash of title, URL and user name. The fixtures in
+  `test/fixtures/1password/` are synthetic.
 - **The primary vault** (`TomSecretsPrimaryVaults`, BP-8): the group
   `.tom-secrets/vaults` holds one entry per further vault (locator, master
   password, key file, outer key, GitHub token); the primary cannot list

@@ -28,3 +28,6 @@
   the app's compaction with `tom_git` (`tomSecretsCompact`) and the
   compaction workflow, script and configuration for the vault repositories
   (`tomSecretsCompactionFiles`).
+- Imports (`tomSecretsImport`, `TomSecretsImportSource`, the report) and the
+  1Password importer for 1PUX and CSV (`tomSecretsRead1Pux`,
+  `tomSecretsRead1PasswordCsv`).

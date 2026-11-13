@@ -24,6 +24,8 @@ dependencies:
     path: ../../secrets_clients/clients/dart/tom_secrets_client
   # The shared configuration tsm.config.
   yaml: ^3.1.0
+  # 1Password's 1PUX export (a ZIP) read in memory, without extracting it.
+  archive: ^4.0.0
   # TOTP codes (HMAC-SHA-1/256/512).
   crypto: ^3.0.6
   # A compaction's push over the git protocol (no git binary), DP-82, and

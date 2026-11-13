@@ -1,0 +1,5 @@
+"Title","Url","Username","Password","OTPAuth","Favorite","Archived","Tags","Notes"
+"Demo CSV Mail","https://mail.example.com","csv.user@example.com","csv-pw-1","otpauth://totp/Demo:csv?secret=JBSWY3DPEHPK3PXP&issuer=Demo","true","false","mail,demo","Line one
+line two with ""quotes"", and a comma"
+"Demo CSV Plain","","","","","false","false","","Just a note"
+"Demo CSV Archived","https://old.example.com","old","old-pw","","false","true","",""

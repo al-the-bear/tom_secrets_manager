@@ -9,6 +9,8 @@ library;
 export 'src/compaction.dart';
 export 'src/config.dart';
 export 'src/history.dart';
+export 'src/import.dart';
+export 'src/import_1password.dart';
 export 'src/key_file.dart';
 export 'src/locator.dart';
 export 'src/mapping.dart';
