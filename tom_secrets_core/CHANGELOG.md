@@ -11,3 +11,6 @@
 - Vault locators, the GitHub cycle as a `tom_core_sync` sync unit over
   `tom_core_storage` (`TomGitHubStorage`, no clone), the three-way vault merge
   with conflict records, and the primary vault's `.tom-secrets/vaults`.
+- `tomSecretsDeviceCommitter`: the device as author and committer of the
+  cycle's commits (`<device>@tsm.invalid`), for `TomGitHubStorage.committer`
+  (tom_core_storage 0.1.1).

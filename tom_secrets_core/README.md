@@ -52,7 +52,10 @@ service parse references with one implementation.
   commits again, up to `maxPushAttempts`, then throws
   `TomCasExhaustedException` (the work stays local); a transport failure
   throws `TomCommitFailedException` for the engine's journal. Commit messages
-  name the vault and the device (`tsm: fleet.kdbx from bigbeast`). The outer
+  name the vault and the device (`tsm: fleet.kdbx from bigbeast`), and the
+  device is their author and committer when the storage is built with
+  `TomGitHubStorage(committer: tomSecretsDeviceCommitter(device))`
+  (`<device>@tsm.invalid`). The outer
   encryption plugs in as a `TomSecretsVaultCodec`. `TomSyncEngine` drives it
   (pull, merge, push, retries, journal, status).
 - **The merge** (`tomSecretsMergeVaults`, DP-7): entries and groups are

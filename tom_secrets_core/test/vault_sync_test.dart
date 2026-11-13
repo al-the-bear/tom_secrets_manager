@@ -202,13 +202,14 @@ void main() {
 
   group('over TomGitHubStorage (the REST API, no clone)', () {
     late FakeGitHubServer server;
-    TomGitHubStorage device() => TomGitHubStorage.withClient(
+    TomGitHubStorage device([String? name]) => TomGitHubStorage.withClient(
       GitHubApiClient(
         token: 'demo-token',
         httpClient: server.client,
         baseUrl: FakeGitHubServer.baseUrl,
         minMutativeInterval: Duration.zero,
       ),
+      committer: name == null ? null : tomSecretsDeviceCommitter(name),
     );
     const locator = 'github:al-the-bear/demo-vaults/vaults/fleet.kdbx';
 
@@ -219,8 +220,8 @@ void main() {
     test(
       'two devices save concurrently; the second merges and lands on top',
       () async {
-        final mbp = device();
-        final bigbeast = device();
+        final mbp = device('mbp');
+        final bigbeast = device('bigbeast');
         addTearDown(mbp.close);
         addTearDown(bigbeast.close);
         final a = await TomSecretsVaultUnit.create(
@@ -260,6 +261,21 @@ void main() {
         expect(text(byTitle(check.working, 'Main'), user), 'from bigbeast');
         expect(check.head, b.head);
         expect(mbp.maxObjectBytes, 41820160, reason: 'the blob ceiling');
+        // Every commit of the cycle names its device as author and
+        // committer, with the placeholder address, never the token's owner.
+        final saves = server.commits.values
+            .where((c) => c.message.startsWith('tsm: '))
+            .toList();
+        expect(saves.map((c) => c.message), [
+          'tsm: fleet.kdbx from mbp',
+          'tsm: fleet.kdbx from mbp',
+          'tsm: fleet.kdbx from bigbeast',
+        ]);
+        for (final c in saves) {
+          final name = c.message.split(' ').last;
+          expect(c.author, {'name': name, 'email': '$name@tsm.invalid'});
+          expect(c.committer, c.author);
+        }
       },
     );
   });

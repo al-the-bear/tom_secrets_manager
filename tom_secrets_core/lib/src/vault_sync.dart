@@ -11,6 +11,7 @@ library;
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:tom_core_storage/github.dart' show GitHubGitIdentity;
 import 'package:tom_core_storage/tom_core_storage.dart';
 import 'package:tom_core_sync/tom_core_sync.dart';
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
@@ -28,6 +29,13 @@ abstract interface class TomSecretsVaultCodec {
   /// The stored bytes of the KDBX [bytes].
   Future<Uint8List> encode(Uint8List bytes);
 }
+
+/// The committer and author of the cycle's commits for [device]: the device
+/// name with a placeholder address (part-stores), `<device>@tsm.invalid`
+/// (`.invalid` never resolves, RFC 2606). The composition root passes it as
+/// `TomGitHubStorage(committer: ...)`.
+GitHubGitIdentity tomSecretsDeviceCommitter(String device) =>
+    GitHubGitIdentity(name: device, email: '$device@tsm.invalid');
 
 /// No outer layer.
 final class TomSecretsPlainCodec implements TomSecretsVaultCodec {
