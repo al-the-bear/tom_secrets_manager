@@ -21,3 +21,10 @@
 - New vaults (`tomSecretsNewVault`): KDBX 4.1 keyed through Argon2id,
   `tomSecretsDefaultArgon2` (64 MiB, 3 iterations); `TomSecretsVaultUnit.create`
   refuses a file keyed otherwise.
+- The offline cache (`TomSecretsOfflineCache`) in the vault cycle: kept on
+  every read and write, opened from when the remote is unreachable or refuses
+  the token; telling a compaction from a force push (`tomSecretsClassifyMove`,
+  `TomSecretsCommitReader`, `TomSecretsHistoryRewritten`, `mergeOverRemote`);
+  the app's compaction with `tom_git` (`tomSecretsCompact`) and the
+  compaction workflow, script and configuration for the vault repositories
+  (`tomSecretsCompactionFiles`).

@@ -96,6 +96,33 @@ service parse references with one implementation.
   first 8 bytes of its SHA-256) moves as base64 (`tsm.outer-key` in the
   primary vault). `test/fixtures/outer/` holds phase-A files every later
   version must open.
+- **The offline cache** (`TomSecretsOfflineCache`, DP-75, desktop and
+  service only; the mobile app passes none): the last file retrieved of each
+  vault, stored as it came (`<vault>.kdbx` or `.kdbx.tsmx`, still encrypted)
+  under `<cache>/<owner>/<repository>/<path>`, with a record (locator, the
+  head it was read at, blob id, time fetched). `TomSecretsVaultUnit` keeps it
+  current on every read and write; when the remote cannot be reached or
+  refuses the token the vault opens from it (`source: cache`, `fetchedAt`,
+  `offlineReason`), with no age limit, and an offline edit is merged against
+  it on reconnecting. Removing a vault from the device calls `remove`.
+- **Compaction or force push** (`tomSecretsClassifyMove`, a
+  `TomSecretsCommitReader` over the GitHub REST API or a `tom_git`
+  repository): the remote history is walked from the branch head for the
+  commit whose file is the base's blob. Found: merged as usual. A compaction's
+  root (`Tsm-Compacted-From`, `Tsm-Retention`): followed silently. Neither: a
+  `TomSecretsHistoryRewritten` conflict, nothing merged, and the user chooses
+  `takeRemote` or `mergeOverRemote` (three-way against an empty base).
+- **History compaction** (DP-9, DP-82): `tomSecretsCompact` is the app's,
+  run after a key change (retention 0: one root commit holding the files as
+  they are) and for "Compact now" (the repository's retention), the root by
+  the device (`tomSecretsDeviceCommitter`), pushed with `tom_git` over the
+  git protocol (`tomSecretsGitHubRemote` for a `github:` vault) with the old
+  head as the expected value, retried when a save
+  lands in between; `followCompaction` moves the device's own base.
+  `tomSecretsCompactionFiles` are the files each vault repository carries:
+  `.github/workflows/compact.yml` (no actions, no vault key; the user commits
+  it), `.tsm/compact.sh` (the cut with git, `--force-with-lease`) and
+  `.tsm/compaction.yaml` (`retention_days` 90, `interval_days` 30).
 - **The primary vault** (`TomSecretsPrimaryVaults`, BP-8): the group
   `.tom-secrets/vaults` holds one entry per further vault (locator, master
   password, key file, outer key, GitHub token); the primary cannot list

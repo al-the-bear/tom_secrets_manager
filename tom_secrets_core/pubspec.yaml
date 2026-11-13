@@ -26,11 +26,17 @@ dependencies:
   yaml: ^3.1.0
   # TOTP codes (HMAC-SHA-1/256/512).
   crypto: ^3.0.6
+  # A compaction's push over the git protocol (no git binary), DP-82, and
+  # the HTTP client it is given.
+  tom_git: ^0.2.0
+  http: ^1.2.0
+  # The vault repository's commits through the REST API: telling a compaction
+  # from a force push, and a compaction's history read (also FakeGitHubServer
+  # in the tests).
+  tom_github_api: ^1.4.0
   # The outer layer's ciphers, XChaCha20-Poly1305 and AES-256-GCM (DP-8, DP-80).
   cryptography: ^2.9.0
 
 dev_dependencies:
   lints: ^6.0.0
-  # FakeGitHubServer: the GitHub cycle against TomGitHubStorage's real code.
-  tom_github_api: ^1.4.0
   test: ^1.25.6

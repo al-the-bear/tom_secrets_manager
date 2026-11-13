@@ -6,6 +6,13 @@
 /// no clone). Open reads the head and the file; save commits on top of the
 /// base and moves the branch without force; a refused move reads the new
 /// head, merges three-way and commits again, up to [maxPushAttempts].
+///
+/// With an offline cache (desktop and service, part-key-rotation) every file
+/// read or written is kept, and a vault whose remote cannot be reached, or
+/// refuses the token, opens from it. With a commit reader the cycle tells a
+/// compacted history (followed silently) from a rewritten one (the user
+/// chooses: [TomSecretsVaultUnit.takeRemote] or
+/// [TomSecretsVaultUnit.mergeOverRemote]).
 library;
 
 import 'dart:async';
@@ -16,7 +23,10 @@ import 'package:tom_core_storage/tom_core_storage.dart';
 import 'package:tom_core_sync/tom_core_sync.dart';
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 
+import 'compaction.dart' show TomSecretsCompactionResult;
+import 'history.dart';
 import 'locator.dart';
+import 'offline_cache.dart';
 import 'vault_merge.dart';
 
 /// Turns a vault file's stored bytes into KDBX bytes and back: the outer
@@ -65,6 +75,40 @@ final class TomSecretsVaultConflict implements TomSyncConflict {
   String toString() => 'TomSecretsVaultConflict($anchor ${conflict.fields})';
 }
 
+/// Where an open vault's file came from.
+enum TomSecretsVaultSource {
+  /// Read from (or written to) the remote.
+  remote,
+
+  /// The offline cache: the remote could not be reached or refused the
+  /// token.
+  cache,
+}
+
+/// The remote's history was rewritten without a compaction (a force push):
+/// nothing was merged; the user chooses [TomSecretsVaultUnit.takeRemote] or
+/// [TomSecretsVaultUnit.mergeOverRemote].
+final class TomSecretsHistoryRewritten implements TomSyncConflict {
+  /// The vault at [locator], its branch rewritten to the commit
+  /// [remoteHead], for [reason].
+  const TomSecretsHistoryRewritten(this.locator, this.remoteHead, this.reason);
+
+  /// The vault.
+  final String locator;
+
+  /// The rewritten branch's head commit.
+  final String remoteHead;
+
+  /// Why the move counts as rewritten.
+  final String reason;
+
+  @override
+  String get anchor => '$locator@$remoteHead';
+
+  @override
+  String toString() => 'TomSecretsHistoryRewritten($anchor: $reason)';
+}
+
 /// One vault kept converged with its remote.
 final class TomSecretsVaultUnit implements TomSyncUnit {
   TomSecretsVaultUnit._({
@@ -75,14 +119,32 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
     required this.codec,
     required this.maxPushAttempts,
     required this.head,
+    required this.cache,
+    required this.history,
+    required DateTime Function() clock,
     required KdbxFile working,
     required Uint8List baseBytes,
-  }) : _working = working,
+  }) : _clock = clock,
+       _working = working,
        _baseBytes = baseBytes;
+
+  /// Whether [error] is a failure the offline cache may stand in for: no
+  /// answer, or the token refused or missing (GitHub's 401 and 403 for the
+  /// token).
+  static bool isOfflineFailure(Object error) =>
+      error is TomUnreachableException ||
+      error is TomTokenRejectedException ||
+      error is TomTokenRequiredException;
 
   /// Opens the vault at [locator] on [storage] with [credentials]: reads the
   /// head and the file at it; the head and the file as read are the base.
   /// [device] names this device in commit messages.
+  ///
+  /// With [cache] the file is kept there, and when the remote cannot be
+  /// reached or refuses the token ([isOfflineFailure]) the vault opens from
+  /// the cached file and head instead ([source] `cache`, [offlineReason]);
+  /// without a cached file the failure stands. [history] reads the remote's
+  /// commits for telling a compaction from a force push.
   static Future<TomSecretsVaultUnit> open({
     required String locator,
     required TomStorage storage,
@@ -90,13 +152,29 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
     required String device,
     TomSecretsVaultCodec codec = const TomSecretsPlainCodec(),
     int maxPushAttempts = 3,
+    TomSecretsOfflineCache? cache,
+    TomSecretsCommitReader? history,
+    DateTime Function() clock = _now,
   }) async {
-    final (stored, head) = await readAtHead(storage, locator);
+    Uint8List stored;
+    String head;
+    Object? offline;
+    TomSecretsCachedVault? cached;
+    try {
+      (stored, head) = await readAtHead(storage, locator);
+    } on Object catch (error) {
+      cached = cache != null && isOfflineFailure(error)
+          ? await cache.get(locator)
+          : null;
+      if (cached == null) rethrow;
+      offline = error;
+      (stored, head) = (cached.bytes, cached.head);
+    }
     final file = await KdbxFormat().read(
       await codec.decode(stored),
       credentials,
     );
-    return TomSecretsVaultUnit._(
+    final unit = TomSecretsVaultUnit._(
       locator: locator,
       storage: storage,
       credentials: credentials,
@@ -104,10 +182,24 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
       codec: codec,
       maxPushAttempts: maxPushAttempts,
       head: head,
+      cache: cache,
+      history: history,
+      clock: clock,
       working: file,
       baseBytes: stored,
     );
+    if (cached != null) {
+      unit
+        .._source = TomSecretsVaultSource.cache
+        .._fetchedAt = cached.fetchedAt
+        .._offlineReason = offline;
+    } else {
+      await unit._retrieved(stored, head);
+    }
+    return unit;
   }
+
+  static DateTime _now() => DateTime.now();
 
   /// Creates the vault [file] at [locator] (which must not exist yet) and
   /// opens it. [file] is a new vault from `tomSecretsNewVault`; a file whose
@@ -119,6 +211,9 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
     required String device,
     TomSecretsVaultCodec codec = const TomSecretsPlainCodec(),
     int maxPushAttempts = 3,
+    TomSecretsOfflineCache? cache,
+    TomSecretsCommitReader? history,
+    DateTime Function() clock = _now,
   }) async {
     if (file.argon2?.type != KdbxArgon2Type.argon2id) {
       throw ArgumentError.value(
@@ -134,7 +229,7 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
       TomChangeset.singleFile(stored),
       message: commitMessageFor(_fileName(locator), device),
     );
-    return TomSecretsVaultUnit._(
+    final unit = TomSecretsVaultUnit._(
       locator: locator,
       storage: storage,
       credentials: file.credentials,
@@ -142,12 +237,17 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
       codec: codec,
       maxPushAttempts: maxPushAttempts,
       head: head,
+      cache: cache,
+      history: history,
+      clock: clock,
       working: await KdbxFormat().read(
         await codec.decode(stored),
         file.credentials,
       ),
       baseBytes: stored,
     );
+    await unit._retrieved(stored, head);
+    return unit;
   }
 
   /// The commit message of a save: the vault and the device, never an entry
@@ -175,6 +275,39 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
 
   @override
   String? head;
+
+  /// The offline cache, or null (mobile, or a vault never stored on this
+  /// device): the base then lives in memory only while the vault is open.
+  final TomSecretsOfflineCache? cache;
+
+  /// Reads the remote branch's commits, or null: without it a moved head is
+  /// merged as usual, compaction or not. Used for `github:` vaults, whose
+  /// path in the repository the locator names.
+  final TomSecretsCommitReader? history;
+
+  final DateTime Function() _clock;
+  TomSecretsVaultSource _source = TomSecretsVaultSource.remote;
+  DateTime? _fetchedAt;
+  Object? _offlineReason;
+  String? _rewrittenHead;
+  TomSecretsBranchMove? _lastMove;
+
+  /// Where the open file came from: the remote, or the offline cache.
+  TomSecretsVaultSource get source => _source;
+
+  /// When the base was last retrieved from (or written to) the remote.
+  DateTime? get fetchedAt => _fetchedAt;
+
+  /// Why the vault opened from the cache (the remote's failure), or null.
+  Object? get offlineReason => _offlineReason;
+
+  /// The head commit of a rewritten remote history awaiting the user's
+  /// choice ([takeRemote] or [mergeOverRemote]), or null.
+  String? get rewrittenHead => _rewrittenHead;
+
+  /// How the remote moved the last time a new head was merged in, or null
+  /// (no commit reader, or no move yet).
+  TomSecretsBranchMove? get lastMove => _lastMove;
 
   KdbxFile _working;
   Uint8List _baseBytes;
@@ -224,7 +357,62 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
   @override
   Future<List<TomSyncConflict>> pull(String remoteHead) async {
     final (stored, head) = await readAtHead(storage, locator);
+    if (head != this.head) {
+      final rewritten = await _checkMove();
+      if (rewritten != null) return [rewritten];
+    }
     return _mergeIn(stored, head);
+  }
+
+  /// Records the retrieved [stored] file at [head] as the base's source:
+  /// in the cache, and as the vault's state.
+  Future<void> _retrieved(Uint8List stored, String head) async {
+    final at = _clock().toUtc();
+    _source = TomSecretsVaultSource.remote;
+    _fetchedAt = at;
+    _offlineReason = null;
+    await cache?.put(
+      TomSecretsCachedVault(
+        locator: locator,
+        bytes: stored,
+        head: head,
+        fetchedAt: at,
+      ),
+    );
+  }
+
+  /// The vault's path in its repository, which the commit reader looks the
+  /// base's file up at: a `github:` locator's path, or null.
+  String? get _historyPath {
+    try {
+      final parsed = TomSecretsVaultLocator.parse(locator);
+      return parsed is TomSecretsGitHubLocator ? parsed.path : null;
+    } on TomSecretsLocatorException {
+      return null;
+    }
+  }
+
+  /// How the remote branch moved from the base; a rewritten history is
+  /// remembered and answered as a conflict.
+  Future<TomSecretsHistoryRewritten?> _checkMove() async {
+    final reader = history;
+    final path = _historyPath;
+    if (reader == null || path == null) return null;
+    final remoteHead = await reader.branchHead();
+    if (remoteHead == null) return null;
+    final move = await tomSecretsClassifyMove(
+      reader,
+      path: path,
+      baseBlob: tomSecretsBlobId(_baseBytes),
+      head: remoteHead,
+    );
+    _lastMove = move;
+    if (move is! TomSecretsBranchRewritten) {
+      _rewrittenHead = null;
+      return null;
+    }
+    _rewrittenHead = remoteHead;
+    return TomSecretsHistoryRewritten(locator, remoteHead, move.reason);
   }
 
   /// The file at [locator] with the head it was read at: the head is read
@@ -260,6 +448,7 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
     _merges.add(result);
     _baseBytes = stored;
     this.head = head;
+    await _retrieved(stored, head);
     return [
       for (final c in result.conflicts) TomSecretsVaultConflict(locator, c),
     ];
@@ -281,6 +470,7 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
           message: commitMessage,
         );
         _baseBytes = stored;
+        await _retrieved(stored, head!);
         return conflicts;
       } on TomCasConflictException catch (e) {
         if (attempt == maxPushAttempts) {
@@ -293,6 +483,11 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
         }
         final (remote, remoteHead) = await readAtHead(storage, locator);
         if (remoteHead == e.expectedHead) continue;
+        final rewritten = await _checkMove();
+        if (rewritten != null) {
+          _dirty = true;
+          return [...conflicts, rewritten];
+        }
         conflicts.addAll(await _mergeIn(remote, remoteHead));
       } on TomStorageException catch (cause) {
         _dirty = true;
@@ -317,6 +512,41 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
     _working = await _read(stored);
     _baseBytes = stored;
     _dirty = false;
+    _rewrittenHead = null;
+    await _retrieved(stored, remoteHead);
+  }
+
+  /// Pushes the local copy over a rewritten remote: merges it three-way
+  /// against an empty base with the remote's file (nothing is taken as
+  /// deleted), then commits on top of the remote's head. The other answer to
+  /// a force-pushed branch.
+  Future<List<TomSyncConflict>> mergeOverRemote() async {
+    final (stored, remoteHead) = await readAtHead(storage, locator);
+    final result = tomSecretsMergeVaults(
+      base: null,
+      ours: _working,
+      theirs: await _read(stored),
+      location: locator,
+    );
+    _merges.add(result);
+    _baseBytes = stored;
+    head = remoteHead;
+    _rewrittenHead = null;
+    await _retrieved(stored, remoteHead);
+    _dirty = true;
+    return [
+      for (final c in result.conflicts) TomSecretsVaultConflict(locator, c),
+      ...await push(),
+    ];
+  }
+
+  /// Follows a compaction this device made ([result] of `tomSecretsCompact`)
+  /// without a read: the base's head moves to the rewritten head, whose file
+  /// is the same.
+  Future<void> followCompaction(TomSecretsCompactionResult result) async {
+    if (!result.compacted || head != result.oldHead) return;
+    head = result.newHead;
+    await _retrieved(_baseBytes, result.newHead);
   }
 
   @override
