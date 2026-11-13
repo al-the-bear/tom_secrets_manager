@@ -38,6 +38,19 @@ final class AllowAllPolicy implements TomSecretsAccessPolicy {
       const TomSecretsAccessAllowed();
 }
 
+/// The identity of this process, for the tests' TCP runs on Linux and
+/// macOS: TCP is the Windows transport, and a TCP connection there carries
+/// no peer credentials, so the system measurer refuses it; the tests' client
+/// is this process.
+final class SelfPeerMeasurer implements TomSecretsPeerMeasurer {
+  /// The measurer.
+  const SelfPeerMeasurer();
+
+  @override
+  Future<TomSecretsPeerMeasurement> measure(Socket socket) async =>
+      TomSecretsPeerMeasured(tomSecretsIdentityOf(tomSecretsProcessInfo(pid)!));
+}
+
 /// An idle source the test sets.
 final class FakeIdle implements TomSecretsIdleSource {
   /// The idle time answered (null: headless).
@@ -135,6 +148,8 @@ final class Demo {
     TomSecretsAccessPolicy policy = const AllowAllPolicy(),
     TomSecretStore? keychain,
     Duration Function(int)? authDelay,
+    TomSecretsPeerMeasurer? peerMeasurer,
+    Set<String>? adminExecutables,
   }) async {
     final service = await TomSecretsService.launch(
       TomSecretsServiceConfig(
@@ -147,6 +162,12 @@ final class Demo {
         host: 'demo-host',
         lockCheckInterval: const Duration(milliseconds: 20),
         authDelay: authDelay ?? (n) => Duration(milliseconds: 10 * n),
+        peerMeasurer:
+            peerMeasurer ??
+            (transport == TomSecretsTransport.tcp && !Platform.isWindows
+                ? const SelfPeerMeasurer()
+                : null),
+        adminExecutables: adminExecutables,
       ),
     );
     addTearDown(service.stop);

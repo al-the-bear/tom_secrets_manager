@@ -66,6 +66,11 @@ Future<void> main() async {
         // vault, `keychain` refuses the start).
         keychain: TomDesktopSecretStore(service: tomSecretsKeychainService),
         harden: () => hardening,
+        // Only tsm and the manager app administer it (protocol.md 6.1).
+        adminExecutables: tomSecretsAdminExecutables(
+          Platform.resolvedExecutable,
+          bootstrap,
+        ),
       ),
     );
   } on TomSecretsAlreadyRunning {

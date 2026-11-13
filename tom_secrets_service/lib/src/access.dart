@@ -8,14 +8,17 @@ library;
 
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
+import 'identity.dart';
+
 /// A client's request for one resolved secret.
 final class TomSecretsAccessRequest {
-  /// [reference] resolved to [resolution] for the client [client] (its
-  /// `hello.client`, never trusted).
+  /// [reference] resolved to [resolution] for the client measured as
+  /// [identity] (its `hello.client` [client] is shown, never trusted).
   const TomSecretsAccessRequest({
     required this.reference,
     required this.resolution,
     required this.client,
+    required this.identity,
   });
 
   /// The reference as sent.
@@ -26,6 +29,10 @@ final class TomSecretsAccessRequest {
 
   /// The client's `hello.client` (`name`, `version`, `language`).
   final Map<String, Object?> client;
+
+  /// The client as the service measured it (part-protocol, protocol.md
+  /// 7.1): what grants match and audits record.
+  final TomSecretsIdentity identity;
 }
 
 /// A policy's answer.

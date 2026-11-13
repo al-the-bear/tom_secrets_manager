@@ -43,7 +43,10 @@ void main() {
       ..writeAsStringSync(
         'primary: ${demo.bootstrap.primary}\n'
         'runtime_dir: ${runtime.directory}\n'
-        'device_key: keyfile\n',
+        'device_key: keyfile\n'
+        // This test process is the admin here.
+        'admin_executables:\n'
+        '  - "${tomSecretsProcessInfo(pid)!.exe}"\n',
       );
 
     final started = await tomSecretsStartService(
@@ -89,6 +92,39 @@ void main() {
       FileSystemEntity.typeSync(runtime.adminSocket),
       FileSystemEntityType.notFound,
     );
+  });
+
+  test('an admin that is neither tsm, the app nor listed in admin_executables '
+      'is refused even with the right key', () async {
+    final demo = await Demo.create();
+    final runtime = demo.runtime();
+    final bootstrap = File('${demo.dir}/data/bootstrap.yaml')
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        'primary: ${demo.bootstrap.primary}\n'
+        'runtime_dir: ${runtime.directory}\n'
+        'device_key: keyfile\n',
+      );
+    final started = await tomSecretsStartService(
+      executable: exe,
+      bootstrap: bootstrap.path,
+    );
+    final key = (started as TomSecretsStarted).adminKey;
+    final info = jsonDecode(File(runtime.infoFile).readAsStringSync()) as Map;
+    final servicePid = info['pid'] as int;
+    addTearDown(() => Process.killPid(servicePid));
+    await expectLater(
+      TomSecretsAdminClient.connect(runtime, key),
+      throwsA(
+        isA<TomSecretsAdminException>().having(
+          (e) => e.details['reason'],
+          'reason',
+          'wrong_executable',
+        ),
+      ),
+    );
+    final log = File('${demo.dir}/data/service.log').readAsStringSync();
+    expect(log, contains('INFO admin_refused reason=wrong_executable'));
   });
 
   test('a handover that cannot be read is refused with exit code 2', () async {

@@ -12,6 +12,9 @@
 /// device_container: /Users/me/.tsm/device.kdbx  # default <data>/device-settings.kdbx
 /// host: bigbeast                                 # default the host name
 /// log_level: info                               # info|debug, default info
+/// admin_executables:                            # who may administer, besides
+///   - /Applications/Tom Secrets Manager.app/Contents/MacOS/tom_secrets_desktop
+///                                                # tsm and the app beside the service
 /// ```
 library;
 
@@ -36,6 +39,7 @@ final class TomSecretsBootstrap {
     this.deviceKey = TomSecretsDeviceKeyMode.auto,
     this.host,
     this.logLevel = TomSecretsLogLevel.info,
+    this.adminExecutables = const [],
   }) : cacheDirectory =
            cacheDirectory ?? '$dataDirectory${Platform.pathSeparator}cache',
        deviceContainer =
@@ -80,6 +84,15 @@ final class TomSecretsBootstrap {
       deviceContainer: text('device_container'),
       host: text('host'),
       logLevel: TomSecretsLogLevel.parse(text('log_level') ?? 'info'),
+      adminExecutables: switch (doc['admin_executables']) {
+        null => const [],
+        final YamlList list when list.every((e) => e is String) => [
+          for (final e in list) (e as String).trim(),
+        ],
+        _ => throw const FormatException(
+          'admin_executables is a list of paths',
+        ),
+      },
     );
   }
 
@@ -106,6 +119,11 @@ final class TomSecretsBootstrap {
 
   /// How much the operational log says.
   final TomSecretsLogLevel logLevel;
+
+  /// Further executables that may administer the service (the manager app
+  /// where it is not installed beside the service, a development build),
+  /// besides `tsm` and the app beside the service's own executable.
+  final List<String> adminExecutables;
 
   /// The operational log's file, `<data>/service.log`.
   String get logFile => '$dataDirectory${Platform.pathSeparator}service.log';

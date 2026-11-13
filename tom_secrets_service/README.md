@@ -22,7 +22,29 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   is unlocked or the approval timeout passes (`locked`). Every resolved value
   is checked by a `TomSecretsAccessPolicy`; the default, `TomSecretsDenyAllPolicy`,
   refuses every value until the allow list and approvals are configured.
-- **Admin endpoint**: `admin.sock`, or `admin.port`. Nothing is answered before
+- **Peer identity** (part-protocol, protocol.md 7.1; `TomSecretsSystemPeerMeasurer`):
+  each accepted connection's process is measured once, never taken from
+  what it says. The peer PID comes from `SO_PEERCRED` (Linux),
+  `LOCAL_PEERPID` and `LOCAL_PEERCRED` (macOS) or, for Windows' localhost
+  TCP, the owner of the connection in `GetExtendedTcpTable`. Then the
+  executable, arguments, working directory, start time and parent are read
+  through `/proc`, libproc and `sysctl(KERN_PROCARGS2)`, or `kernel32`,
+  `ntdll` and the process snapshot. The start time is read before and after,
+  so a reused PID is not identified. A peer of another OS user is refused
+  (`other_user`), one that cannot be measured too (`unidentifiable`).
+  Interpreted clients (`python`, `node`, `bun`, `deno`, `dart` and the
+  `dartvm` it starts, `java`, `ruby`, `perl`, the shells, PowerShell;
+  `TomSecretsInterpreters`, extendable) are `script` identities with the
+  script's real path and SHA-256, the package root of `dart run` and
+  `python -m`. File hashes are cached by path, size and modification time
+  (`TomSecretsFileHashes`); `TomSecretsPin` checks a grant's pin (`hash`,
+  `off`, relaxed until a date, recording the new hash meanwhile). The
+  identity goes to the access policy (`TomSecretsAccessRequest.identity`)
+  and into `unlock_needed`.
+- **Admin endpoint**: `admin.sock`, or `admin.port`. The admin's executable
+  must be `tsm` or the manager app beside the service, or one named in
+  `admin_executables:` of `bootstrap.yaml`; any other is refused before its
+  key is checked (`wrong_executable`). Nothing is answered before
   the mutual challenge (`challenge`, `auth`, `authed`: HMAC-SHA256 under the
   admin key, protocol.md 6.1) or a `claim` with the master password, which
   issues a new admin key and revokes the old one. Failed authentications delay
@@ -99,4 +121,5 @@ testkit :test
 
 `test/process_test.dart` runs on macOS and Linux, `test/windows_test.dart` on
 Windows, the others (the service, the editing path and the log, the secret
-frames, the hardening seen from outside a hardened process) everywhere.
+frames, the hardening seen from outside a hardened process, the peer identity
+of a real client process) everywhere.

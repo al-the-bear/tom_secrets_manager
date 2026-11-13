@@ -494,7 +494,9 @@ void main() {
         onProgress: (p) => pending.add(p.pending.name),
       );
       final event = await needed;
-      expect((event['identity']! as Map)['client'], isNotNull);
+      final identity = event['identity']! as Map;
+      expect(identity['kind'], 'script', reason: 'the measured test process');
+      expect(identity['uid'], tomSecretsOwnUid());
       await admin.unlock(primaryPassword);
       expect((await answer).text, 'demo-db-pw');
       expect(pending, ['unlock']);

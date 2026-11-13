@@ -21,8 +21,10 @@ import 'access.dart';
 import 'admin_auth.dart';
 import 'bootstrap.dart';
 import 'connection.dart';
+import 'identity.dart';
 import 'lock_policy.dart';
 import 'log.dart';
+import 'peer_identity.dart';
 import 'runtime.dart';
 import 'secret_frame.dart';
 import 'vault_set.dart';
@@ -63,7 +65,10 @@ final class TomSecretsServiceConfig {
     this.authDelay = tomSecretsAuthDelay,
     this.harden,
     TomSecretsLog? log,
-  }) : idleSource = idleSource ?? tomSecretsSystemIdleSource(),
+    TomSecretsPeerMeasurer? peerMeasurer,
+    this.adminExecutables,
+  }) : peerMeasurer = peerMeasurer ?? TomSecretsSystemPeerMeasurer(),
+       idleSource = idleSource ?? tomSecretsSystemIdleSource(),
        host =
            host ??
            bootstrap.host ??
@@ -107,6 +112,35 @@ final class TomSecretsServiceConfig {
 
   /// The operational log (default `<data>/service.log`).
   final TomSecretsLog log;
+
+  /// Measures the process at the other end of each accepted connection
+  /// (part-protocol, the peer identity); default this OS's.
+  final TomSecretsPeerMeasurer peerMeasurer;
+
+  /// The real paths of the executables an admin may be (the manager app's,
+  /// `tsm`'s; protocol.md 6.1): any other admin is refused even with the
+  /// right key (`denied`, `wrong_executable`). The binary always passes the
+  /// set; null (an in-process service in tests) does not check.
+  final Set<String>? adminExecutables;
+}
+
+/// The executables that may administer a service started from
+/// [serviceExecutable] with [bootstrap] (protocol.md 6.1), as real paths:
+/// `tsm` and the manager app (`tom_secrets_desktop`, `tom_secrets_app`)
+/// beside the service's executable, and the bootstrap's
+/// `admin_executables`.
+Set<String> tomSecretsAdminExecutables(
+  String serviceExecutable,
+  TomSecretsBootstrap bootstrap,
+) {
+  final dir = File(serviceExecutable).parent.path;
+  final ext = Platform.isWindows ? '.exe' : '';
+  return {
+    for (final name in ['tsm', 'tom_secrets_desktop', 'tom_secrets_app'])
+      tomSecretsRealPath('$dir${Platform.pathSeparator}$name$ext', null),
+    for (final path in bootstrap.adminExecutables)
+      tomSecretsRealPath(path, null),
+  };
 }
 
 /// A running service.
@@ -401,9 +435,19 @@ bool _validId(Object? id) => id is int && id >= 1 && id <= _maxId;
 /// One client connection.
 final class _ClientSession {
   _ClientSession(this.service, Socket socket) {
+    // Measured once, when accepted (part-protocol); messages wait for it,
+    // in the order they came.
+    final measured = _measure(socket);
     connection = TomSecretsConnection(
       socket,
-      onMessage: _message,
+      onMessage: (m) => measured.then((ok) {
+        if (ok) {
+          _message(m);
+        } else {
+          // Refused: the answer went out; its hello is read, then it ends.
+          unawaited(connection.close());
+        }
+      }),
       onClosed: () => service._clients.remove(this),
     );
     service._clients.add(this);
@@ -411,7 +455,37 @@ final class _ClientSession {
 
   final TomSecretsService service;
   late final TomSecretsConnection connection;
+  TomSecretsIdentity? _identity;
   bool _greeted = false;
+
+  Future<bool> _measure(Socket socket) async {
+    final measurement = await service.config.peerMeasurer.measure(socket);
+    switch (measurement) {
+      case TomSecretsPeerMeasured(:final identity):
+        _identity = identity;
+        service.log.debug('client_identity', {
+          'kind': identity.kind,
+          'exe': identity.exe,
+          'script': identity.script,
+          'pid': identity.pid,
+        });
+        return true;
+      case TomSecretsPeerRefused(:final reason, :final detail):
+        service.log.info('client_refused', {
+          'reason': reason,
+          'detail': detail,
+        });
+        // Answered at once and closed once its hello has come (or after 5
+        // s): closed before that, the client's hello would meet a closed
+        // socket and never read the answer.
+        connection.sendError(null, 'denied', 'the client is refused', {
+          'reason': reason,
+        });
+        Timer(const Duration(seconds: 5), () => unawaited(connection.close()));
+        return false;
+    }
+  }
+
   Map<String, Object?> _client = const {};
   final Set<int> _open = {};
 
@@ -529,10 +603,7 @@ final class _ClientSession {
         timeout = Duration(milliseconds: timeoutMs);
       }
       if (wait && service._hasSubscribers) {
-        service._emit({
-          'op': 'unlock_needed',
-          'identity': {'client': _client},
-        });
+        service._emit({'op': 'unlock_needed', 'identity': _identity!.toJson()});
         connection.send({'op': 'progress', 'id': id, 'pending': 'unlock'});
         if (!await service.waitUnlocked(timeout)) {
           connection.sendError(id, 'locked', 'the service is locked');
@@ -632,6 +703,7 @@ final class _ClientSession {
         reference: ref,
         resolution: resolution,
         client: _client,
+        identity: _identity!,
       ),
     );
     final value = resolution.value;
@@ -679,6 +751,7 @@ final class _ClientSession {
 /// One admin connection.
 final class _AdminSession {
   _AdminSession(this.service, Socket socket) {
+    _measured = service.config.peerMeasurer.measure(socket);
     connection = TomSecretsConnection(
       socket,
       onMessage: (m) => unawaited(_message(m)),
@@ -700,6 +773,29 @@ final class _AdminSession {
   bool authenticated = false;
   bool subscribed = false;
   bool _authenticating = false;
+  late final Future<TomSecretsPeerMeasurement> _measured;
+
+  /// Whether the admin's measured executable may administer (protocol.md
+  /// 6.1); refuses and closes the connection otherwise.
+  Future<bool> _checkExecutable() async {
+    final measurement = await _measured;
+    final String reason;
+    switch (measurement) {
+      case TomSecretsPeerRefused(reason: final r):
+        reason = r;
+      case TomSecretsPeerMeasured(:final identity):
+        final allowed = service.config.adminExecutables;
+        if (allowed == null || allowed.contains(identity.exe)) return true;
+        reason = 'wrong_executable';
+        service.log.debug('admin_executable', {'exe': identity.exe});
+    }
+    service.log.info('admin_refused', {'reason': reason});
+    connection.sendError(null, 'denied', 'this program may not administer', {
+      'reason': reason,
+    });
+    await connection.close();
+    return false;
+  }
 
   Future<void> _message(Map<String, Object?> m) async {
     final op = m['op'] as String;
@@ -713,6 +809,9 @@ final class _AdminSession {
         return;
       }
       _authenticating = true;
+      // Who is asking first: the right key from the wrong program is
+      // refused (protocol.md 6.1).
+      if (!await _checkExecutable()) return;
       final delay = service.config.authDelay(service._authFailures);
       if (delay > Duration.zero) await Future<void>.delayed(delay);
       if (op == 'auth') {
