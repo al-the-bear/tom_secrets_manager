@@ -76,8 +76,18 @@ void main() {
         0,
         reason: 'the same user may not read its memory',
       );
+      const processDupHandle = 0x0040;
+      const processCreateThread = 0x0002;
+      const writeDac = 0x40000;
+      for (final right in [processDupHandle, processCreateThread, writeDac]) {
+        expect(
+          openProcess(right, 0, hardened),
+          0,
+          reason: 'no way around it: right 0x${right.toRadixString(16)}',
+        );
+      }
       final query = openProcess(processQueryLimited, 0, hardened);
-      expect(query, isNot(0), reason: 'other access stays');
+      expect(query, isNot(0), reason: 'waiting for and querying it stays');
       closeHandle(query);
     }
   });

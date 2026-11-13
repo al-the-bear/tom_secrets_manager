@@ -11,7 +11,9 @@
 ///   `PR_GET_DUMPABLE`; other users' and same-user debuggers cannot attach,
 ///   and `/proc/<pid>/` belongs to root;
 /// - `memoryAccessDenied` (Windows): the process DACL grants SYSTEM all
-///   access and the owner all but `PROCESS_VM_READ` / `PROCESS_VM_WRITE`.
+///   access and the owner only to wait for, query and end the process, so
+///   nobody else reads or writes its memory (`PROCESS_VM_READ` /
+///   `PROCESS_VM_WRITE`) or gets there another way.
 ///
 /// The macOS hardened runtime is a signing flag of the build, not a call.
 library;
@@ -121,9 +123,14 @@ bool _windowsErrorMode() {
 }
 
 /// SYSTEM: all access; the owner (`OW`, Owner Rights, which also takes the
-/// owner's implicit rights away): all but PROCESS_VM_READ (0x10) and
-/// PROCESS_VM_WRITE (0x20); nobody else. `P`: not inherited.
-const String _processSddl = 'D:P(A;;0x1FFFFF;;;SY)(A;;0x1FFFCF;;;OW)';
+/// owner's implicit rights away): only PROCESS_TERMINATE (0x1),
+/// PROCESS_QUERY_LIMITED_INFORMATION (0x1000), READ_CONTROL (0x20000) and
+/// SYNCHRONIZE (0x100000) — so no PROCESS_VM_READ / PROCESS_VM_WRITE, and
+/// none of the rights that lead to them (PROCESS_DUP_HANDLE would duplicate
+/// the process's own full-access handle, PROCESS_CREATE_THREAD and
+/// PROCESS_VM_OPERATION run code in it, WRITE_DAC would grant them back);
+/// nobody else. `P`: not inherited.
+const String _processSddl = 'D:P(A;;0x1FFFFF;;;SY)(A;;0x121001;;;OW)';
 
 const int _seKernelObject = 6;
 const int _daclSecurityInformation = 0x4;
