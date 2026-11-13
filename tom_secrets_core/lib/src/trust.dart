@@ -13,6 +13,8 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
+
 import 'approval_link.dart';
 import 'signed_objects.dart';
 
@@ -134,7 +136,9 @@ final class TomSecretsTrust {
     required this.hosts,
     required this.cliApprovals,
     Map<String, String>? pins,
+    Map<String, TomSecretsClientTokenRecord>? clientTokens,
   }) : pins = pins ?? {},
+       clientTokens = clientTokens ?? {},
        _approverSeeds = approverSeeds,
        _linkSeeds = linkSeeds;
 
@@ -167,6 +171,13 @@ final class TomSecretsTrust {
         ],
         cliApprovals: json['cliApprovals'] == true,
         pins: ((json['pins'] as Map?) ?? const {}).cast<String, String>(),
+        clientTokens: {
+          for (final MapEntry(:key, :value)
+              in ((json['clientTokens'] as Map?) ?? const {}).entries)
+            key as String: TomSecretsClientTokenRecord.fromJson(
+              (value as Map).cast(),
+            ),
+        },
       );
 
   /// This device's id (its approver identity at pairing).
@@ -196,6 +207,18 @@ final class TomSecretsTrust {
   /// here, out of the synced vault, so no one who can write the vault can
   /// move a pin (DP-18).
   final Map<String, String> pins;
+
+  /// The client tokens of this host's `exe-token` grants (token id →
+  /// record): only the token's hash, never the token (DP-20).
+  final Map<String, TomSecretsClientTokenRecord> clientTokens;
+
+  /// The token id whose hash is [hash] (hex), or null.
+  String? clientTokenIdOf(String hash) {
+    for (final MapEntry(:key, :value) in clientTokens.entries) {
+      if (value.hash == hash) return key;
+    }
+    return null;
+  }
 
   /// This device's approver key pair.
   Future<TomSecretsApproverKey> approverKey() =>
@@ -236,8 +259,77 @@ final class TomSecretsTrust {
     'hosts': [for (final h in hosts) h.toJson()],
     'cliApprovals': cliApprovals,
     'pins': pins,
+    'clientTokens': {
+      for (final e in clientTokens.entries) e.key: e.value.toJson(),
+    },
   };
 
   @override
   String toString() => 'TomSecretsTrust($device, ***)';
+}
+
+/// A client token's id (protocol.md 7.4): the first 16 bytes, in lower-case
+/// hex, of its [hash]; the approving device derives it from the token, and
+/// the host checks the grant's `exe-token <path> <tokenId>` against the token
+/// it is sent.
+String tomSecretsClientTokenId(String hash) => hash.substring(0, 32);
+
+/// A client token's hash: SHA-256(lps("tsm-client-token-v1") || token), hex.
+String tomSecretsClientTokenHash(List<int> token) {
+  const label = 'tsm-client-token-v1';
+  final out = BytesBuilder()
+    ..add((ByteData(4)..setUint32(0, label.length)).buffer.asUint8List())
+    ..add(utf8.encode(label))
+    ..add(token);
+  return crypto.sha256.convert(out.toBytes()).toString();
+}
+
+/// What a host keeps of a client token: its [hash], when it was [created],
+/// and the identity of the client that first and last brought it in
+/// `hello.clientToken` (so access can later be narrowed to it).
+final class TomSecretsClientTokenRecord {
+  /// A record of [hash].
+  TomSecretsClientTokenRecord({
+    required this.hash,
+    required this.created,
+    this.firstIdentity,
+    this.lastIdentity,
+    this.lastSeen,
+  });
+
+  /// From the stored JSON.
+  factory TomSecretsClientTokenRecord.fromJson(Map<String, Object?> json) =>
+      TomSecretsClientTokenRecord(
+        hash: json['hash']! as String,
+        created: DateTime.parse(json['created']! as String),
+        firstIdentity: (json['firstIdentity'] as Map?)?.cast(),
+        lastIdentity: (json['lastIdentity'] as Map?)?.cast(),
+        lastSeen: json['lastSeen'] == null
+            ? null
+            : DateTime.parse(json['lastSeen']! as String),
+      );
+
+  /// The token's hash (hex).
+  final String hash;
+
+  /// When the host received it.
+  final DateTime created;
+
+  /// The measured identity of the first client that brought it.
+  Map<String, Object?>? firstIdentity;
+
+  /// The measured identity of the last client that brought it.
+  Map<String, Object?>? lastIdentity;
+
+  /// When a client last brought it.
+  DateTime? lastSeen;
+
+  /// The stored JSON.
+  Map<String, Object?> toJson() => {
+    'hash': hash,
+    'created': created.toUtc().toIso8601String(),
+    'firstIdentity': ?firstIdentity,
+    'lastIdentity': ?lastIdentity,
+    'lastSeen': ?lastSeen?.toUtc().toIso8601String(),
+  };
 }

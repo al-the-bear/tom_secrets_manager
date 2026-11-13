@@ -68,6 +68,7 @@ final class TomSecretsApprovalAnswer {
     required this.approver,
     this.folder,
     this.pin,
+    this.clientToken,
   });
 
   /// The decision.
@@ -84,6 +85,10 @@ final class TomSecretsApprovalAnswer {
 
   /// The approver device.
   final String approver;
+
+  /// The client token the approving app issued for an `always` of a request
+  /// with `wantClientToken` (32 bytes, base64; protocol.md 7.4).
+  final String? clientToken;
 }
 
 /// A request that went to the approvers.
@@ -116,7 +121,11 @@ final class _Waiting {
     ],
     if (_remote(batch.identity)) 'hostHint': 'remote',
     'approvalCode': ?code,
+    if (wantsToken) 'wantClientToken': true,
   };
+
+  /// Whether the client asked for a client token.
+  bool get wantsToken => items.any((i) => i.wantClientToken);
 }
 
 String _canonical(String ref) {
@@ -236,6 +245,7 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
       (p) => _revoked.contains(p.id) || _grants.any((g) => g.id == p.id),
     );
     await _takeApprovalRecords(group, keys);
+    await _pruneTokens();
   }
 
   Future<void> _takeApprovalRecords(
@@ -286,7 +296,11 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
 
   /// Whether [subject] names [identity]; [complete] identities only for
   /// anything but a plain executable.
-  static bool subjectMatches(String subject, TomSecretsIdentity identity) {
+  static bool subjectMatches(
+    String subject,
+    TomSecretsIdentity identity, {
+    String? clientTokenId,
+  }) {
     final space = subject.indexOf(' ');
     if (space < 0) return false;
     final kind = subject.substring(0, space);
@@ -312,8 +326,15 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
         return _under(target, rest);
       case 'tsm-command':
         return _base(identity.exe) == 'tsm' && identity.args.join(' ') == rest;
+      case 'exe-token':
+        // The grant's executable and the token the connection's hello
+        // carried; without the token it is the bare executable.
+        final cut = rest.lastIndexOf(' ');
+        return cut > 0 &&
+            clientTokenId != null &&
+            identity.exe == rest.substring(0, cut) &&
+            rest.substring(cut + 1) == clientTokenId;
       default:
-        // exe-token: client tokens are not issued yet.
         return false;
     }
   }
@@ -338,8 +359,9 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
   /// grant whose file changed does not decide.
   Future<TomSecretsGrant?> match(
     TomSecretsIdentity identity,
-    TomSecretsAccessRequest item,
-  ) async {
+    TomSecretsAccessRequest item, {
+    String? clientTokenId,
+  }) async {
     TomSecretsGrant? best;
     var bestRank = -1;
     for (final g in grants) {
@@ -350,7 +372,9 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
         // grant is no guess.
         continue;
       }
-      if (!subjectMatches(g.subject, identity)) continue;
+      if (!subjectMatches(g.subject, identity, clientTokenId: clientTokenId)) {
+        continue;
+      }
       final secretRank = _secretRank(g.secret, item);
       if (secretRank == 0) continue;
       final rank = _subjectRank(g.subject) * 10 + secretRank;
@@ -393,10 +417,15 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
   @override
   Future<List<TomSecretsAccess>> check(TomSecretsAccessBatch batch) async {
     final identity = batch.identity;
+    final clientTokenId = await _clientTokenOf(batch);
     final decisions = List<TomSecretsAccess?>.filled(batch.items.length, null);
     final open = <int>[];
     for (var i = 0; i < batch.items.length; i++) {
-      final grant = await match(identity, batch.items[i]);
+      final grant = await match(
+        identity,
+        batch.items[i],
+        clientTokenId: clientTokenId,
+      );
       if (grant == null) {
         open.add(i);
       } else {
@@ -603,8 +632,18 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
         (answer.decision == 'folder' && answer.folder == null)) {
       throw ArgumentError('decision, secret and folder');
     }
+    final token = answer.clientToken;
+    if (token != null &&
+        (answer.decision != 'always' || !w.wantsToken || !lasting)) {
+      throw ArgumentError(
+        'a client token answers an always of a request '
+        'that asked for one',
+      );
+    }
+    String? tokenId;
+    if (token != null) tokenId = await _recordToken(token);
     if (lasting && answer.decision != 'once') {
-      await _writeGrants(w, answer);
+      await _writeGrants(w, answer, clientTokenId: tokenId);
     }
     _answer(w, answer);
   }
@@ -614,9 +653,70 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
     _close(w, allowed ? 'approved' : 'denied', [
       for (final _ in w.items)
         allowed
-            ? TomSecretsAccessAllowed(approver: answer.approver)
+            ? TomSecretsAccessAllowed(
+                approver: answer.approver,
+                clientToken: answer.clientToken,
+              )
             : const TomSecretsAccessDenied('refused'),
     ]);
+  }
+
+  // ── Client tokens (protocol.md 7.4, DP-20) ──────────────────────────────
+
+  /// Records the client token [token] (base64 of 32 bytes) an approver
+  /// issued: only its hash. Returns its id. Throws [ArgumentError] for a
+  /// token that is not 32 bytes.
+  Future<String> _recordToken(String token) async {
+    final List<int> bytes;
+    try {
+      bytes = base64.decode(token);
+    } on FormatException {
+      throw ArgumentError('the client token is not base64');
+    }
+    if (bytes.length != 32) {
+      throw ArgumentError('a client token is 32 bytes');
+    }
+    final hash = tomSecretsClientTokenHash(bytes);
+    final id = tomSecretsClientTokenId(hash);
+    service.trust.clientTokens[id] ??= TomSecretsClientTokenRecord(
+      hash: hash,
+      created: DateTime.now().toUtc(),
+    );
+    await service.writeTrust();
+    return id;
+  }
+
+  /// The token id the batch's connection brought, recording the identity
+  /// it came with (the first one, and the last when it changes).
+  Future<String?> _clientTokenOf(TomSecretsAccessBatch batch) async {
+    final hash = batch.clientTokenHash;
+    if (hash == null) return null;
+    final id = service.trust.clientTokenIdOf(hash);
+    if (id == null) return null;
+    final record = service.trust.clientTokens[id]!;
+    final identity = batch.identity.toJson();
+    record.lastSeen = DateTime.now().toUtc();
+    final changed = jsonEncode(record.lastIdentity) != jsonEncode(identity);
+    record.firstIdentity ??= identity;
+    record.lastIdentity = identity;
+    if (changed) await service.writeTrust();
+    return id;
+  }
+
+  /// The token id of an `exe-token` [subject], or null.
+  static String? _tokenIdOf(String subject) => subject.startsWith('exe-token ')
+      ? subject.substring(subject.lastIndexOf(' ') + 1)
+      : null;
+
+  /// Drops the token records no `exe-token` grant of this host names any
+  /// more (a revoked or removed grant invalidates its token).
+  Future<void> _pruneTokens() async {
+    final named = {for (final g in grants) ?_tokenIdOf(g.subject)};
+    final before = service.trust.clientTokens.length;
+    service.trust.clientTokens.removeWhere((id, _) => !named.contains(id));
+    if (service.trust.clientTokens.length != before) {
+      await service.writeTrust();
+    }
   }
 
   String _subjectFor(TomSecretsIdentity i, TomSecretsApprovalAnswer a) {
@@ -635,9 +735,15 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
     };
   }
 
-  Future<void> _writeGrants(_Waiting w, TomSecretsApprovalAnswer a) async {
+  Future<void> _writeGrants(
+    _Waiting w,
+    TomSecretsApprovalAnswer a, {
+    String? clientTokenId,
+  }) async {
     final identity = w.batch.identity;
-    final subject = _subjectFor(identity, a);
+    final subject = clientTokenId == null
+        ? _subjectFor(identity, a)
+        : 'exe-token ${identity.exe} $clientTokenId';
     final secrets = switch (a.secret) {
       'all' => {'all'},
       'store' => {for (final i in w.items) 'store ${i.resolution.entry.store}'},
@@ -719,11 +825,17 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
       ..remove(host, TomSecretsSignedKind.grant, {'id': grantId});
     if (host == service.host) _applyRevocation(grantId);
     await service.savePrimary();
+    await service.writeTrust();
     service.log.info('grant_revoked', {'host': host, 'grantId': grantId});
   }
 
   void _applyRevocation(String grantId) {
     _revoked.add(grantId);
+    for (final g in grants.where((g) => g.id == grantId)) {
+      // Revoking the grant invalidates its client token (protocol.md 7.4).
+      final token = _tokenIdOf(g.subject);
+      if (token != null) service.trust.clientTokens.remove(token);
+    }
     _grants.removeWhere((g) => g.id == grantId);
     _pending.removeWhere((g) => g.id == grantId);
     service.trust.pins.remove(grantId);
@@ -872,11 +984,59 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
             await fail('denied', 'not accepted', 'refused');
             return;
           }
+          // A client token comes with its exe-token grant (protocol.md 7.4,
+          // DP-20): the approving device made it, the host keeps its hash.
+          final token = m['clientToken'];
+          final tokenId = _tokenIdOf((grant['subject'] as String?) ?? '');
+          if (token != null) {
+            if (token is! String || tokenId == null) {
+              await fail(
+                'malformed',
+                'a token needs an exe-token grant',
+                'grant',
+              );
+              return;
+            }
+            final List<int> bytes;
+            try {
+              bytes = base64.decode(token);
+            } on FormatException {
+              await fail('malformed', 'the token is not base64', 'grant');
+              return;
+            }
+            if (bytes.length != 32 ||
+                tomSecretsClientTokenId(tomSecretsClientTokenHash(bytes)) !=
+                    tokenId) {
+              await fail(
+                'denied',
+                'the grant does not name this token',
+                'refused',
+              );
+              return;
+            }
+            await _recordToken(token);
+          }
           if (!_revoked.contains(grant['id'])) {
             // A pending local copy until the vault copy arrives.
             _pending
               ..removeWhere((p) => p.id == grant['id'])
               ..add(TomSecretsGrant._(grant, key.keyId));
+          }
+          // With approvalId, the grant answers that waiting request; its
+          // client gets the token.
+          final waiting = _waiting[m['approvalId']];
+          if (waiting != null) {
+            _answer(
+              waiting,
+              TomSecretsApprovalAnswer(
+                decision: grant['decision'] == 'never' ? 'never' : 'always',
+                secret: 'ref',
+                approver: session.peerDevice,
+                clientToken: waiting.wantsToken && token is String
+                    ? token
+                    : null,
+              ),
+            );
           }
           await ok();
         case 'revoke':

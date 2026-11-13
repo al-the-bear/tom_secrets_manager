@@ -19,6 +19,7 @@ final class TomSecretsAccessRequest {
     required this.resolution,
     required this.client,
     required this.identity,
+    this.wantClientToken = false,
   });
 
   /// The reference as sent.
@@ -26,6 +27,9 @@ final class TomSecretsAccessRequest {
 
   /// What it resolved to.
   final TomSecretsResolution resolution;
+
+  /// Whether the client asked for a client token (`wantClientToken`).
+  final bool wantClientToken;
 
   /// The client's `hello.client` (`name`, `version`, `language`).
   final Map<String, Object?> client;
@@ -45,6 +49,7 @@ final class TomSecretsAccessBatch {
     required this.items,
     this.onProgress,
     this.timeout,
+    this.clientTokenHash,
   });
 
   /// The client as measured.
@@ -61,6 +66,10 @@ final class TomSecretsAccessBatch {
 
   /// The request's own `timeoutMs`, which caps the approval timeout.
   final Duration? timeout;
+
+  /// The hash of the client token the connection's `hello` carried
+  /// (protocol.md 7.4), or null.
+  final String? clientTokenHash;
 }
 
 /// A policy's answer.
@@ -71,13 +80,21 @@ sealed class TomSecretsAccess {
 /// The value may be sent; [grantId] or [approver] say why.
 final class TomSecretsAccessAllowed extends TomSecretsAccess {
   /// Allowed.
-  const TomSecretsAccessAllowed({this.grantId, this.approver});
+  const TomSecretsAccessAllowed({
+    this.grantId,
+    this.approver,
+    this.clientToken,
+  });
 
   /// The grant that allowed it.
   final String? grantId;
 
   /// The approver that allowed it at a prompt.
   final String? approver;
+
+  /// The client token the approver issued for this client (base64), sent in
+  /// the `value` (protocol.md 7.4).
+  final String? clientToken;
 }
 
 /// The value may not be sent: an `error` of [kind] (protocol.md 10, default

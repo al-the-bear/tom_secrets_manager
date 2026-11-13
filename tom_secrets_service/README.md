@@ -63,6 +63,13 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   identity back). `tsm` answers no prompt and pre-approves or issues tokens
   only where the app switched command-line approvals on
   (`approvers.cliSwitch`).
+- **Client tokens** (protocol.md 7.4, DP-20): for a request with
+  `wantClientToken` the approving device makes the token (the attached app
+  in `approve`, a remote approver with its signed grant over the link); the
+  grant's subject is `exe-token <path> <tokenId>`, the host keeps only the
+  token's hash and the identities it came with, the client gets the token
+  in its `value` and brings it in later `hello`s; revoking the grant
+  invalidates it; an approval code issues none.
 - **The approval link** (`TomSecretsLinkServer`, protocol.md 9.7): while
   unlocked, on the device setting `approvalLink` (a VPN or LAN address),
   the Noise KK handshake with ML-KEM-768 against the recorded approvers'

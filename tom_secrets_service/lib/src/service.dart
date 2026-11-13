@@ -15,6 +15,7 @@ import 'dart:typed_data';
 
 import 'package:tom_core_storage/settings.dart';
 import 'package:tom_secrets_client/tom_secrets_client.dart';
+import 'package:tom_crypto/protected_value.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'access.dart';
@@ -525,6 +526,7 @@ final class _ClientSession {
   final TomSecretsService service;
   late final TomSecretsConnection connection;
   TomSecretsIdentity? _identity;
+  String? _clientTokenHash;
   bool _greeted = false;
 
   Future<bool> _measure(Socket socket) async {
@@ -625,6 +627,20 @@ final class _ClientSession {
       }
     }
     _greeted = true;
+    // A client token from an earlier `always` (protocol.md 7.4): only its
+    // hash is kept; an unreadable one is no token (the bare executable).
+    final token = m['clientToken'];
+    if (token is String) {
+      try {
+        final bytes = base64.decode(token);
+        if (bytes.length == 32) {
+          _clientTokenHash = tomSecretsClientTokenHash(bytes);
+        }
+        bytes.fillRange(0, bytes.length, 0);
+      } on FormatException {
+        _clientTokenHash = null;
+      }
+    }
     final client = m['client'];
     _client = client is Map ? client.cast<String, Object?>() : const {};
     service.log.debug('client', {
@@ -705,6 +721,7 @@ final class _ClientSession {
                 },
                 onProgress: (p) =>
                     connection.send({'op': 'progress', 'id': id, ...p}),
+                clientTokenHash: _clientTokenHash,
               ),
             );
       var next = 0;
@@ -813,6 +830,7 @@ final class _ClientSession {
         resolution: resolution,
         client: _client,
         identity: _identity!,
+        wantClientToken: item['wantClientToken'] == true,
       ),
       null,
     );
@@ -855,6 +873,10 @@ final class _ClientSession {
         'revision': storeStatus?.revision ?? '',
       },
       'expires': ?resolution.expires?.toUtc().toIso8601String(),
+      if (access case TomSecretsAccessAllowed(:final clientToken?))
+        'clientToken': TomSecretsSecretSlot.ofText(
+          TomProtectedValue.of(clientToken),
+        ),
     };
   }
 
@@ -1090,7 +1112,11 @@ final class _AdminSession {
         final approvalId = m['approvalId'];
         final decision = m['decision'];
         final secret = m['secret'];
-        if (approvalId is! String || decision is! String || secret is! String) {
+        final clientToken = m['clientToken'];
+        if (approvalId is! String ||
+            decision is! String ||
+            secret is! String ||
+            (clientToken != null && clientToken is! String)) {
           return malformed('approve');
         }
         try {
@@ -1102,6 +1128,8 @@ final class _AdminSession {
               folder: m['folder'] as String?,
               pin: m['pin'],
               approver: service.trust.device,
+              // The app made the token (DP-20); this device signs its grant.
+              clientToken: clientToken as String?,
             ),
           );
           connection.send({'op': 'ok', 'id': id});

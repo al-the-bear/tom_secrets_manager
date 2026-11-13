@@ -115,7 +115,14 @@ void main() {
     final key = (started as TomSecretsStarted).adminKey;
     final info = jsonDecode(File(runtime.infoFile).readAsStringSync()) as Map;
     final servicePid = info['pid'] as int;
-    addTearDown(() => Process.killPid(servicePid));
+    addTearDown(() async {
+      // Stopped and gone before the demo folder is deleted: a service that
+      // is still stopping writes its log there.
+      Process.killPid(servicePid);
+      for (var i = 0; i < 100 && File(runtime.infoFile).existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+    });
     await expectLater(
       TomSecretsAdminClient.connect(runtime, key),
       throwsA(
