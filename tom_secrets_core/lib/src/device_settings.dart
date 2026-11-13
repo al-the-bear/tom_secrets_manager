@@ -17,12 +17,17 @@ import 'package:tom_core_storage/io.dart';
 import 'package:tom_core_storage/settings.dart';
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'primary.dart';
+import 'trust.dart';
 
 /// The settings namespace of the product.
 const String tomSecretsDeviceNamespace = 'tsm';
 
 /// The settings group the device settings are kept in, as one fragment.
 const String tomSecretsDeviceGroup = 'device';
+
+/// The container's group of the device's trust material (keys, recorded
+/// approvers and hosts).
+const String tomSecretsTrustGroup = 'trust';
 
 /// Where the device settings container's key is kept (DP-15).
 enum TomSecretsDeviceKeyMode {
@@ -145,7 +150,7 @@ final class TomSecretsDeviceSettings {
     this.offlineCache = true,
     this.keyExpiryWarningDays = 14,
     this.approvalTimeout = const Duration(seconds: 60),
-    this.codeTimeout = const Duration(minutes: 10),
+    this.codeTimeout = const Duration(minutes: 5),
     this.startAtLogin = false,
   });
 
@@ -394,7 +399,7 @@ final class TomSecretsDeviceKeys {
 
 /// The device settings container, opened with its key.
 final class TomSecretsDeviceContainer {
-  TomSecretsDeviceContainer._(this._container, this.settings);
+  TomSecretsDeviceContainer._(this._container, this.settings, this._trust);
 
   /// Opens (or creates in memory) the container at [path] with [key].
   static Future<TomSecretsDeviceContainer> open(String path, String key) async {
@@ -413,7 +418,39 @@ final class TomSecretsDeviceContainer {
         : TomSecretsDeviceSettings.fromJson(
             (jsonDecode(fragment) as Map).cast<String, Object?>(),
           );
-    return TomSecretsDeviceContainer._(container, settings);
+    final trust = store.readFragment(tomSecretsTrustGroup);
+    return TomSecretsDeviceContainer._(
+      container,
+      settings,
+      trust == null
+          ? null
+          : TomSecretsTrust.fromJson(
+              (jsonDecode(trust) as Map).cast<String, Object?>(),
+            ),
+    );
+  }
+
+  TomSecretsTrust? _trust;
+
+  /// The device's trust material (its keys, the approvers and hosts it
+  /// recorded), created for [device] and committed when the container holds
+  /// none yet.
+  Future<TomSecretsTrust> trust(String device) async {
+    final existing = _trust;
+    if (existing != null) return existing;
+    final created = TomSecretsTrust.create(device);
+    await writeTrust(created);
+    return created;
+  }
+
+  /// Replaces the trust material and commits the container.
+  Future<void> writeTrust(TomSecretsTrust value) async {
+    _container.store!.writeFragment(
+      tomSecretsTrustGroup,
+      jsonEncode(value.toJson()),
+    );
+    await _container.save(message: 'tsm: trust');
+    _trust = value;
   }
 
   final TomKdbxSettingsContainer _container;

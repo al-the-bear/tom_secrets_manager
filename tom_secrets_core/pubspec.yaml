@@ -44,6 +44,9 @@ dependencies:
   tom_github_api: ^1.4.0
   # The outer layer's ciphers, XChaCha20-Poly1305 and AES-256-GCM (DP-8, DP-80).
   cryptography: ^2.9.0
+  # ML-DSA-65 and ML-KEM-768 (FIPS 204, 203): the signatures of grants and
+  # the approval link's handshake (DP-160).
+  tom_pqc: ^0.1.0
 
 dev_dependencies:
   lints: ^6.0.0
