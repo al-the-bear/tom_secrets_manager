@@ -61,6 +61,7 @@ final class TomSecretsServiceConfig {
     TomSecretsLog? log,
     TomSecretsPeerMeasurer? peerMeasurer,
     this.adminExecutables,
+    this.lastUsedInterval,
   }) : peerMeasurer = peerMeasurer ?? TomSecretsSystemPeerMeasurer(),
        idleSource = idleSource ?? tomSecretsSystemIdleSource(),
        host =
@@ -117,6 +118,11 @@ final class TomSecretsServiceConfig {
   /// right key (`denied`, `wrong_executable`). The binary always passes the
   /// set; null (an in-process service in tests) does not check.
   final Set<String>? adminExecutables;
+
+  /// How often the grants' last use is written to the primary vault; null:
+  /// the refresh interval (`refreshMinutes`, so a `github:` primary is not
+  /// committed more often than it is fetched), or an hour with refresh off.
+  final Duration? lastUsedInterval;
 }
 
 /// The executables that may administer a service started from
@@ -209,6 +215,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   TomSecretsApprovals? _approvals;
   TomSecretsAuditLog? _audit;
   TomSecretsLinkServer? _linkServer;
+  Timer? _lastUsedTimer;
   ServerSocket? _clientServer;
   ServerSocket? _adminServer;
   String _clientToken = '';
@@ -318,6 +325,12 @@ final class TomSecretsService implements TomSecretsApprovalHost {
       );
       final approvals = _approvals = TomSecretsApprovals(this);
       await approvals.reload();
+      final refresh = settings.refreshMinutes;
+      _lastUsedTimer = Timer.periodic(
+        config.lastUsedInterval ??
+            Duration(minutes: refresh > 0 ? refresh : 60),
+        (_) => unawaited(_flushLastUsed()),
+      );
       final link = settings.approvalLink;
       if (link != null) {
         _linkServer = await TomSecretsLinkServer.start(
@@ -409,7 +422,19 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     'hardening': _hardening,
   };
 
+  /// Writes the grants' last use now (the timer, the lock).
+  Future<void> _flushLastUsed() async {
+    try {
+      await _approvals?.flushLastUsed();
+    } on Object catch (e) {
+      log.error('last_used_failed', e);
+    }
+  }
+
   Future<void> _dropApprovals() async {
+    _lastUsedTimer?.cancel();
+    _lastUsedTimer = null;
+    await _flushLastUsed();
     _approvals?.abandonAll();
     await _approvals?.closeLinks();
     await _linkServer?.close();
@@ -438,7 +463,16 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   KdbxFile? get primary => _vaults.primary?.file;
 
   @override
-  Future<void> savePrimary() => _vaults.writePrimary();
+  Future<void> savePrimary() async {
+    final revision = await _vaults.writePrimary();
+    // The service's own write (grants, their last use): an attached app sees
+    // the new revision.
+    _emit({
+      'op': 'store_changed',
+      'store': _vaults.primaryName,
+      'revision': revision,
+    });
+  }
 
   @override
   Future<void> writeTrust() => _device!.writeTrust(_trust!);

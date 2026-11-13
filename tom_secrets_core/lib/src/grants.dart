@@ -164,6 +164,25 @@ final class TomSecretsGrantsGroup {
     );
   }
 
+  /// Sets the unsigned `lastUsed` of the grant [grantId] in [host]'s
+  /// subgroup (protocol.md 7.3); whether the grant was there.
+  bool setLastUsed(String host, String grantId, DateTime time) {
+    final entry = _group(host)?.entries
+        .where(
+          (e) =>
+              e.label == grantId &&
+              e.getString(const KdbxKey(_kindField))?.getText() ==
+                  TomSecretsSignedKind.grant.wireName,
+        )
+        .firstOrNull;
+    if (entry == null) return false;
+    entry.setString(
+      const KdbxKey('lastUsed'),
+      PlainValue(time.toUtc().toIso8601String()),
+    );
+    return true;
+  }
+
   /// Removes [kind]'s entry of [title] (as [read] names it) from [host]'s
   /// subgroup; whether one was there.
   bool remove(String host, TomSecretsSignedKind kind, Map<String, Object?> o) {

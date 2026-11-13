@@ -400,18 +400,46 @@ final class TomSecretsVaultSet {
 
   /// Writes the open primary back to its file (the service's own edit, e.g.
   /// a new device key kept in it); the held copy then is what was written.
-  Future<void> writePrimary() async {
+  /// Returns the revision written.
+  Future<String> writePrimary() async {
     final primary = _primary!;
     final stored = await opener.encode(primary.locator, primary.file);
     await opener.write(primary.locator, stored);
-    _primary = TomSecretsOpenedVault(
+    // The copy this write replaces stays a merge base: an app that edited
+    // it is merged, not refused (stale_base).
+    _ownWrites[_revisionOf(primary)] = primary.stored;
+    while (_ownWrites.length > 8) {
+      _ownWrites.remove(_ownWrites.keys.first);
+    }
+    final written = _primary = TomSecretsOpenedVault(
       locator: primary.locator,
       file: primary.file,
       stored: stored,
       source: primary.source,
       fetchedAt: primary.fetchedAt,
     );
+    final name = _primaryName;
+    if (name != null) {
+      _opened[name] = written;
+      final status = _status[name];
+      if (status != null) {
+        _status[name] = TomSecretsStoreStatus(
+          name: name,
+          state: status.state,
+          locator: status.locator,
+          source: status.source,
+          fetchedAt: status.fetchedAt,
+          revision: _revisionOf(written),
+          notPushed: status.notPushed,
+        );
+      }
+    }
+    return _revisionOf(written);
   }
+
+  /// The primary as stored before the service's own writes (revision →
+  /// bytes), the merge bases of an app's save of an older revision.
+  final Map<String, Uint8List> _ownWrites = {};
 
   /// Opens the further vaults the primary names (phase two), only those in
   /// [served] when given, and builds the index for [machine]. A vault that
@@ -632,7 +660,19 @@ final class TomSecretsVaultSet {
     var merged = false;
     var conflicts = 0;
     if (baseRevision != null && baseRevision != currentRevision) {
-      if (baseRevision != held) {
+      final KdbxFile base;
+      if (baseRevision == held) {
+        base = opened.file;
+      } else if (name == _primaryName && _ownWrites[baseRevision] != null) {
+        // The app edited a copy the service has since written over itself
+        // (grants, their last use): that copy is the base.
+        base = await opener.decode(
+          locator,
+          _ownWrites[baseRevision]!,
+          keys.credentials,
+          outerKey: outerKey,
+        );
+      } else {
         throw TomSecretsSaveException(
           'denied',
           'the file has moved past the revision the app edited',
@@ -646,7 +686,7 @@ final class TomSecretsVaultSet {
         outerKey: outerKey,
       );
       final result = tomSecretsMergeVaults(
-        base: opened.file,
+        base: base,
         ours: edited,
         theirs: theirs,
         location: '$name (save)',
@@ -715,6 +755,7 @@ final class TomSecretsVaultSet {
   }
 
   void _disposeHeld() {
+    _ownWrites.clear();
     for (final keys in _held.values) {
       keys.dispose();
     }

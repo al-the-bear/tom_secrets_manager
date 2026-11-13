@@ -152,6 +152,7 @@ final class Demo {
     Duration Function(int)? authDelay,
     TomSecretsPeerMeasurer? peerMeasurer,
     Set<String>? adminExecutables,
+    Duration? lastUsedInterval,
   }) async {
     final service = await TomSecretsService.launch(
       TomSecretsServiceConfig(
@@ -170,6 +171,7 @@ final class Demo {
                 ? const SelfPeerMeasurer()
                 : null),
         adminExecutables: adminExecutables,
+        lastUsedInterval: lastUsedInterval,
       ),
     );
     addTearDown(service.stop);

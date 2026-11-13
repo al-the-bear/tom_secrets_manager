@@ -190,6 +190,7 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
   final Map<String, _Waiting> _waiting = {};
   final Map<String, List<DateTime>> _refusals = {};
   final Map<String, DateTime> _heldBack = {};
+  final Map<String, DateTime> _lastUsed = {};
   final List<_LinkPeer> _links = [];
   int _nextApproval = 1;
 
@@ -429,6 +430,7 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
       if (grant == null) {
         open.add(i);
       } else {
+        _lastUsed[grant.id] = DateTime.now().toUtc();
         decisions[i] = grant.decision == 'allow'
             ? TomSecretsAccessAllowed(grantId: grant.id)
             : TomSecretsAccessDenied('never', grantId: grant.id);
@@ -808,6 +810,29 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
     return grant;
   }
 
+  /// The grants used since the last write, by id (written by
+  /// [flushLastUsed]).
+  Map<String, DateTime> get unwrittenLastUse => Map.unmodifiable(_lastUsed);
+
+  /// Writes the last use of every grant used since the last write into its
+  /// entry in the primary vault (the unsigned `lastUsed`, protocol.md 7.3),
+  /// in one save; whether it wrote. A grant not in the vault yet (a pending
+  /// copy from the link) waits for its vault copy.
+  Future<bool> flushLastUsed() async {
+    final primary = service.primary;
+    if (_lastUsed.isEmpty || primary == null) return false;
+    final group = TomSecretsGrantsGroup(primary);
+    final written = [
+      for (final MapEntry(key: id, value: time) in _lastUsed.entries)
+        if (group.setLastUsed(service.host, id, time)) id,
+    ];
+    if (written.isEmpty) return false;
+    written.forEach(_lastUsed.remove);
+    await service.savePrimary();
+    service.log.info('last_used_written', {'grants': written.length});
+    return true;
+  }
+
   /// Revokes the grant [grantId] of [host] (`grants.revoke`): a signed
   /// revocation is written and the grant's entry removed.
   Future<void> revokeGrant(String host, String grantId) async {
@@ -842,7 +867,8 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
   }
 
   /// The grants of [host], or of every host (`grants.list`), as stored,
-  /// each with `accepted` (its signatures verify) for this host's.
+  /// each with `accepted` (its signatures verify) and, for this host's, the
+  /// last use not written yet.
   Future<List<Map<String, Object?>>> listGrants([String? host]) async {
     final primary = service.primary;
     if (primary == null) return const [];
@@ -853,6 +879,9 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
         for (final g in group.read(h, TomSecretsSignedKind.grant))
           {
             ...g,
+            // A use not written yet shows already.
+            if (h == service.host && _lastUsed[g['id']] != null)
+              'lastUsed': _lastUsed[g['id']]!.toIso8601String(),
             'accepted':
                 await tomSecretsAcceptedBy(
                   TomSecretsSignedLabels.grant,
