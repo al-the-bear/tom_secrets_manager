@@ -296,6 +296,7 @@ void main() {
           locator: 'github:al-the-bear/demo-vaults/vaults/fleet.kdbx',
           password: 'fleet-pw',
           githubToken: 'demo-other-token',
+          expires: DateTime.utc(2027, 11, 13),
         ),
       );
       final back = TomSecretsPrimaryVaults(
@@ -304,6 +305,7 @@ void main() {
       final keys = back.byName('fleet')!;
       expect(keys.locator, 'github:al-the-bear/demo-vaults/vaults/fleet.kdbx');
       expect(keys.githubToken, 'demo-other-token');
+      expect(keys.expires, DateTime.utc(2027, 11, 13), reason: 'KDBX Expires');
       expect(keys.toString(), isNot(contains('fleet-pw')));
       final opened = await KdbxFormat().read(fleetBytes, keys.credentials);
       expect(byTitle(opened, 'Main').label, 'Main');
@@ -317,6 +319,7 @@ void main() {
       );
       expect(vaults.list().single.password, 'changed');
       expect(vaults.list().single.githubToken, isNull);
+      expect(vaults.list().single.expires, isNull, reason: 'Expires cleared');
       expect(
         () => vaults.put(
           TomSecretsVaultKeys(
@@ -349,6 +352,12 @@ void main() {
         ('al-the-bear', 'vault', 'main', 'vaults/prod.kdbx'),
       );
       expect(g.text, 'github:al-the-bear/vault@main/vaults/prod.kdbx');
+      expect(g.repositorySlug, 'al-the-bear/vault');
+      expect(
+        g.tokenHandle,
+        'tsm.github-token.al-the-bear/vault',
+        reason: 'one keychain token per repository, any branch',
+      );
       final d =
           TomSecretsVaultLocator.parse('github:o/r/v.kdbx')
               as TomSecretsGitHubLocator;

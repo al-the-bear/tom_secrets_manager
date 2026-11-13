@@ -341,14 +341,16 @@ const String _script = r'''
 # keeps only the current state. The push expects the head it read
 # (--force-with-lease): a save that lands in between makes it fail, and the
 # next run tries again. TSM_NOW (seconds since the epoch) stands in for the
-# clock in tests.
+# clock in tests. Under pipefail every reader in a pipeline reads its input
+# to the end: one that stops early (head, grep -q, awk's exit) can leave the
+# writer dying of SIGPIPE, which fails the run on a long history.
 set -euo pipefail
 
 config=.tsm/compaction.yaml
 setting() {
   local value
   value=$(sed -n "s/^$1:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*\(#.*\)\{0,1\}$/\1/p" \
-    "$config" 2>/dev/null | head -n 1)
+    "$config" 2>/dev/null | sed -n 1p)
   echo "${value:-$2}"
 }
 retention_days=$(setting retention_days 90)
@@ -358,9 +360,9 @@ branch=$(git symbolic-ref --short HEAD)
 head=$(git rev-parse HEAD)
 
 # The newest compaction is the root commit, when it carries the trailer.
-root=$(git rev-list --max-parents=0 HEAD | head -n 1)
+root=$(git rev-list --max-parents=0 HEAD | sed -n 1p)
 last=0
-if git log -1 --format=%B "$root" | grep -q '^Tsm-Compacted-From:'; then
+if git log -1 --format=%B "$root" | grep '^Tsm-Compacted-From:' >/dev/null; then
   last=$(git log -1 --format=%ct "$root")
 fi
 if [ $((now - last)) -lt $((interval_days * 86400)) ]; then
@@ -374,7 +376,7 @@ if [ "$retention_days" -eq 0 ]; then
 else
   window_start=$((now - retention_days * 86400))
   base=$(git log --first-parent --format='%H %ct' HEAD |
-    awk -v start="$window_start" '$2 < start { print $1; exit }')
+    awk -v start="$window_start" '!found && $2 < start { print $1; found = 1 }')
 fi
 if [ -z "$base" ] || [ -z "$(git log -1 --format=%P "$base")" ]; then
   echo "tsm-compact: nothing to cut"

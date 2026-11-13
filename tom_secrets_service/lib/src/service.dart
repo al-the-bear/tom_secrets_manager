@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:http/http.dart' as http;
 import 'package:tom_core_storage/settings.dart';
 import 'package:tom_secrets_client/tom_secrets_client.dart';
 import 'package:tom_crypto/protected_value.dart';
@@ -24,7 +25,9 @@ import 'approvals.dart';
 import 'audit.dart';
 import 'bootstrap.dart';
 import 'connection.dart';
+import 'github_opener.dart';
 import 'identity.dart';
+import 'key_expiry.dart';
 import 'link_server.dart';
 import 'lock_policy.dart';
 import 'log.dart';
@@ -39,10 +42,6 @@ const String tomSecretsKeychainService = 'tom-secrets-manager';
 /// The service's version, sent in `welcome` and `challenge`.
 const String tomSecretsServiceVersion = '0.1.0';
 
-/// The admin requests of later parts the service does not answer yet; they
-/// are answered `unsupported` like an unknown `op`.
-const Set<String> tomSecretsLaterAdminOps = {'reload'};
-
 /// What a service is started with.
 final class TomSecretsServiceConfig {
   /// A configuration; [adminKey] is the key the starter handed over.
@@ -50,7 +49,11 @@ final class TomSecretsServiceConfig {
     required this.runtime,
     required this.bootstrap,
     required this.adminKey,
-    this.opener = const TomSecretsFileOpener(),
+    this.opener,
+    this.githubBaseUrl = 'https://api.github.com',
+    this.githubClient,
+    this.refreshTick = const Duration(minutes: 1),
+    DateTime Function()? clock,
     TomSecretsIdleSource? idleSource,
     this.keychain,
     this.policy,
@@ -62,7 +65,8 @@ final class TomSecretsServiceConfig {
     TomSecretsPeerMeasurer? peerMeasurer,
     this.adminExecutables,
     this.lastUsedInterval,
-  }) : peerMeasurer = peerMeasurer ?? TomSecretsSystemPeerMeasurer(),
+  }) : clock = clock ?? DateTime.now,
+       peerMeasurer = peerMeasurer ?? TomSecretsSystemPeerMeasurer(),
        idleSource = idleSource ?? tomSecretsSystemIdleSource(),
        host =
            host ??
@@ -79,8 +83,25 @@ final class TomSecretsServiceConfig {
   /// The admin key (32 bytes).
   final Uint8List adminKey;
 
-  /// Opens and saves vault files.
-  final TomSecretsVaultOpener opener;
+  /// Opens and saves vault files; null (the default): `file:` vaults on the
+  /// disk and `github:` vaults through the GitHub opener, with the offline
+  /// cache in `bootstrap.cacheDirectory` and each repository's token from
+  /// the keychain or the primary's vault list.
+  final TomSecretsVaultOpener? opener;
+
+  /// GitHub's API, for `github:` vaults.
+  final String githubBaseUrl;
+
+  /// The HTTP client `github:` vaults are fetched through (null: its own).
+  final http.Client? githubClient;
+
+  /// How often the refresh looks for stores that are due; each store is
+  /// fetched every `refreshMinutes` (the device settings), or after its
+  /// backoff.
+  final Duration refreshTick;
+
+  /// The time of the refresh and the key-expiry reminders.
+  final DateTime Function() clock;
 
   /// The input idle time (lock mode (b)).
   final TomSecretsIdleSource idleSource;
@@ -196,9 +217,25 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   final int startedAt = DateTime.now().millisecondsSinceEpoch;
 
   Uint8List _adminKey;
+
+  /// The `github:` opener, when the service built its own.
+  late final TomSecretsGitHubOpener? _github = config.opener == null
+      ? TomSecretsGitHubOpener(
+          device: config.host,
+          tokens: _githubToken,
+          cacheDirectory: config.bootstrap.cacheDirectory,
+          useCache: () => settings.offlineCache,
+          baseUrl: config.githubBaseUrl,
+          httpClient: config.githubClient,
+          clock: config.clock,
+        )
+      : null;
   late final TomSecretsVaultSet _vaults = TomSecretsVaultSet(
-    opener: config.opener,
+    opener: config.opener ?? TomSecretsLocatorOpener(github: _github),
+    clock: config.clock,
   );
+  Timer? _refreshTimer;
+  final Map<String, String> _reminded = {};
   late final TomSecretsDeviceKeys _deviceKeys = TomSecretsDeviceKeys(
     mode: config.bootstrap.deviceKey,
     host: config.host,
@@ -317,6 +354,10 @@ final class TomSecretsService implements TomSecretsApprovalHost {
         config.bootstrap.deviceContainer,
         key,
       );
+      final refreshMinutes = settings.refreshMinutes;
+      _vaults.refreshInterval = Duration(
+        minutes: refreshMinutes > 0 ? refreshMinutes : 5,
+      );
       await _vaults.openStores(machine: machine, served: settings.servedStores);
       _trust = await _device!.trust(config.host);
       _audit = TomSecretsAuditLog(
@@ -349,6 +390,12 @@ final class TomSecretsService implements TomSecretsApprovalHost {
       rethrow;
     }
     _lockTimer.start(settings.serviceLock);
+    if (settings.refreshMinutes > 0) {
+      _refreshTimer = Timer.periodic(
+        config.refreshTick,
+        (_) => unawaited(_tick()),
+      );
+    }
     if (!_unlocked.isCompleted) _unlocked.complete();
     final states = _vaults.status.map((s) => s.state.wireName).toList();
     log.info('unlock', {
@@ -358,6 +405,150 @@ final class TomSecretsService implements TomSecretsApprovalHost {
       'unavailable': states.where((s) => s == 'unavailable').length,
     });
     _emit({'op': 'unlocked'});
+    _remindKeys();
+  }
+
+  bool _ticking = false;
+
+  Future<void> _tick() async {
+    if (_ticking || isLocked) return;
+    _ticking = true;
+    try {
+      await refresh();
+    } on Object catch (e) {
+      log.error('refresh_failed', e);
+    } finally {
+      _ticking = false;
+    }
+  }
+
+  Future<void> _queue = Future<void>.value();
+
+  /// Runs [body] after every refresh and save before it: a refresh and a
+  /// save never interleave on one store.
+  Future<T> _serial<T>(Future<T> Function() body) {
+    final result = _queue.then((_) => body());
+    _queue = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  /// Fetches the stores that are due ([force]: every store, the `reload`)
+  /// and reopens the moved ones (part-service, Refresh), then tells the
+  /// subscribers: `store_state` for every store whose state or source
+  /// changed, `store_changed` for every store reopened with new content; and
+  /// sends the key-expiry reminders that are due.
+  Future<TomSecretsRefreshReport> refresh({bool force = false}) =>
+      _serial(() async {
+        if (isLocked) return const TomSecretsRefreshReport();
+        final report = await _vaults.refresh(force: force);
+        if (isLocked) return report;
+        for (final status in report.states) {
+          _emit({
+            'op': 'store_state',
+            'store': status.name,
+            'state': status.state.wireName,
+            'source': status.wireSource,
+            'fetchedAt': ?status.fetchedAt?.toUtc().toIso8601String(),
+            'notPushed': status.notPushed,
+          });
+        }
+        for (final name in report.reopened) {
+          _emit({
+            'op': 'store_changed',
+            'store': name,
+            'revision': ?_vaults.statusOf(name)?.revision,
+          });
+        }
+        // The primary holds the grants and the approval records.
+        if (report.reopened.contains(_vaults.primaryName)) {
+          await _approvals?.reload();
+        }
+        if (force || report.states.isNotEmpty || report.reopened.isNotEmpty) {
+          log.info('refresh', {
+            'forced': force,
+            'reopened': report.reopened.length,
+            'states': [
+              for (final s in report.states) '${s.name}:${s.state.wireName}',
+            ],
+          });
+        }
+        _remindKeys();
+        return report;
+      });
+
+  /// The token of [vault]'s repository: the device keychain's
+  /// (`tsm.github-token.<owner>/<repository>`), else one the primary's vault
+  /// list keeps for a vault in that repository, never for the primary's own
+  /// repository (part-stores).
+  Future<String?> _githubToken(TomSecretsGitHubLocator vault) async {
+    final keychain = config.keychain;
+    if (keychain != null) {
+      try {
+        final token = await keychain.read(vault.tokenHandle);
+        if (token != null && token.isNotEmpty) return token;
+      } on TomSecretStoreException catch (e) {
+        log.error('keychain_failed', e);
+      }
+    }
+    final primary = _vaults.primary;
+    if (primary == null) return null;
+    final own = TomSecretsVaultLocator.parse(primary.locator);
+    if (own is TomSecretsGitHubLocator &&
+        own.repositorySlug == vault.repositorySlug) {
+      return null;
+    }
+    for (final keys in TomSecretsPrimaryVaults(primary.file).list()) {
+      final at = TomSecretsVaultLocator.parse(keys.locator);
+      if (keys.githubToken != null &&
+          at is TomSecretsGitHubLocator &&
+          at.repositorySlug == vault.repositorySlug) {
+        return keys.githubToken;
+      }
+    }
+    return null;
+  }
+
+  /// The keys due for a reminder now (part-key-rotation): each repository's
+  /// GitHub token from `keyExpiryWarningDays` before the expiry GitHub
+  /// reported, each further vault's key file and repository key from 30
+  /// days before its entry's Expires.
+  List<TomSecretsExpiringKey> get expiring {
+    if (isLocked) return const [];
+    final now = config.clock().toUtc();
+    return [
+      for (final MapEntry(key: slug, value: at)
+          in (_github?.tokenExpiries ?? const <String, DateTime>{}).entries)
+        ?TomSecretsExpiringKey.due(
+          kind: 'github_token',
+          key: 'github-token:$slug',
+          expiresAt: at,
+          now: now,
+          firstDays: settings.keyExpiryWarningDays,
+        ),
+      for (final keys in _vaults.listed)
+        if (keys.expires != null)
+          ?TomSecretsExpiringKey.due(
+            kind: 'vault_keys',
+            key: 'vault-keys:${keys.name}',
+            vault: keys.name,
+            expiresAt: keys.expires!,
+            now: now,
+            firstDays: TomSecretsExpiringKey.otherKeyDays,
+          ),
+    ];
+  }
+
+  /// Sends `key_expiry` for every key that reached a new reminder step to
+  /// the subscribers; with none attached nothing is recorded, so the next
+  /// check after one attaches sends it.
+  void _remindKeys() {
+    if (!_hasSubscribers) return;
+    for (final key in expiring) {
+      if (_reminded[key.key] == key.step) continue;
+      _reminded[key.key] = key.step;
+      _emit(key.toEvent());
+      log.info('key_expiry', {'key': key.key, 'daysLeft': key.daysLeft});
+    }
   }
 
   /// Locks: drops the vaults, the index, the device settings and every
@@ -365,6 +556,8 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   Future<void> lock({String reason = 'admin'}) async {
     if (isLocked) return;
     _lockTimer.stop();
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
     await _dropApprovals();
     _vaults.lock();
     _device = null;
@@ -386,6 +579,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     for (final a in [..._admins]) {
       await a.connection.close();
     }
+    _github?.close();
     await config.runtime.removeEndpoints();
     await config.runtime.release();
     log.info('stop');
@@ -414,10 +608,15 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   /// The `statusReport` members.
   Map<String, Object?> statusReport() => {
     'locked': isLocked,
-    'lockMode': settings.serviceLock.mode.name,
+    // The protocol's letters (DP-14): (a) never relock, (b) on idle.
+    'lockMode': switch (settings.serviceLock.mode) {
+      TomSecretsLockMode.never => 'a',
+      TomSecretsLockMode.idle => 'b',
+    },
     'protocol': 1,
     'service': {'version': tomSecretsServiceVersion, 'start': startedAt},
     'stores': [for (final s in _vaults.status) s.toJson()],
+    'expiring': [for (final k in expiring) k.toJson()],
     'admins': _admins.where((a) => a.authenticated).length,
     'hardening': _hardening,
   };
@@ -497,10 +696,8 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     Uint8List stored, {
     String? baseRevision,
   }) async {
-    final result = await _vaults.save(
-      store,
-      stored,
-      baseRevision: baseRevision,
+    final result = await _serial(
+      () => _vaults.save(store, stored, baseRevision: baseRevision),
     );
     log.info('save', {
       'store': store,
@@ -1438,6 +1635,8 @@ final class _AdminSession {
           connection.sendError(id, e.kind, e.message, {
             if (e.kind == 'needs_unlock' || e.kind == 'unavailable')
               'store': store,
+            if (e.kind == 'offline' || e.kind == 'token_expired')
+              'stores': [store],
             'reason': ?e.reason,
           });
         } on Object catch (e) {
@@ -1445,6 +1644,32 @@ final class _AdminSession {
           connection.sendError(id, 'internal', 'the save failed', {
             'code': e.runtimeType.toString(),
           });
+        }
+      case 'reload':
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        await service.refresh(force: true);
+        List<String> named(TomSecretsStoreState state) => [
+          for (final s in service.vaults.status)
+            if (s.state == state) s.name,
+        ];
+        final refused = named(TomSecretsStoreState.tokenExpired);
+        final offline = named(TomSecretsStoreState.offline);
+        if (refused.isNotEmpty) {
+          connection.sendError(
+            id,
+            'token_expired',
+            'GitHub refused the token',
+            {'stores': refused},
+          );
+        } else if (offline.isNotEmpty) {
+          connection.sendError(id, 'offline', 'GitHub could not be reached', {
+            'stores': offline,
+          });
+        } else {
+          connection.send({'op': 'ok', 'id': id});
         }
       case 'lock':
         await service.lock();
@@ -1467,6 +1692,12 @@ final class _AdminSession {
           for (final event in service.approvals?.waitingEvents ?? const []) {
             connection.send(event);
           }
+        }
+        // The reminders due now, to an app that attached after they were
+        // first sent.
+        for (final key in service.expiring) {
+          service._reminded[key.key] = key.step;
+          connection.send(key.toEvent());
         }
       case 'approve' ||
           'approval.redeem' ||

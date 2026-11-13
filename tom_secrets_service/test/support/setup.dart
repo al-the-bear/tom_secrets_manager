@@ -9,8 +9,10 @@ library;
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 import 'package:tom_core_storage/settings.dart';
+import 'package:tom_github_api/testing.dart' show FakeGitHubServer;
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 import 'package:tom_secrets_service/tom_secrets_service.dart';
@@ -153,6 +155,9 @@ final class Demo {
     TomSecretsPeerMeasurer? peerMeasurer,
     Set<String>? adminExecutables,
     Duration? lastUsedInterval,
+    http.Client? githubClient,
+    DateTime Function()? clock,
+    Duration refreshTick = const Duration(minutes: 1),
   }) async {
     final service = await TomSecretsService.launch(
       TomSecretsServiceConfig(
@@ -172,6 +177,10 @@ final class Demo {
                 : null),
         adminExecutables: adminExecutables,
         lastUsedInterval: lastUsedInterval,
+        githubBaseUrl: FakeGitHubServer.baseUrl,
+        githubClient: githubClient,
+        clock: clock,
+        refreshTick: refreshTick,
       ),
     );
     addTearDown(service.stop);

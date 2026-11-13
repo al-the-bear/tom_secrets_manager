@@ -22,6 +22,11 @@ dependencies:
   tom_secrets_client:
     path: ../../secrets_clients/clients/dart/tom_secrets_client
   tom_core_storage: ^0.1.2
+  # The GitHub client the github: opener reaches GitHub through.
+  tom_github_api: ^1.4.0
+  http: ^1.2.0
+  # The storage's diagnostics: a fetch GitHub did not answer.
+  tom_basics: ^3.3.0
   # Secrets held masked and read as bytes zeroed after use (memory hygiene).
   tom_crypto: ^1.5.0
   # HMAC-SHA256 of the admin challenge.

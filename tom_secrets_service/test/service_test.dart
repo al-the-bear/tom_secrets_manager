@@ -339,18 +339,20 @@ void main() {
         'file',
         'file',
       ]);
-      expect(status['lockMode'], 'idle');
+      expect(status['lockMode'], 'b', reason: 'lock mode (b), on idle');
+      expect(await admin.request('reload'), {'op': 'ok', 'id': isA<int>()});
+      expect(status['expiring'], isEmpty);
+      await admin.request('lock');
       await expectLater(
         admin.request('reload'),
         throwsA(
           isA<TomSecretsAdminException>().having(
             (e) => e.kind,
             'kind',
-            'unsupported',
+            'locked',
           ),
         ),
       );
-      await admin.request('lock');
       expect(service.isLocked, isTrue);
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(events, containsAllInOrder(['unlocked', 'locked']));

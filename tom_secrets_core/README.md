@@ -192,8 +192,12 @@ service parse references with one implementation.
   …), because only this package declares `tom_kdbx_store` (DP-29).
 - **The primary vault** (`TomSecretsPrimaryVaults`, BP-8): the group
   `.tom-secrets/vaults` holds one entry per further vault (locator, master
-  password, key file, outer key, GitHub token); the primary cannot list
-  itself, and the group never resolves.
+  password, key file, outer key, GitHub token, and the KDBX Expires of the
+  entry as the due date of its key file and repository key); the primary
+  cannot list itself, and the group never resolves. A repository's own GitHub
+  token is kept in the device keychain under
+  `tomSecretsGitHubTokenHandle(owner, repository)`
+  (`tsm.github-token.<owner>/<repository>`).
 
 ```dart
 final resolver = TomSecretsResolver(

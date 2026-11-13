@@ -63,7 +63,8 @@ Future<void> main() async {
         adminKey: handover.adminKey,
         // The OS keychain, for the device key's `keychain` and `auto` modes
         // (not available in a session without one: `auto` then takes the
-        // vault, `keychain` refuses the start).
+        // vault, `keychain` refuses the start), and the GitHub token of each
+        // vault repository.
         keychain: TomDesktopSecretStore(service: tomSecretsKeychainService),
         harden: () => hardening,
         // Only tsm and the manager app administer it (protocol.md 6.1).

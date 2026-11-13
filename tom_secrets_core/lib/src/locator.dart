@@ -117,7 +117,18 @@ final class TomSecretsGitHubLocator extends TomSecretsVaultLocator {
 
   @override
   String get fileName => path.split('/').last;
+
+  /// `owner/repository`.
+  String get repositorySlug => '$owner/$repository';
+
+  /// The handle of the repository's GitHub token in the device keychain
+  /// (`TomSecretStore`): one token per repository (part-stores).
+  String get tokenHandle => tomSecretsGitHubTokenHandle(owner, repository);
 }
+
+/// The device keychain's handle of the GitHub token for [owner]/[repository].
+String tomSecretsGitHubTokenHandle(String owner, String repository) =>
+    'tsm.github-token.$owner/$repository';
 
 /// A KDBX file on another git server over smart HTTP; recognised, not
 /// advertised in phase A.

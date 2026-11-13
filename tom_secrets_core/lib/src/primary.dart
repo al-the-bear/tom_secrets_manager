@@ -44,6 +44,7 @@ final class TomSecretsVaultKeys {
     this.keyFile,
     this.outerKey,
     this.githubToken,
+    this.expires,
   });
 
   /// The entry's title: the vault's name.
@@ -63,6 +64,11 @@ final class TomSecretsVaultKeys {
 
   /// A GitHub token for its repository, or null (the primary's applies).
   final String? githubToken;
+
+  /// When its key file and repository key are due for rotation: the entry's
+  /// KDBX Expires (part-key-rotation), or null when the entry does not
+  /// expire.
+  final DateTime? expires;
 
   /// The credentials that open the vault (`Credentials.composite` takes the
   /// key file's bytes and derives the key itself).
@@ -132,6 +138,9 @@ final class TomSecretsPrimaryVaults {
       keyFile: e.getBinary(TomSecretsVaultFields.keyFile)?.value,
       outerKey: text(TomSecretsVaultFields.outerKey),
       githubToken: text(TomSecretsVaultFields.githubToken),
+      expires: e.times.expires.get() == true
+          ? e.times.expiryTime.get()?.toUtc()
+          : null,
     );
   }
 
@@ -164,6 +173,8 @@ final class TomSecretsPrimaryVaults {
       set(KdbxKeyCommon.PASSWORD, keys.password);
       set(TomSecretsVaultFields.outerKey, keys.outerKey);
       set(TomSecretsVaultFields.githubToken, keys.githubToken);
+      target.times.expires.set(keys.expires != null);
+      if (keys.expires != null) target.times.expiryTime.set(keys.expires);
       target.removeBinary(TomSecretsVaultFields.keyFile);
       if (keys.keyFile != null) {
         target.createBinary(

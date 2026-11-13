@@ -89,9 +89,9 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   admin key, protocol.md 6.1) or a `claim` with the master password, which
   issues a new admin key and revokes the old one. Failed authentications delay
   the next one (1 s, 2 s, 4 s … 60 s). Then `unlock`, `unlockStore`, `lock`,
-  `status`, `subscribe` (the events `unlocked`, `locked`, `unlock_needed`,
-  `store_changed`, `approval_needed`, `approval_closed`, `rate_limited`),
-  `vaultKeys`, `save`, `approve`, `approval.redeem`, `approval.issue`,
+  `status`, `reload`, `subscribe` (the events `unlocked`, `locked`,
+  `unlock_needed`, `store_changed`, `store_state`, `key_expiry`,
+  `approval_needed`, `approval_closed`, `rate_limited`), `vaultKeys`, `save`, `approve`, `approval.redeem`, `approval.issue`,
   `grants.list`, `grants.add`, `grants.revoke`, `approvers.cliSwitch`,
   `audit.query` and `shutdown`.
 - **The editing path** (DP-13, protocol.md 6.4): `vaultKeys` hands the app the
@@ -101,8 +101,42 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   that moved meanwhile is merged three-way when the app edited the service's
   copy, and refused (`stale_base`) otherwise. The store is reopened and
   `store_changed` names the new revision. `file:` vaults are written on the
-  local disk; `github:` vaults are not opened yet (the GitHub opener comes
-  with the refresh) and answer `unavailable`.
+  local disk; `github:` vaults are committed over the head last read (a
+  branch that moved meanwhile refuses the commit); a store served from its
+  offline copy refuses a save (`offline`, `token_expired`).
+- **`github:` vaults** (`TomSecretsGitHubOpener`): opened through
+  `tom_secrets_core`'s `TomSecretsVaultUnit` over `TomGitHubStorage` (the REST
+  API, no clone), with the commit reader for compactions. Each repository's
+  token is asked for on every request: the device keychain's
+  (`tsm.github-token.<owner>/<repository>`), else one the primary's vault list
+  keeps for a vault in that repository (never for the primary's own
+  repository). The expiry GitHub reports for a token
+  (`GitHub-Authentication-Token-Expiration`) is recorded for the reminders.
+- **The offline cache** (`bootstrap.yaml`'s `cache_dir`, default
+  `<data>/cache`; the device setting `offlineCache`): every file fetched is
+  kept there as stored. When GitHub cannot be reached or refuses the token, a
+  vault opens from it (`offline` or `token_expired`, `source: cache`); without
+  a copy it is `unavailable`. The primary is opened before the device
+  settings are read, so it is always cached.
+- **The refresh**: at unlock, on `reload`, and on a timer every
+  `refreshMinutes` (the device setting; 0 switches the timer off). A file
+  that did not move costs one conditional request and is not reopened; a
+  moved file is reopened with the keys held and the index rebuilt
+  (`store_changed`); a file whose key changed goes to `needs_unlock`; a
+  further vault the primary lists anew, or with new keys, is opened with
+  them, and one it no longer lists is dropped. A failed fetch keeps the copy
+  held and never locks the service: network failures back off 1, 2, 4 … 30
+  minutes, a refused token is not fetched again until `reload` or the next
+  unlock. Every change of a store's state or source is sent as
+  `store_state`; `reload` answers `offline` or `token_expired` with the
+  stores still on their copy.
+- **Key-expiry reminders** (`TomSecretsExpiringKey`): the GitHub tokens from
+  `keyExpiryWarningDays` (default 14) before their expiry, the further
+  vaults' key files and repository keys from 30 days before the Expires of
+  their entry in the primary; then 7 days and 1 day before, and once a day
+  once expired. Each step is sent once as `key_expiry` to the subscribed
+  admins (an admin that subscribes gets those due at that moment), and
+  `status` lists the keys due as `expiring`.
 - **Memory hygiene**: the keys the service holds while unlocked are
   `TomProtectedValue`s of `tom_crypto` (masked, zeroed on lock), and a
   resolved value stays masked in `tom_secrets_core`'s field value. An answer
@@ -126,6 +160,8 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   container, then the further vaults the primary names (a vault whose key does
   not open is `needs_unlock`, the others are still served). Locking drops the
   vaults, the index and the device settings; the admin key survives.
+  `status.lockMode` names the lock mode by the protocol's letter (`a` never,
+  `b` on idle).
 - **Lock modes** (DP-14, `TomSecretsLockPolicy` from `tom_secrets_core`): (a)
   never relock, (b) relock after the user's input has been idle for a while,
   and a hard maximum unlocked time. The idle time comes from CoreGraphics on
@@ -169,4 +205,6 @@ testkit :test
 `test/process_test.dart` runs on macOS and Linux, `test/windows_test.dart` on
 Windows, the others (the service, the editing path and the log, the secret
 frames, the hardening seen from outside a hardened process, the peer identity
-of a real client process) everywhere.
+of a real client process, the `github:` vaults with the offline cache, the
+refresh and the key-expiry reminders against `tom_github_api`'s in-memory
+GitHub) everywhere.

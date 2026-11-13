@@ -11,7 +11,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:tom_core_storage/tom_core_storage.dart'
-    show TomKeyRequiredException;
+    show
+        TomKeyRequiredException,
+        TomRateLimitException,
+        TomTokenRejectedException,
+        TomTokenRequiredException;
 import 'package:tom_crypto/protected_value.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
@@ -38,12 +42,28 @@ enum TomSecretsStoreState {
 
   /// The protocol's name.
   final String wireName;
+
+  /// The state of a store served from its offline copy because of [reason]:
+  /// `token_expired` when GitHub refused the token or none is there, else
+  /// `offline`.
+  static TomSecretsStoreState offlineFor(Object reason) =>
+      reason is TomTokenRejectedException || reason is TomTokenRequiredException
+      ? tokenExpired
+      : offline;
 }
+
+/// Whether [error] is a failure to reach the remote, or a refusal of the
+/// token, that a held or cached copy stands in for (and the refresh backs
+/// off from).
+bool tomSecretsIsFetchFailure(Object error) =>
+    TomSecretsVaultUnit.isOfflineFailure(error) ||
+    error is TomRateLimitException;
 
 /// A vault file as opened.
 final class TomSecretsOpenedVault {
   /// [file] read from [locator] at [revision], from [source] (`file`,
-  /// `github`, `cache`) fetched at [fetchedAt].
+  /// `github`, `cache`) fetched at [fetchedAt]; [offlineReason] is why it
+  /// came from the offline cache.
   TomSecretsOpenedVault({
     required this.locator,
     required this.file,
@@ -51,6 +71,7 @@ final class TomSecretsOpenedVault {
     this.revision,
     this.source = 'file',
     this.fetchedAt,
+    this.offlineReason,
   });
 
   /// Where it is.
@@ -70,6 +91,15 @@ final class TomSecretsOpenedVault {
 
   /// When it was fetched.
   final DateTime? fetchedAt;
+
+  /// Why it was opened from the offline cache (the remote's failure), or
+  /// null when it came from the remote or the disk.
+  final Object? offlineReason;
+
+  /// The state of a store holding this file.
+  TomSecretsStoreState get state => offlineReason == null
+      ? TomSecretsStoreState.current
+      : TomSecretsStoreState.offlineFor(offlineReason!);
 }
 
 /// Reads, decodes, encodes and writes vault files by locator.
@@ -84,6 +114,11 @@ abstract interface class TomSecretsVaultOpener {
 
   /// The file at [locator] as stored now.
   Future<Uint8List> read(String locator);
+
+  /// The revision of the file at [locator] now, without opening it: the
+  /// remote's head, or the git blob id of a file on the disk. The refresh
+  /// reopens a file only when it moved.
+  Future<String> revision(String locator);
 
   /// [stored] (as [locator] keeps it: a `.tsmx` file outer-encrypted under
   /// [outerKey]) opened with [credentials].
@@ -101,9 +136,75 @@ abstract interface class TomSecretsVaultOpener {
   Future<void> write(String locator, Uint8List stored);
 }
 
+/// The outer layer of a vault file named [fileName]: a `.tsmx` file opened
+/// with [outerKey] (base64), or null for a plain `.kdbx`.
+TomSecretsOuterCodec? tomSecretsOuterCodecFor(
+  String fileName,
+  String? outerKey,
+) => fileName.endsWith(tomSecretsOuterSuffix)
+    ? TomSecretsOuterCodec(
+        path: fileName,
+        keys: [
+          if (outerKey != null) TomSecretsRepositoryKey.fromBase64(outerKey),
+        ],
+      )
+    : null;
+
+/// Each locator to the opener of its kind: `file:` vaults to [file],
+/// `github:` vaults to [github].
+final class TomSecretsLocatorOpener implements TomSecretsVaultOpener {
+  /// An opener of `file:` vaults through [file] and `github:` vaults through
+  /// [github] (null: `github:` vaults are not opened).
+  const TomSecretsLocatorOpener({
+    this.file = const TomSecretsFileOpener(),
+    this.github,
+  });
+
+  /// The `file:` opener.
+  final TomSecretsVaultOpener file;
+
+  /// The `github:` opener, or null.
+  final TomSecretsVaultOpener? github;
+
+  TomSecretsVaultOpener _for(String locator) =>
+      switch (TomSecretsVaultLocator.parse(locator)) {
+        TomSecretsFileLocator() => file,
+        TomSecretsGitHubLocator() when github != null => github!,
+        _ => throw UnsupportedError('no opener for $locator'),
+      };
+
+  @override
+  Future<TomSecretsOpenedVault> open(
+    String locator,
+    Credentials credentials, {
+    String? outerKey,
+  }) => _for(locator).open(locator, credentials, outerKey: outerKey);
+
+  @override
+  Future<Uint8List> read(String locator) => _for(locator).read(locator);
+
+  @override
+  Future<String> revision(String locator) => _for(locator).revision(locator);
+
+  @override
+  Future<KdbxFile> decode(
+    String locator,
+    Uint8List stored,
+    Credentials credentials, {
+    String? outerKey,
+  }) => _for(locator).decode(locator, stored, credentials, outerKey: outerKey);
+
+  @override
+  Future<Uint8List> encode(String locator, KdbxFile file, {String? outerKey}) =>
+      _for(locator).encode(locator, file, outerKey: outerKey);
+
+  @override
+  Future<void> write(String locator, Uint8List stored) =>
+      _for(locator).write(locator, stored);
+}
+
 /// `file:` vaults: read and written on the local disk (a `.tsmx` file
-/// through the outer layer). `github:` vaults are opened by the service's
-/// GitHub opener (the refresh, part-service).
+/// through the outer layer).
 final class TomSecretsFileOpener implements TomSecretsVaultOpener {
   /// The opener.
   const TomSecretsFileOpener();
@@ -117,14 +218,7 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
   }
 
   static TomSecretsOuterCodec? _codec(String path, String? outerKey) =>
-      path.endsWith(tomSecretsOuterSuffix)
-      ? TomSecretsOuterCodec(
-          path: path.split(RegExp(r'[/\\]')).last,
-          keys: [
-            if (outerKey != null) TomSecretsRepositoryKey.fromBase64(outerKey),
-          ],
-        )
-      : null;
+      tomSecretsOuterCodecFor(path.split(RegExp(r'[/\\]')).last, outerKey);
 
   @override
   Future<TomSecretsOpenedVault> open(
@@ -143,6 +237,10 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
 
   @override
   Future<Uint8List> read(String locator) => File(_path(locator)).readAsBytes();
+
+  @override
+  Future<String> revision(String locator) async =>
+      tomSecretsBlobId(await read(locator));
 
   @override
   Future<KdbxFile> decode(
@@ -349,13 +447,59 @@ final class TomSecretsStoreStatus {
   };
 }
 
+/// What a refresh changed.
+final class TomSecretsRefreshReport {
+  /// A report of the stores whose state or source changed ([states], their
+  /// new status) and of those reopened with new content ([reopened]).
+  const TomSecretsRefreshReport({
+    this.states = const [],
+    this.reopened = const [],
+  });
+
+  /// The new status of every store whose state or source changed (a store
+  /// new in the primary's list included).
+  final List<TomSecretsStoreStatus> states;
+
+  /// The stores reopened with new content.
+  final List<String> reopened;
+}
+
+enum _Outcome { unchanged, reopened, dropped }
+
+/// When a store is fetched next, and how often a fetch failed in a row.
+final class _Next {
+  const _Next(this.at, {this.failures = 0, this.auth = false});
+
+  /// Not before then.
+  final DateTime at;
+
+  /// Fetches failed in a row for a network reason.
+  final int failures;
+
+  /// The token was refused: only an unlock or a `reload` fetches again.
+  final bool auth;
+}
+
 /// The unlocked vaults.
 final class TomSecretsVaultSet {
-  /// A set opening vaults through [opener].
-  TomSecretsVaultSet({required this.opener});
+  /// A set opening vaults through [opener]; [clock] is the refresh's time.
+  TomSecretsVaultSet({required this.opener, DateTime Function()? clock})
+    : _clock = clock ?? DateTime.now;
 
   /// The opener.
   final TomSecretsVaultOpener opener;
+
+  /// How long after a fetch a store is fetched again (the device settings'
+  /// `refreshMinutes`).
+  Duration refreshInterval = const Duration(minutes: 5);
+
+  /// The longest wait after network failures (1, 2, 4 … minutes).
+  static const maxBackoff = Duration(minutes: 30);
+
+  final DateTime Function() _clock;
+  final Map<String, _Next> _next = {};
+  List<String>? _served;
+  int _epoch = 0;
 
   TomSecretsOpenedVault? _primary;
   String? _primaryName;
@@ -396,6 +540,40 @@ final class TomSecretsVaultSet {
     _primary = opened;
     _primaryKeys = keys;
     return opened;
+  }
+
+  /// The further vaults the primary lists, as last read.
+  List<TomSecretsVaultKeys> get listed => _keys.values.toList();
+
+  /// Records a fetch of [name] that failed with [failure] (null: it
+  /// succeeded): the next one is due a refresh interval later, after a
+  /// network failure after the backoff (1, 2, 4 … up to 30 minutes), and
+  /// after a refused token only on an unlock or a `reload`.
+  void _fetched(String name, Object? failure) {
+    final now = _clock();
+    if (failure == null) {
+      _next[name] = _Next(now.add(refreshInterval));
+      return;
+    }
+    if (TomSecretsStoreState.offlineFor(failure) ==
+        TomSecretsStoreState.tokenExpired) {
+      _next[name] = _Next(now, auth: true);
+      return;
+    }
+    final failures = (_next[name]?.failures ?? 0) + 1;
+    final minutes = 1 << (failures - 1).clamp(0, 5);
+    final wait = Duration(minutes: minutes) > maxBackoff
+        ? maxBackoff
+        : Duration(minutes: minutes);
+    _next[name] = _Next(now.add(wait), failures: failures);
+  }
+
+  bool _due(String name, bool force) {
+    if (force) return true;
+    final next = _next[name];
+    if (next == null) return true;
+    if (next.auth) return false;
+    return !_clock().isBefore(next.at);
   }
 
   /// Writes the open primary back to its file (the service's own edit, e.g.
@@ -450,17 +628,20 @@ final class TomSecretsVaultSet {
     List<String>? served,
   }) async {
     final primary = _primary!;
+    _served = served;
     final primaryStore = TomSecretsStore.fromFile(
       primary.file,
       fileName: TomSecretsVaultLocator.parse(primary.locator).fileName,
     );
     final stores = <TomSecretsStore>[primaryStore];
     _primaryName = primaryStore.name;
+    _next.clear();
+    _fetched(primaryStore.name, primary.offlineReason);
     _status
       ..clear()
       ..[primaryStore.name] = TomSecretsStoreStatus(
         name: primaryStore.name,
-        state: TomSecretsStoreState.current,
+        state: primary.state,
         locator: primary.locator,
         source: primary.source,
         fetchedAt: primary.fetchedAt,
@@ -504,10 +685,11 @@ final class TomSecretsVaultSet {
         outerKey: outerKey,
       );
       final store = TomSecretsStore.fromFile(opened.file, name: name);
+      _fetched(name, opened.offlineReason);
       _opened[name] = opened;
       _status[name] = TomSecretsStoreStatus(
         name: name,
-        state: TomSecretsStoreState.current,
+        state: opened.state,
         locator: locator,
         source: opened.source,
         fetchedAt: opened.fetchedAt,
@@ -526,7 +708,9 @@ final class TomSecretsVaultSet {
         state: TomSecretsStoreState.needsUnlock,
         locator: locator,
       );
-    } on Object {
+    } on Object catch (e) {
+      // A file the service cannot fetch and has no copy of.
+      _fetched(name, tomSecretsIsFetchFailure(e) ? e : null);
       _status[name] = TomSecretsStoreStatus(
         name: name,
         state: TomSecretsStoreState.unavailable,
@@ -557,9 +741,10 @@ final class TomSecretsVaultSet {
       listed.outerKey == null ? null : TomProtectedValue.of(listed.outerKey!),
     );
     _opened[name] = opened;
+    _fetched(name, opened.offlineReason);
     _status[name] = TomSecretsStoreStatus(
       name: name,
-      state: TomSecretsStoreState.current,
+      state: opened.state,
       locator: listed.locator,
       source: opened.source,
       fetchedAt: opened.fetchedAt,
@@ -635,6 +820,16 @@ final class TomSecretsVaultSet {
         );
       }
       throw TomSecretsSaveException('not_found', 'no open store $name');
+    }
+    final state = _status[name]?.state;
+    if (state == TomSecretsStoreState.offline ||
+        state == TomSecretsStoreState.tokenExpired) {
+      throw TomSecretsSaveException(
+        state!.wireName,
+        state == TomSecretsStoreState.offline
+            ? 'the store cannot be reached'
+            : 'the store\'s token was refused',
+      );
     }
     final locator = opened.locator;
     final outerKey = keys.outerKeyText;
@@ -723,6 +918,209 @@ final class TomSecretsVaultSet {
   static String _revisionOf(TomSecretsOpenedVault v) =>
       v.revision ?? tomSecretsBlobId(v.stored);
 
+  /// Fetches the stores that are due ([force]: every store, the `reload`)
+  /// and reopens those whose file moved, with the keys held (part-service,
+  /// Refresh): a file that did not move costs one request and is not
+  /// reopened; a fetch that fails for a network reason or a refused token
+  /// keeps the copy held (`offline`, `token_expired`, served from the
+  /// cache); a file whose key changed goes to `needs_unlock`; a further
+  /// vault the primary lists anew, or with new keys, is opened with them,
+  /// and one it no longer lists is dropped. The index is rebuilt when
+  /// anything was reopened or dropped. Nothing is done while locked, and a
+  /// lock during the refresh ends it.
+  Future<TomSecretsRefreshReport> refresh({bool force = false}) async {
+    final primaryName = _primaryName;
+    final primaryKeys = _primaryKeys;
+    final machine = _machine;
+    if (primaryName == null || primaryKeys == null || machine == null) {
+      return const TomSecretsRefreshReport();
+    }
+    final epoch = _epoch;
+    final before = Map.of(_status);
+    final reopened = <String>[];
+    var rebuild = false;
+    if (_due(primaryName, force)) {
+      final outcome = await _refreshStore(
+        primaryName,
+        _primary!.locator,
+        primaryKeys.credentials,
+        null,
+        isPrimary: true,
+      );
+      if (epoch != _epoch) return const TomSecretsRefreshReport();
+      if (outcome == _Outcome.reopened) {
+        reopened.add(primaryName);
+        rebuild = true;
+      }
+    }
+    final served = _served;
+    final listed = {
+      for (final keys in TomSecretsPrimaryVaults(_primary!.file).list())
+        if (served == null || served.contains(keys.name)) keys.name: keys,
+    };
+    for (final name in [..._status.keys]) {
+      if (name == primaryName || listed.containsKey(name)) continue;
+      _status.remove(name);
+      _next.remove(name);
+      _keys.remove(name);
+      _held.remove(name)?.dispose();
+      if (_opened.remove(name) != null) rebuild = true;
+    }
+    for (final keys in listed.values) {
+      final name = keys.name;
+      final old = _keys[name];
+      final changed = old == null || !_sameKeys(old, keys);
+      if (!changed &&
+          (_status[name]?.state == TomSecretsStoreState.needsUnlock ||
+              !_due(name, force))) {
+        continue;
+      }
+      _keys[name] = keys;
+      var use = changed ? null : _held[name];
+      TomSecretsHeldKeys? fresh;
+      use ??= fresh = TomSecretsHeldKeys.fromVaultKeys(keys);
+      final outcome = await _refreshStore(
+        name,
+        keys.locator,
+        use.credentials,
+        use.outerKeyText,
+        reopen: changed,
+      );
+      if (epoch != _epoch) {
+        fresh?.dispose();
+        return const TomSecretsRefreshReport();
+      }
+      if (fresh != null) {
+        if (_opened.containsKey(name)) {
+          // The listed keys are the vault's now, also for a copy held
+          // while offline.
+          _held.remove(name)?.dispose();
+          _held[name] = fresh;
+        } else {
+          fresh.dispose();
+        }
+      }
+      if (outcome != _Outcome.unchanged) rebuild = true;
+      if (outcome == _Outcome.reopened) reopened.add(name);
+    }
+    if (rebuild) _rebuildOpened(machine);
+    return TomSecretsRefreshReport(
+      states: [
+        for (final status in _status.values)
+          if (before[status.name]?.state != status.state ||
+              before[status.name]?.wireSource != status.wireSource)
+            status,
+      ],
+      reopened: reopened,
+    );
+  }
+
+  static bool _sameKeys(TomSecretsVaultKeys a, TomSecretsVaultKeys b) =>
+      a.locator == b.locator &&
+      a.password == b.password &&
+      a.outerKey == b.outerKey &&
+      _sameBytes(a.keyFile, b.keyFile);
+
+  static bool _sameBytes(Uint8List? a, Uint8List? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  void _setStatus(
+    String name,
+    String locator,
+    TomSecretsStoreState state, {
+    TomSecretsOpenedVault? from,
+    String? source,
+  }) => _status[name] = TomSecretsStoreStatus(
+    name: name,
+    state: state,
+    locator: locator,
+    source: source ?? from?.source,
+    fetchedAt: from?.fetchedAt,
+    revision: from == null ? null : _revisionOf(from),
+  );
+
+  /// Fetches store [name] at [locator] and reopens it when its file moved
+  /// ([reopen]: always, its keys changed).
+  Future<_Outcome> _refreshStore(
+    String name,
+    String locator,
+    Credentials credentials,
+    String? outerKey, {
+    bool reopen = false,
+    bool isPrimary = false,
+  }) async {
+    final held = _opened[name];
+    try {
+      if (!reopen &&
+          held != null &&
+          _status[name]?.state == TomSecretsStoreState.current &&
+          await opener.revision(locator) == _revisionOf(held)) {
+        _fetched(name, null);
+        return _Outcome.unchanged;
+      }
+      final opened = await opener.open(
+        locator,
+        credentials,
+        outerKey: outerKey,
+      );
+      _fetched(name, opened.offlineReason);
+      if (opened.offlineReason != null && held != null) {
+        // The copy held is at least as new as the cached one.
+        _setStatus(name, locator, opened.state, from: held, source: 'cache');
+        return _Outcome.unchanged;
+      }
+      if (!reopen && held != null && _revisionOf(held) == _revisionOf(opened)) {
+        _setStatus(name, locator, opened.state, from: opened);
+        return _Outcome.unchanged;
+      }
+      _opened[name] = opened;
+      if (isPrimary) _primary = opened;
+      _setStatus(name, locator, opened.state, from: opened);
+      return _Outcome.reopened;
+    } on Object catch (e) {
+      final keyChanged =
+          e is KdbxInvalidKeyException || e is TomKeyRequiredException;
+      if (keyChanged) {
+        _fetched(name, null);
+      } else {
+        _fetched(name, e);
+      }
+      final fetchFailed = !keyChanged && tomSecretsIsFetchFailure(e);
+      if (held != null && (fetchFailed || isPrimary)) {
+        // The primary is never dropped while unlocked: its held copy is
+        // served until the next unlock.
+        _setStatus(
+          name,
+          locator,
+          keyChanged
+              ? TomSecretsStoreState.needsUnlock
+              : fetchFailed
+              ? TomSecretsStoreState.offlineFor(e)
+              : TomSecretsStoreState.unavailable,
+          from: held,
+          source: fetchFailed && held.source != 'file' ? 'cache' : null,
+        );
+        return _Outcome.unchanged;
+      }
+      _setStatus(
+        name,
+        locator,
+        keyChanged
+            ? TomSecretsStoreState.needsUnlock
+            : TomSecretsStoreState.unavailable,
+      );
+      return _opened.remove(name) == null
+          ? _Outcome.unchanged
+          : _Outcome.dropped;
+    }
+  }
+
   void _rebuild(List<TomSecretsStore> stores, TomSecretsMachine machine) {
     _machine = machine;
     final config =
@@ -765,6 +1163,9 @@ final class TomSecretsVaultSet {
   /// Drops every opened file, the index and the keys (zeroing the held
   /// ones).
   void lock() {
+    _epoch++;
+    _next.clear();
+    _served = null;
     _primary = null;
     _primaryName = null;
     _primaryKeys?.dispose();

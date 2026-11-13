@@ -24,8 +24,16 @@ const keepassxcApp = '/Applications/KeePassXC.app/Contents/MacOS/keepassxc-cli';
 
 String? findKeePassXc() {
   if (File(keepassxcApp).existsSync()) return keepassxcApp;
-  final which = Process.runSync('which', ['keepassxc-cli']);
-  final path = (which.stdout as String).trim();
+  // `where` on Windows, `which` elsewhere; either may be missing itself.
+  final ProcessResult which;
+  try {
+    which = Process.runSync(Platform.isWindows ? 'where' : 'which', [
+      'keepassxc-cli',
+    ]);
+  } on ProcessException {
+    return null;
+  }
+  final path = (which.stdout as String).trim().split('\n').first.trim();
   return which.exitCode == 0 && path.isNotEmpty ? path : null;
 }
 

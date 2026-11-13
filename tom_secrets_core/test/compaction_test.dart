@@ -647,6 +647,14 @@ void main() {
 
     group('the script, run by git', () {
       final git = Process.runSync('git', ['--version']).exitCode == 0;
+      // The workflow runs the script on GitHub's Linux runners; on Windows
+      // `bash` is WSL's or Git Bash, neither of which is that runner (WSL's
+      // git does not take the Windows paths of the scratch repository).
+      final skip = Platform.isWindows
+          ? 'the script runs on Linux runners'
+          : git
+          ? null
+          : 'git is not on this machine';
 
       late Directory dir;
       late String origin;
@@ -671,12 +679,63 @@ void main() {
 
       int ago(int days) => now.millisecondsSinceEpoch ~/ 1000 - days * day;
 
+      /// [count] saves of fleet.kdbx a day apart up to [newestDaysAgo] days
+      /// ago, the first adding [files] too, written into [work]'s `main` in
+      /// one `git fast-import` (a long history without a process per
+      /// commit).
+      Future<void> importSaves(
+        String work,
+        Map<String, String> files,
+        int count,
+        int newestDaysAgo,
+      ) async {
+        final stream = StringBuffer();
+        void data(String text) {
+          stream
+            ..write('data ${utf8.encode(text).length}\n')
+            ..write(text)
+            ..write('\n');
+        }
+
+        for (var i = 0; i < count; i++) {
+          final at = ago(newestDaysAgo + count - 1 - i);
+          stream
+            ..write('commit refs/heads/main\n')
+            ..write('mark :${i + 1}\n')
+            ..write('author mbp <mbp@tsm.invalid> $at +0000\n')
+            ..write('committer mbp <mbp@tsm.invalid> $at +0000\n');
+          data(i == 0 ? 'tsm: vault created' : 'tsm: fleet.kdbx from mbp');
+          if (i > 0) stream.write('from :$i\n');
+          for (final e in {
+            if (i == 0) ...files,
+            'vaults/fleet.kdbx': 'old$i',
+          }.entries) {
+            stream.write('M 100644 inline ${e.key}\n');
+            data(e.value);
+          }
+        }
+        final process = await Process.start(
+          'git',
+          ['fast-import', '--quiet'],
+          workingDirectory: work,
+          environment: env,
+        );
+        process.stdin.write(stream.toString());
+        await process.stdin.close();
+        final err = await process.stderr.transform(utf8.decoder).join();
+        await process.stdout.drain<void>();
+        expect(await process.exitCode, 0, reason: err);
+        await run(['git', 'checkout', '--quiet', '-f', 'main'], cwd: work);
+      }
+
       /// A vault repository on a bare origin: the compaction files with
-      /// [settings], then saves [daysAgo] days ago.
+      /// [settings], then saves [daysAgo] days ago; with [oldSaves], that
+      /// many saves a day apart before them, up to [daysAgo]'s first.
       Future<String> history(
         TomSecretsCompactionSettings settings,
-        List<int> daysAgo,
-      ) async {
+        List<int> daysAgo, {
+        int oldSaves = 0,
+      }) async {
         dir = scratch('script');
         origin = '${dir.path}/origin.git';
         env = {
@@ -706,13 +765,23 @@ void main() {
           'HEAD',
           'refs/heads/main',
         ], cwd: work);
-        for (final e in tomSecretsCompactionFiles(settings).entries) {
-          File('$work/${e.key}')
-            ..parent.createSync(recursive: true)
-            ..writeAsStringSync(e.value);
-        }
-        Directory('$work/vaults').createSync();
         var first = true;
+        if (oldSaves > 0) {
+          await importSaves(
+            work,
+            tomSecretsCompactionFiles(settings),
+            oldSaves,
+            daysAgo.first + 1,
+          );
+          first = false;
+        } else {
+          for (final e in tomSecretsCompactionFiles(settings).entries) {
+            File('$work/${e.key}')
+              ..parent.createSync(recursive: true)
+              ..writeAsStringSync(e.value);
+          }
+          Directory('$work/vaults').createSync();
+        }
         for (final d in daysAgo) {
           File('$work/vaults/fleet.kdbx').writeAsStringSync('v$d');
           await run(['git', 'add', '-A'], cwd: work);
@@ -812,7 +881,20 @@ void main() {
           reason: 'the interval runs from the newest compaction',
         );
         expect((await originLog('%H')).first, head);
-      }, skip: git ? null : 'git is not on this machine');
+      }, skip: skip);
+
+      test('a history longer than a pipe holds: the script reads the log '
+          'whole (no SIGPIPE under pipefail when the window\'s start comes '
+          'early in it)', () async {
+        await history(const TomSecretsCompactionSettings(), [
+          100,
+          60,
+          10,
+        ], oldSaves: 3000);
+        final out = await workflowRun();
+        expect(out, contains('2 commits kept'));
+        expect(await originLog('%H'), hasLength(3), reason: 'the root and 2');
+      }, skip: skip);
 
       test('retention 0: only the current state is kept', () async {
         await history(const TomSecretsCompactionSettings(retentionDays: 0), [
@@ -824,7 +906,7 @@ void main() {
         expect(await workflowRun(), contains('0 commits kept'));
         final after = await originLog('%T|%P');
         expect(after, ['$tree|']);
-      }, skip: git ? null : 'git is not on this machine');
+      }, skip: skip);
 
       test(
         'nothing older than the window: nothing to cut, nothing pushed',
@@ -834,7 +916,7 @@ void main() {
           expect(await workflowRun(), contains('nothing to cut'));
           expect(await originLog('%H'), heads);
         },
-        skip: git ? null : 'git is not on this machine',
+        skip: skip,
       );
     });
   });
