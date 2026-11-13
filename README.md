@@ -15,9 +15,13 @@ In the workspace this repository is the submodule `tom_ai/secrets_manager`
 | `tom_secrets_core` | vaults and locators, the GitHub cycle, the offline cache, the entry-level merge, key files and the outer encryption with key slots, dimensions and resolution, the KDBX mapping, the importers, the hybrid pairing and signature crypto |
 | `tom_secrets_service` | the secrets service executable: the client and admin endpoints, approval, grants, the audit log, lock modes |
 
-`tom_secrets_core` holds the model and resolution so far
-([README](tom_secrets_core/README.md)); the rest of it and the service are
-created by the quest's phase-A todos.
+What each holds today is in its own README: `tom_secrets_core`
+([README](tom_secrets_core/README.md)) has everything in its row but the
+pairing and signature crypto; `tom_secrets_service`
+([README](tom_secrets_service/README.md)) has the runtime directory, both
+endpoints, the admin channel with its challenge and claim, unlock and lock,
+the lock modes and the device settings, and refuses every value until the
+allow list and approvals are in place.
 
 ## Licence and boundaries
 

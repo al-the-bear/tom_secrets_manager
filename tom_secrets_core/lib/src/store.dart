@@ -137,9 +137,11 @@ final class TomSecretsStore {
       for (final child in group.groups) {
         if (bin != null && child.uuid == bin.uuid) continue;
         final childName = child.name.get() ?? '';
-        if (groups.isEmpty &&
-            (childName == tomSecretsGrantsGroup ||
-                childName == tomSecretsProductGroup)) {
+        // The product's own group is never resolved into, at the root or
+        // inside an overlay (`@host:<host>/.tom-secrets/device` holds a
+        // device's settings key, DP-15); the grants group lives at the root.
+        if (childName == tomSecretsProductGroup ||
+            (groups.isEmpty && childName == tomSecretsGrantsGroup)) {
           continue;
         }
         walk(child, [...groups, childName]);

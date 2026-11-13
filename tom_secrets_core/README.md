@@ -156,6 +156,18 @@ service parse references with one implementation.
   vault, or one group, in Enpass's JSON export layout (DP-40); what it leaves
   behind is in its `lost`. The fixtures in `test/fixtures/enpass/` are
   synthetic.
+- **The device settings** (`TomSecretsDeviceSettings`,
+  `TomSecretsDeviceContainer`, DP-15): the machine's settings (the lock modes
+  of the service and the app as `TomSecretsLockPolicy`, DP-14; the default
+  environment, the stores served, the refresh interval, the offline cache, the
+  timeouts) in `tom_kdbx_store`'s settings container, namespace `tsm`. Its key
+  (`TomSecretsDeviceKeys`) is kept in the OS keychain, in the primary vault's
+  overlay entry `@host:<host>/.tom-secrets/device` (never reached by a
+  reference: a `.tom-secrets` group is the product's at any depth), or in a
+  0600 key file; `auto` takes the keychain where one answers.
+- **KDBX for the other packages**: the library re-exports the KDBX types the
+  service and the apps handle (`Credentials`, `ProtectedValue`, `KdbxFile`,
+  …), because only this package declares `tom_kdbx_store` (DP-29).
 - **The primary vault** (`TomSecretsPrimaryVaults`, BP-8): the group
   `.tom-secrets/vaults` holds one entry per further vault (locator, master
   password, key file, outer key, GitHub token); the primary cannot list

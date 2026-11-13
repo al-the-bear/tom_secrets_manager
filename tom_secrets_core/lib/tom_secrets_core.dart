@@ -8,6 +8,7 @@ library;
 
 export 'src/compaction.dart';
 export 'src/config.dart';
+export 'src/device_settings.dart';
 export 'src/export_enpass.dart';
 export 'src/history.dart';
 export 'src/import.dart';
@@ -27,3 +28,21 @@ export 'src/store.dart';
 export 'src/totp.dart';
 export 'src/vault_merge.dart';
 export 'src/vault_sync.dart';
+
+// The KDBX types the product's other packages handle (credentials, protected
+// values, an opened file), re-exported: only this package declares
+// tom_kdbx_store (DP-29), so the service and the apps reach KDBX through it.
+export 'package:tom_kdbx_store/tom_kdbx_store.dart'
+    show
+        Credentials,
+        KdbxEntry,
+        KdbxFile,
+        KdbxFormat,
+        KdbxGroup,
+        KdbxInvalidKeyException,
+        KdbxKey,
+        KdbxKeyCommon,
+        KdbxUuid,
+        PlainValue,
+        ProtectedValue,
+        StringValue;

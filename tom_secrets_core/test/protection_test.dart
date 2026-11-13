@@ -16,7 +16,6 @@ import 'package:cryptography/cryptography.dart';
 import 'package:test/test.dart';
 import 'package:tom_core_storage/testing.dart';
 import 'package:tom_core_storage/tom_core_storage.dart';
-import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'support/vaults.dart';

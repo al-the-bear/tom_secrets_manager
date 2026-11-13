@@ -1,0 +1,37 @@
+name: tom_secrets_service
+description: >-
+  The Tom Secrets Manager's secrets service: a background process holding the
+  unlocked vaults of one OS user, answering clients on the client endpoint and
+  the manager app and tsm on the admin endpoint. License: BSD-3-Clause.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.0
+
+executables:
+  tom_secrets_service: tom_secrets_service
+
+dependencies:
+  # Vaults, stores, resolution, the vault cycle (the only way into KDBX goes
+  # through the core and tom_kdbx_store).
+  tom_secrets_core:
+    path: ../tom_secrets_core
+  # Frames, the strict JSON, discovery and the reference grammar: one
+  # implementation for the clients and the service (repository guideline).
+  tom_secrets_client:
+    path: ../../secrets_clients/clients/dart/tom_secrets_client
+  tom_core_storage: ^0.1.1
+  # HMAC-SHA256 of the admin challenge.
+  crypto: ^3.0.6
+  # The idle time and the Windows calls through FFI.
+  ffi: ^2.1.0
+  # bootstrap.yaml.
+  yaml: ^3.1.0
+
+dev_dependencies:
+  # Tests build demo vaults with the KDBX types directly; the package itself
+  # reaches KDBX only through tom_secrets_core (DP-29).
+  tom_kdbx_store: ^0.2.3
+  lints: ^6.0.0
+  test: ^1.25.6

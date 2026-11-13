@@ -9,7 +9,6 @@ library;
 import 'dart:typed_data';
 
 import 'package:test/test.dart';
-import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_client/tom_secrets_client.dart'
     show TomSecretsErrorKind;
 import 'package:tom_secrets_core/tom_secrets_core.dart';
@@ -205,6 +204,22 @@ void main() {
       expect(() => r.resolve('old.entry'), fails(TomSecretsErrorKind.notFound));
       expect(
         () => r.resolve('fleet/.tom-secrets'),
+        fails(TomSecretsErrorKind.notFound),
+      );
+    });
+
+    test('the product group inside an overlay (a device\'s settings key, '
+        'DP-15) is never reached', () {
+      final fleet =
+          (DemoVault(store: 'fleet')
+                ..add('@host:mbp/.tom-secrets/device', password: 'device-key')
+                ..add('.tom-secrets/vaults/other', password: 'vault-key')
+                ..add('Kept', password: 'k'))
+              .store('fleet');
+      expect(fleet.entries.map((e) => e.pathText), ['Kept']);
+      final r = resolver([fleet], host: 'mbp');
+      expect(
+        () => r.resolve('fleet/.tom-secrets/device'),
         fails(TomSecretsErrorKind.notFound),
       );
     });

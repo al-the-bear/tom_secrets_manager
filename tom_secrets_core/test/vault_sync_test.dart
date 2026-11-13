@@ -13,7 +13,6 @@ import 'package:tom_core_storage/tom_core_storage.dart';
 import 'package:tom_core_sync/tom_core_sync.dart';
 import 'package:tom_github_api/testing.dart';
 import 'package:tom_github_api/tom_github_api.dart';
-import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'support/vaults.dart';

@@ -1,0 +1,92 @@
+// Copyright (c) 2026 Peter Nicolai Alexis Kyaw
+// SPDX-License-Identifier: BSD-3-Clause
+
+/// The secrets service executable. Started detached by the app or
+/// `tsm start` (`tomSecretsStartService`): it reads the handover line from
+/// its standard input, answers one status line on its standard output, and
+/// runs until `shutdown`, SIGTERM or SIGHUP (logout).
+///
+/// Exit codes: 0 stopped, 2 the handover or the bootstrap cannot be read,
+/// 3 already running, 4 the runtime directory is refused, 5 the device key's
+/// keychain is not available.
+library;
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:tom_secrets_service/tom_secrets_service.dart';
+
+Future<void> main() async {
+  Future<Never> answer(Map<String, Object?> status, int code) async {
+    stdout.writeln(jsonEncode(status));
+    await stdout.flush();
+    exit(code);
+  }
+
+  final TomSecretsHandover handover;
+  final TomSecretsBootstrap bootstrap;
+  try {
+    final line = await stdin
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .first;
+    handover = TomSecretsHandover.parse(line);
+    bootstrap = await TomSecretsBootstrap.read(handover.bootstrap);
+  } on Object catch (e) {
+    await answer({
+      'status': 'error',
+      'code': 'handover',
+      'message': e.runtimeType.toString(),
+    }, 2);
+  }
+
+  final runtime = bootstrap.runtimeDirectory == null
+      ? TomSecretsRuntime.current()
+      : TomSecretsRuntime(
+          bootstrap.runtimeDirectory!,
+          transport: Platform.isWindows
+              ? TomSecretsTransport.tcp
+              : TomSecretsTransport.unix,
+        );
+  final TomSecretsService service;
+  try {
+    service = await TomSecretsService.launch(
+      TomSecretsServiceConfig(
+        runtime: runtime,
+        bootstrap: bootstrap,
+        adminKey: handover.adminKey,
+      ),
+    );
+  } on TomSecretsAlreadyRunning {
+    await answer({'status': 'already_running'}, 3);
+  } on TomSecretsRuntimeException catch (e) {
+    await answer({
+      'status': 'error',
+      'code': 'runtime',
+      'message': e.message,
+    }, 4);
+  } on TomSecretsDeviceKeyException catch (e) {
+    await answer({
+      'status': 'error',
+      'code': 'device_key',
+      'message': e.message,
+    }, 5);
+  }
+
+  stdout.writeln(jsonEncode({'status': 'ready'}));
+  await stdout.flush();
+
+  final signals = <StreamSubscription<ProcessSignal>>[
+    ProcessSignal.sigint.watch().listen((_) => unawaited(service.stop())),
+    if (!Platform.isWindows) ...[
+      ProcessSignal.sigterm.watch().listen((_) => unawaited(service.stop())),
+      ProcessSignal.sighup.watch().listen((_) => unawaited(service.stop())),
+    ],
+  ];
+  await service.done;
+  for (final s in signals) {
+    await s.cancel();
+  }
+  exit(0);
+}

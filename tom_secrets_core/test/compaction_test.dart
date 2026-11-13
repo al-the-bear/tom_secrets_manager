@@ -20,7 +20,6 @@ import 'package:tom_git/testing.dart';
 import 'package:tom_git/tom_git.dart';
 import 'package:tom_github_api/testing.dart';
 import 'package:tom_github_api/tom_github_api.dart';
-import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 import 'package:yaml/yaml.dart';
 

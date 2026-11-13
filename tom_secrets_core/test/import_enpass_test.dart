@@ -18,7 +18,6 @@ import 'package:cryptography/cryptography.dart' as cr;
 import 'package:pointycastle/asn1.dart' as asn1;
 import 'package:pointycastle/export.dart' as pc;
 import 'package:test/test.dart';
-import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'support/vaults.dart';

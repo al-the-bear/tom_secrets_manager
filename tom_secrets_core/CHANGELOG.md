@@ -36,3 +36,8 @@
   (`TomSecretsPasskey`, `tomSecretsPasskeyPem`), and the Enpass JSON export
   (`tomSecretsExportEnpassJson`). Imports know folders, trashed items and
   kept passkeys.
+- The device settings and their container with the key modes
+  (`TomSecretsDeviceSettings`, `TomSecretsDeviceContainer`,
+  `TomSecretsDeviceKeys`, `TomSecretsLockPolicy`); the KDBX types the other
+  packages handle are re-exported (DP-29). A `.tom-secrets` group is never
+  indexed, at any depth.

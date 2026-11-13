@@ -4,7 +4,6 @@
 // Builds a demo vault in memory (demo data under a demo key) and resolves a
 // key on two machines: the shared entry, and a host's overlay.
 
-import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 void main() {
