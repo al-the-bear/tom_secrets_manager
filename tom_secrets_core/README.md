@@ -143,6 +143,21 @@ The design is part-structure of the idea document
 (`_ai/quests/tom_core/ideas/tom_secrets_manager/tom_secrets_manager.md`); its
 worked examples are `test/worked_examples_test.dart`, row by row.
 
+## The live check on github.com
+
+`test/live_github_compaction_test.dart` runs the compaction and the
+force-push detection against a real repository: GitHub's receive-pack taking
+the root commit and refusing a stale one, the REST reader finding the base's
+blob and the compaction's root. It skips unless both variables are set; run it
+by hand against a throwaway private repository holding nothing else (the test
+rewrites its default branch), demo data only:
+
+```sh
+TSM_LIVE_GITHUB_TOKEN=$(gh auth token) \
+TSM_LIVE_GITHUB_REPO=<owner>/<repo> \
+  dart test test/live_github_compaction_test.dart
+```
+
 ## Licence
 
 BSD-3-Clause (`LICENSE`).
