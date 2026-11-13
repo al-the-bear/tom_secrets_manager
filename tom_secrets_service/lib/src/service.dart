@@ -25,6 +25,9 @@ import 'lock_policy.dart';
 import 'runtime.dart';
 import 'vault_set.dart';
 
+/// The service name of the product's items in the OS keychain.
+const String tomSecretsKeychainService = 'tom-secrets-manager';
+
 /// The service's version, sent in `welcome` and `challenge`.
 const String tomSecretsServiceVersion = '0.1.0';
 

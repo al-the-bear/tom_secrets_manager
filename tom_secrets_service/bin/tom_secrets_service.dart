@@ -15,6 +15,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:tom_core_storage/io.dart' show TomDesktopSecretStore;
 import 'package:tom_secrets_service/tom_secrets_service.dart';
 
 Future<void> main() async {
@@ -56,6 +57,10 @@ Future<void> main() async {
         runtime: runtime,
         bootstrap: bootstrap,
         adminKey: handover.adminKey,
+        // The OS keychain, for the device key's `keychain` and `auto` modes
+        // (not available in a session without one: `auto` then takes the
+        // vault, `keychain` refuses the start).
+        keychain: TomDesktopSecretStore(service: tomSecretsKeychainService),
       ),
     );
   } on TomSecretsAlreadyRunning {

@@ -42,7 +42,11 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   `tom_secrets_core`): `bootstrap.yaml` names where the container's key is
   kept: `keychain` (the start is refused without one), `vault` (the overlay
   entry `@host:<host>/.tom-secrets/device` of the primary, which no reference
-  reaches), `keyfile` (mode 0600 beside the container), or `auto`.
+  reaches), `keyfile` (mode 0600 beside the container), or `auto`. The
+  keychain is `TomDesktopSecretStore` of `tom_core_storage` (service
+  `tom-secrets-manager`): the macOS login keychain, libsecret on Linux, the
+  Windows Credential Manager. Where it does not answer (an SSH login without
+  D-Bus or credential store) `auto` takes the vault.
 - **Starting it** (`tomSecretsStartService`): the starter makes the admin key,
   starts the service detached, hands the key over on its standard input and
   reads one status line (`ready`, `already_running`, `error`).

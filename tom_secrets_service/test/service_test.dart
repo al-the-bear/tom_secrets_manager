@@ -16,6 +16,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:test/test.dart';
+import 'package:tom_core_storage/io.dart';
 import 'package:tom_core_storage/settings.dart';
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_client/tom_secrets_client.dart';
@@ -772,6 +773,48 @@ void main() {
       },
     );
 
+    test('a store that says it is not available: auto takes the vault, '
+        'keychain refuses the start', () async {
+      final unavailable = _UnavailableStore();
+      final auto = await Demo.create(deviceKey: TomSecretsDeviceKeyMode.auto);
+      final (service, _) = await unlocked(auto, keychain: unavailable);
+      expect(service.deviceContainer, isNotNull);
+      expect(unavailable.reads, 0, reason: 'asked isAvailable, not read');
+      final primary = await KdbxFormat().read(
+        File(auto.primaryPath).readAsBytesSync(),
+        Credentials(ProtectedValue.fromString(primaryPassword)),
+      );
+      expect(
+        primary.body.rootGroup.groups.map((g) => g.name.get()),
+        contains('@host:demo-host'),
+        reason: 'the key went into the vault',
+      );
+      final keychain = await Demo.create(
+        deviceKey: TomSecretsDeviceKeyMode.keychain,
+      );
+      await expectLater(
+        keychain.start(keychain: unavailable),
+        throwsA(isA<TomSecretsDeviceKeyException>()),
+      );
+    });
+
+    test('the OS keychain of this machine keeps the device key', () async {
+      final store = TomDesktopSecretStore(service: 'tom-secrets-manager-test');
+      if (!await store.isAvailable()) {
+        markTestSkipped('no keychain answers in this session');
+        return;
+      }
+      final demo = await Demo.create(
+        deviceKey: TomSecretsDeviceKeyMode.keychain,
+      );
+      addTearDown(() => store.delete('tsm.device-settings.demo-host'));
+      final (service, admin) = await unlocked(demo, keychain: store);
+      expect(await store.read('tsm.device-settings.demo-host'), isNotNull);
+      await admin.request('lock');
+      await admin.unlock(primaryPassword);
+      expect(service.deviceContainer, isNotNull, reason: 'the same key opens');
+    });
+
     test('bootstrap.yaml', () {
       final b = TomSecretsBootstrap.parse(
         'primary: github:al-the-bear/demo-vaults/primary.kdbx\n'
@@ -800,4 +843,25 @@ void main() {
       );
     });
   });
+}
+
+/// A keychain that says it is not available, and counts reads.
+final class _UnavailableStore
+    implements TomSecretStore, TomSecretStoreAvailability {
+  int reads = 0;
+
+  @override
+  Future<bool> isAvailable() async => false;
+
+  @override
+  Future<String?> read(String handle) async {
+    reads++;
+    return null;
+  }
+
+  @override
+  Future<void> write(String handle, String secret) async {}
+
+  @override
+  Future<void> delete(String handle) async {}
 }

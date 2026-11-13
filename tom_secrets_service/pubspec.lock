@@ -405,10 +405,10 @@ packages:
     dependency: "direct main"
     description:
       name: tom_core_storage
-      sha256: "5bb7d6e8c491f3cb01315112db27e15d47783cebd56c1f1e2c47255ba407f0ab"
+      sha256: cb2f6e5d0b8a839047aed7e3c481c656473f45f42827aa6ed2414412dda9e527
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.1"
+    version: "0.1.2"
   tom_core_sync:
     dependency: transitive
     description:

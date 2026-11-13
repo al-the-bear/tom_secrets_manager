@@ -268,9 +268,15 @@ final class TomSecretsDeviceKeys {
 
   /// Whether a keychain answers (a read that fails means none is
   /// available, or it is locked).
+  ///
+  /// A store that can say so ([TomSecretStoreAvailability], e.g.
+  /// `TomDesktopSecretStore`) is asked; another is probed with a read.
   Future<bool> keychainAvailable() async {
     final store = keychain;
     if (store == null) return false;
+    if (store is TomSecretStoreAvailability) {
+      return (store as TomSecretStoreAvailability).isAvailable();
+    }
     try {
       await store.read(keychainHandle);
       return true;

@@ -14,7 +14,7 @@ dependencies:
   # The only way into KDBX (repository rule): the store's own KDBX types.
   tom_kdbx_store: ^0.2.3
   # The storage port and its GitHub backend (the REST API, no clone, DP-81).
-  tom_core_storage: ^0.1.1
+  tom_core_storage: ^0.1.2
   # The keyed three-way merge and the sync engine of the GitHub cycle.
   tom_core_sync: ^0.1.0
   # The reference grammar, one implementation for the clients, the core and

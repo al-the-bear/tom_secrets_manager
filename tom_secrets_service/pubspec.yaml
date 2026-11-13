@@ -21,7 +21,7 @@ dependencies:
   # implementation for the clients and the service (repository guideline).
   tom_secrets_client:
     path: ../../secrets_clients/clients/dart/tom_secrets_client
-  tom_core_storage: ^0.1.1
+  tom_core_storage: ^0.1.2
   # HMAC-SHA256 of the admin challenge.
   crypto: ^3.0.6
   # The idle time and the Windows calls through FFI.
