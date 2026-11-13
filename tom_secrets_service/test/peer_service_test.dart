@@ -134,6 +134,7 @@ void main() {
     final identity = request.identity;
     expect(identity.pid, pid, reason: 'the test process itself');
     expect(identity.uid, tomSecretsOwnUid());
+    expect(identity.complete, isTrue);
     expect(identity.exe, tomSecretsProcessInfo(pid)!.exe);
     expect(
       identity.toJson().keys,

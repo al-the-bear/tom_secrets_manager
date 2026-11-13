@@ -64,7 +64,14 @@ final class TomSecretsIdentity {
     this.scriptHash,
     this.packageRoot,
     this.parent,
+    this.complete = true,
   });
+
+  /// Whether the arguments and the working directory could be read (an
+  /// elevated Windows process may hide them): a grant that needs them is
+  /// not matched on an incomplete identity (`unidentifiable`, never a
+  /// guess). Not part of the protocol's identity object.
+  final bool complete;
 
   /// `exe`, `script` or `interpreter`.
   final String kind;
@@ -116,6 +123,7 @@ final class TomSecretsIdentity {
     scriptHash: scriptHash,
     packageRoot: packageRoot,
     parent: parent,
+    complete: complete,
   );
 
   /// The protocol's identity object (7.1).
@@ -368,6 +376,7 @@ TomSecretsIdentity tomSecretsIdentityOf(
   TomSecretsFileHashes? hashes,
 }) {
   final args = process.args ?? const <String>[];
+  final complete = process.args != null && process.cwd != null;
   final parentJson = parent == null
       ? null
       : {'exe': parent.exe, 'args': ?parent.args};
@@ -381,6 +390,7 @@ TomSecretsIdentity tomSecretsIdentityOf(
       uid: process.uid,
       pid: process.pid,
       parent: parentJson,
+      complete: complete,
     );
   }
   final target = _target(rule, args, process.cwd);
@@ -394,6 +404,7 @@ TomSecretsIdentity tomSecretsIdentityOf(
       uid: process.uid,
       pid: process.pid,
       parent: parentJson,
+      complete: complete,
     );
   }
   final script = target.isPath
@@ -412,6 +423,7 @@ TomSecretsIdentity tomSecretsIdentityOf(
     uid: process.uid,
     pid: process.pid,
     parent: parentJson,
+    complete: complete,
   );
 }
 

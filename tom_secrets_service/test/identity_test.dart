@@ -194,6 +194,8 @@ void main() {
       );
       expect(unresolved.script, 'rel.py');
       expect(unresolved.cwd, '');
+      expect(unresolved.complete, isFalse, reason: 'no working directory');
+      expect(id.complete, isTrue);
     });
   });
 
