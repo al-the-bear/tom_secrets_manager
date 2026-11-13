@@ -10,6 +10,18 @@ import 'package:tom_secrets_core/tom_secrets_core.dart';
 /// The demo key every test file is written with.
 final demoCredentials = Credentials(ProtectedValue.fromString('demo-key'));
 
+/// The Argon2id the tests' vaults are keyed with: light, so a test opens a
+/// vault in milliseconds (the product's is `tomSecretsDefaultArgon2`).
+const testArgon2 = KdbxArgon2(
+  type: KdbxArgon2Type.argon2id,
+  memory: 1 << 20,
+  iterations: 1,
+);
+
+/// A new vault as the product creates one, keyed with [testArgon2].
+KdbxFile newTestVault(Credentials credentials, String name) =>
+    tomSecretsNewVault(credentials, name, argon2: testArgon2);
+
 /// A vault being built.
 final class DemoVault {
   /// A new vault; [binding] is its file binding (`tsm.dimensions`), [store]
@@ -18,7 +30,7 @@ final class DemoVault {
     Map<String, String> binding = const {},
     String? store,
     String? config,
-  }) : file = KdbxFormat().create(demoCredentials, 'demo') {
+  }) : file = newTestVault(demoCredentials, 'demo') {
     if (binding.isNotEmpty || store != null || config != null) {
       TomSecretsMetadata(
         store: store,

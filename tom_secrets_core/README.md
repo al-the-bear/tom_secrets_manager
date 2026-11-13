@@ -70,6 +70,11 @@ service parse references with one implementation.
   over; meta custom data merges per key; another product format major
   (`tsm.format`) or another vault is refused (`TomMergeRefusedException`).
   A null base merges a force-pushed branch.
+- **New vaults** (`tomSecretsNewVault`, BP-36): KDBX 4.1, the key derived
+  through Argon2id; `tomSecretsDefaultArgon2` is 64 MiB, 3 iterations,
+  1 lane, which the app tunes at creation. The primary and every further
+  vault are created this way, and `TomSecretsVaultUnit.create` refuses a file
+  keyed otherwise.
 - **Key files** (`TomSecretsKeyFile`, BP-18): a KeePass 2.0 XML key file
   (32 random bytes with their hash, written as KeePass 2.5x writes it), read
   back with its hash checked; `credentials(password)` is the composite key

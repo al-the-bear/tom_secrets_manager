@@ -110,7 +110,8 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
   }
 
   /// Creates the vault [file] at [locator] (which must not exist yet) and
-  /// opens it.
+  /// opens it. [file] is a new vault from `tomSecretsNewVault`; a file whose
+  /// key is not derived through Argon2id is refused with [ArgumentError].
   static Future<TomSecretsVaultUnit> create({
     required String locator,
     required TomStorage storage,
@@ -119,6 +120,13 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
     TomSecretsVaultCodec codec = const TomSecretsPlainCodec(),
     int maxPushAttempts = 3,
   }) async {
+    if (file.argon2?.type != KdbxArgon2Type.argon2id) {
+      throw ArgumentError.value(
+        file.argon2,
+        'file',
+        'a new vault is keyed by Argon2id (tomSecretsNewVault)',
+      );
+    }
     file.body.meta.customData[tomSecretsFormatKey] = tomSecretsFormatVersion;
     final stored = await codec.encode(await file.save());
     final head = await storage.commit(

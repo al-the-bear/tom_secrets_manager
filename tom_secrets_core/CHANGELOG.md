@@ -18,3 +18,6 @@
   the `.tsmx` outer format with key slots under XChaCha20-Poly1305 (default)
   or AES-256-GCM (`tomSecretsOuterEncrypt` / `Decrypt`,
   `TomSecretsOuterCodec`, `TomSecretsRepositoryKey`).
+- New vaults (`tomSecretsNewVault`): KDBX 4.1 keyed through Argon2id,
+  `tomSecretsDefaultArgon2` (64 MiB, 3 iterations); `TomSecretsVaultUnit.create`
+  refuses a file keyed otherwise.

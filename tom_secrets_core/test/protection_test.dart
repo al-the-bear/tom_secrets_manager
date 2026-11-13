@@ -92,7 +92,7 @@ void main() {
     test('a vault under password plus key file opens with both, not with the '
         'password alone or another key file', () async {
       final keyFile = TomSecretsKeyFile.generate();
-      final file = KdbxFormat().create(keyFile.credentials('demo-pw'), 'kf');
+      final file = newTestVault(keyFile.credentials('demo-pw'), 'kf');
       final bytes = await file.save();
       expect(
         (await KdbxFormat().read(bytes, keyFile.credentials('demo-pw'))).body,
@@ -117,7 +117,7 @@ void main() {
     test('the primary vault keeps the key file, and its credentials open the '
         'vault', () async {
       final keyFile = TomSecretsKeyFile.generate();
-      final fleet = KdbxFormat().create(keyFile.credentials('fleet-pw'), 'f');
+      final fleet = newTestVault(keyFile.credentials('fleet-pw'), 'f');
       final fleetBytes = await fleet.save();
       final primary = TomSecretsPrimaryVaults(DemoVault().file)
         ..put(
