@@ -335,6 +335,10 @@ void main() {
         'current',
         'current',
       ]);
+      expect((status['stores'] as List).map((s) => (s as Map)['source']), [
+        'file',
+        'file',
+      ]);
       expect(status['lockMode'], 'idle');
       await expectLater(
         admin.request('reload'),
@@ -416,6 +420,7 @@ void main() {
       final value = await client.get('primary/Db/Main');
       expect(value.text, 'demo-db-pw');
       expect(value.entry.store, 'primary');
+      expect(value.entry.source, TomSecretSource.file, reason: 'a file: vault');
       expect(value.version.revision, hasLength(40));
       final many = await client.getMany([
         const TomSecretRequest('primary/Db/Main'),

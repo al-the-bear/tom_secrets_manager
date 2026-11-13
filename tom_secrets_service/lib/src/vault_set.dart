@@ -174,11 +174,18 @@ final class TomSecretsStoreStatus {
   /// Its changes not yet pushed.
   final int notPushed;
 
+  /// The protocol's `source` (5.2): `file`, `github` or `cache` as read; a
+  /// store not read yet answers by its locator's kind (`file:` or GitHub).
+  String get wireSource => switch (source) {
+    'file' || 'github' || 'cache' => source!,
+    _ => (locator ?? '').startsWith('file:') ? 'file' : 'github',
+  };
+
   /// As `statusReport.stores[]` writes it.
   Map<String, Object?> toJson() => {
     'name': name,
     'state': state.wireName,
-    'source': source == 'github' || source == 'cache' ? source : 'github',
+    'source': wireSource,
     'fetchedAt': ?fetchedAt?.toUtc().toIso8601String(),
     'notPushed': notPushed,
   };

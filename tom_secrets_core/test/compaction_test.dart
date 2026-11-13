@@ -685,6 +685,15 @@ void main() {
           'GIT_COMMITTER_NAME': 'mbp',
           'GIT_COMMITTER_EMAIL': 'mbp@tsm.invalid',
           'GIT_CONFIG_NOSYSTEM': '1',
+          // No detached auto gc or maintenance: it would still write into
+          // the scratch repository while the teardown deletes it.
+          'GIT_CONFIG_COUNT': '3',
+          'GIT_CONFIG_KEY_0': 'gc.autoDetach',
+          'GIT_CONFIG_VALUE_0': 'false',
+          'GIT_CONFIG_KEY_1': 'maintenance.autoDetach',
+          'GIT_CONFIG_VALUE_1': 'false',
+          'GIT_CONFIG_KEY_2': 'maintenance.auto',
+          'GIT_CONFIG_VALUE_2': 'false',
           'HOME': dir.path,
           'TSM_NOW': '${now.millisecondsSinceEpoch ~/ 1000}',
         };

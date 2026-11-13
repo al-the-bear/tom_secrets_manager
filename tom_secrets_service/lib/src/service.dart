@@ -557,10 +557,7 @@ final class _ClientSession {
         'entry': {
           'store': entry.store,
           'uuid': tomSecretsUuidHex(entry.entry.uuid),
-          // `file:` vaults read in this cycle answer `github` too: the
-          // protocol knows only `github` and `cache` (a fresh read or the
-          // offline copy).
-          'source': storeStatus?.source == 'cache' ? 'cache' : 'github',
+          'source': storeStatus?.wireSource ?? 'github',
           'fetchedAt': fetchedAt.toIso8601String(),
         },
         'bound': resolution.bound,
