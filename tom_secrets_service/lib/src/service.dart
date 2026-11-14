@@ -785,11 +785,26 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     'notPushed': status.notPushed,
   });
 
+  /// Writes the service's own edits of the primary (grants, revocations,
+  /// approval records, their last use). When the remote cannot be reached
+  /// or refuses the token, the edits stay in the held copy, in effect on
+  /// this host, and the next refresh delivers them
+  /// ([TomSecretsVaultSet.primaryWritePending]); that is no failure of the
+  /// change itself. Any other failure is thrown.
   @override
   Future<void> savePrimary() async {
     // In turn with the refresh and the saves: they share the primary's
     // held copy and, for a `github:` primary, its unit.
-    final revision = await _serial(() => _tellingStates(_vaults.writePrimary));
+    final String revision;
+    try {
+      revision = await _serial(() => _tellingStates(_vaults.writePrimary));
+    } on Object catch (e) {
+      if (!_vaults.primaryWritePending || tomSecretsFetchFailureOf(e) == null) {
+        rethrow;
+      }
+      log.info('primary_write_pending', {'code': e.runtimeType.toString()});
+      return;
+    }
     // The service's own write (grants, their last use): an attached app sees
     // the new revision.
     _emit({
@@ -940,7 +955,18 @@ final class _ClientSession {
         });
         return;
       }
-      unawaited(_request(id, op, m).whenComplete(() => _open.remove(id)));
+      unawaited(
+        _request(id, op, m)
+            .catchError((Object e) {
+              // A request never goes unanswered, and its failure never ends
+              // the service.
+              service.log.error('client_request_failed', e, {'op': op});
+              connection.sendError(id, 'internal', 'the request failed', {
+                'code': e.runtimeType.toString(),
+              });
+            })
+            .whenComplete(() => _open.remove(id)),
+      );
       return;
     }
     connection.sendError(
@@ -1357,7 +1383,16 @@ final class _AdminSession {
       await connection.close();
       return;
     }
-    await _request(id as int, op, m);
+    try {
+      await _request(id as int, op, m);
+    } on Object catch (e) {
+      // A request never goes unanswered, and its failure never ends the
+      // service.
+      service.log.error('admin_request_failed', e, {'op': op});
+      connection.sendError(id, 'internal', 'the request failed', {
+        'code': e.runtimeType.toString(),
+      });
+    }
   }
 
   Future<void> _fail(String reason, String message) async {

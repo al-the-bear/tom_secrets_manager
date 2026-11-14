@@ -60,6 +60,14 @@ bool tomSecretsIsFetchFailure(Object error) =>
     TomSecretsVaultUnit.isOfflineFailure(error) ||
     error is TomRateLimitException;
 
+/// The failure behind [error] a held or cached copy stands in for, or null:
+/// [error] itself, or the cause a storage failure wraps.
+Object? tomSecretsFetchFailureOf(Object error) {
+  if (tomSecretsIsFetchFailure(error)) return error;
+  final cause = error is TomStorageException ? error.cause : null;
+  return cause != null && tomSecretsIsFetchFailure(cause) ? cause : null;
+}
+
 /// A vault file as opened.
 final class TomSecretsOpenedVault {
   /// [file] read from [locator] at [revision], from [source] (`file`,
@@ -698,7 +706,7 @@ final class TomSecretsVaultSet {
       );
     } on Object catch (e) {
       _primaryPending = true;
-      final failure = _fetchFailureOf(e);
+      final failure = tomSecretsFetchFailureOf(e);
       if (failure != null && name != null) {
         _fetched(name, failure);
         _setStatus(
@@ -740,14 +748,6 @@ final class TomSecretsVaultSet {
   /// Whether the service's own edits of the primary wait to be written (the
   /// last [writePrimary] could not reach the remote).
   bool get primaryWritePending => _primaryPending;
-
-  /// The failure behind [error] a held or cached copy stands in for, or
-  /// null: [error] itself, or the cause a storage failure wraps.
-  static Object? _fetchFailureOf(Object error) {
-    if (tomSecretsIsFetchFailure(error)) return error;
-    final cause = error is TomStorageException ? error.cause : null;
-    return cause != null && tomSecretsIsFetchFailure(cause) ? cause : null;
-  }
 
   /// The primary as stored before the service's own writes (revision →
   /// bytes), the merge bases of an app's save of an older revision.
@@ -1037,7 +1037,7 @@ final class TomSecretsVaultSet {
     } on TomSecretsSaveException {
       rethrow;
     } on Object catch (e) {
-      final failure = _fetchFailureOf(e);
+      final failure = tomSecretsFetchFailureOf(e);
       if (failure == null) rethrow;
       final now = TomSecretsStoreState.offlineFor(failure);
       _fetched(name, failure);

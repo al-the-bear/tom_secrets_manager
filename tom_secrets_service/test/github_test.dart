@@ -806,8 +806,8 @@ void main() {
     });
 
     test('the primary\'s own writes: a lastUsed flush is one commit; while '
-        'offline it waits in the held copy and the next refresh delivers '
-        'it', () async {
+        'offline a flush and a new grant are kept in the held copy, in '
+        'effect, and the next refresh delivers them', () async {
       final service = await start(approvals: true);
       final self = tomSecretsIdentityOf(tomSecretsProcessInfo(pid)!);
       await admin.request('grants.add', {
@@ -846,15 +846,30 @@ void main() {
       expect(await get('primary/Db/Main'), 'demo-db-pw');
       network.net = _Net.unreachable;
       events.clear();
-      await expectLater(
-        service.approvals!.flushLastUsed(),
-        throwsA(isA<Object>()),
+      expect(
+        await service.approvals!.flushLastUsed(),
+        isTrue,
+        reason: 'kept, not failed',
       );
       expect(service.vaults.primaryWritePending, isTrue);
       expect(stores(service)['primary']!['state'], 'offline');
       await settle();
       expect(ofOp('store_state').single['store'], 'primary');
       expect(await lastUsed(), first, reason: 'not delivered');
+      // A grant added now answers ok and is in effect on this host.
+      await admin.request('grants.add', {
+        'grant': {
+          'host': 'bigbeast',
+          'subject': 'exe /usr/bin/demo',
+          'secret': 'all',
+          'decision': 'allow',
+          'pin': 'off',
+        },
+      });
+      Future<List<Object?>> grantHosts() async => TomSecretsGrantsGroup(
+        await KdbxFormat().read(onGitHub('primary.kdbx'), _pw(primaryPassword)),
+      ).hosts;
+      expect(await grantHosts(), ['demo-host'], reason: 'not delivered');
 
       network.net = _Net.online;
       now = now.add(const Duration(minutes: 1));
@@ -862,6 +877,7 @@ void main() {
       expect(report.reopened, contains('primary'));
       expect(service.vaults.primaryWritePending, isFalse);
       expect(await lastUsed(), isNot(first), reason: 'delivered');
+      expect(await grantHosts(), ['demo-host', 'bigbeast']);
       expect(stores(service)['primary']!['state'], 'current');
     });
   });
