@@ -19,7 +19,13 @@ import 'package:test/test.dart';
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_client/tom_secrets_client.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart'
-    show TomSecretsKeyFile, tomSecretsBlobId, tomSecretsNewVault;
+    show
+        TomSecretsKeyFile,
+        tomSecretsBlobId,
+        tomSecretsDecodeStored,
+        tomSecretsEncodeStored,
+        tomSecretsNewVault,
+        tomSecretsVaultCredentials;
 import 'package:tom_secrets_service/tom_secrets_service.dart';
 
 import 'support/setup.dart';
@@ -151,6 +157,50 @@ void main() {
     test('locked: refused', () async {
       await start(unlock: false);
       expect((await _refused(admin.request('vaultKeys'))).kind, 'locked');
+    });
+  });
+
+  group('vaultFile', () {
+    test('the copy the service holds, its revision and location; edited and '
+        'saved against that revision, it is written', () async {
+      await start();
+      final answer = await admin.request('vaultFile', {'store': 'team'});
+      expect(answer['op'], 'vaultFileData');
+      expect(answer['store'], 'team');
+      expect(answer['location'], 'file:${demo.teamPath}');
+      final stored = base64.decode(answer['bytes'] as String);
+      expect(stored, File(demo.teamPath).readAsBytesSync());
+      expect(answer['revision'], tomSecretsBlobId(stored));
+      final file = await tomSecretsDecodeStored(
+        answer['location'] as String,
+        stored,
+        tomSecretsVaultCredentials(password: teamPassword),
+      );
+      _setToken(file, 'token-from-the-app');
+      await admin.request('save', {
+        'store': 'team',
+        'bytes': base64.encode(
+          await tomSecretsEncodeStored(answer['location'] as String, file),
+        ),
+        'baseRevision': answer['revision'],
+      });
+      expect(await get('team/Api/Token'), 'token-from-the-app');
+    });
+
+    test('a store that is not open, a missing name, a locked service: '
+        'refused', () async {
+      await start();
+      expect(
+        (await _refused(admin.request('vaultFile', {'store': 'nope'}))).kind,
+        'not_found',
+      );
+      final malformed = await _refused(admin.request('vaultFile'));
+      expect(malformed.kind, 'malformed');
+      await admin.request('lock');
+      expect(
+        (await _refused(admin.request('vaultFile', {'store': 'team'}))).kind,
+        'locked',
+      );
     });
   });
 

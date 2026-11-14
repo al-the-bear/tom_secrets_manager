@@ -35,7 +35,6 @@ import 'peer_identity.dart';
 import 'secret_frame.dart';
 import 'vault_set.dart';
 
-
 /// The service's version, sent in `welcome` and `challenge`.
 const String tomSecretsServiceVersion = '0.1.0';
 
@@ -1833,6 +1832,51 @@ final class _AdminSession {
             'store': e.message,
           });
         }
+      case 'vaultFile':
+        final store = m['store'];
+        if (store is! String) {
+          connection.sendError(id, 'malformed', 'vaultFile names a store', {
+            'reason': 'store',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        final ({String location, String revision, Uint8List stored}) file;
+        try {
+          file = service.vaults.vaultFile(store);
+        } on StateError catch (e) {
+          connection.sendError(id, 'not_found', 'no open store ${e.message}', {
+            'store': e.message,
+          });
+          return;
+        }
+        final bytes = base64.encode(file.stored);
+        // An answer frame holds at most 1 MiB (protocol.md 2.3); a larger
+        // file waits for the binary chunks of phase B.
+        if (bytes.length + 1024 > tomSecretsMaxAnswerPayload) {
+          connection.sendError(
+            id,
+            'unsupported',
+            'the file of $store is too large for one answer frame',
+            {'reason': 'too_large', 'size': file.stored.length},
+          );
+          return;
+        }
+        connection.send({
+          'op': 'vaultFileData',
+          'id': id,
+          'store': store,
+          'location': file.location,
+          'revision': file.revision,
+          'bytes': bytes,
+        });
+        service.log.info('vault_file', {
+          'store': store,
+          'size': file.stored.length,
+        });
       case 'save':
         final store = m['store'];
         final bytes = m['bytes'];

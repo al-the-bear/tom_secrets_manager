@@ -1,0 +1,75 @@
+// Copyright (c) 2026 Peter Nicolai Alexis Kyaw
+// SPDX-License-Identifier: BSD-3-Clause
+
+/// A vault file as its store keeps it: a plain `.kdbx`, or a `.tsmx` under
+/// the repository's outer key (BP-18). The service opens and writes stores
+/// with these, and the manager app opens the copy the service hands it for
+/// editing and encodes the file it saves (protocol.md 6.4).
+library;
+
+import 'dart:typed_data';
+
+import 'package:tom_kdbx_store/tom_kdbx_store.dart';
+
+import 'locator.dart';
+import 'outer.dart';
+
+/// The outer layer of a vault file named [fileName]: a `.tsmx` file opened
+/// with [outerKey] (base64), or null for a plain `.kdbx`.
+TomSecretsOuterCodec? tomSecretsOuterCodecFor(
+  String fileName,
+  String? outerKey,
+) => fileName.endsWith(tomSecretsOuterSuffix)
+    ? TomSecretsOuterCodec(
+        path: fileName,
+        keys: [
+          if (outerKey != null) TomSecretsRepositoryKey.fromBase64(outerKey),
+        ],
+      )
+    : null;
+
+/// The credentials of a vault with [password] and the bytes of a [keyFile],
+/// either of them optional.
+Credentials tomSecretsVaultCredentials({
+  String? password,
+  Uint8List? keyFile,
+}) => Credentials.composite(
+  password == null ? null : ProtectedValue.fromString(password),
+  keyFile,
+);
+
+/// [stored], the file at [locator] as its store keeps it, opened with
+/// [credentials] (and [outerKey] for a `.tsmx` file). Throws
+/// [KdbxInvalidKeyException] for wrong credentials, `TomKeyRequiredException`
+/// (`tom_core_storage`) when no outer key given opens it, and
+/// [TomSecretsOuterException] for a damaged outer layer.
+Future<KdbxFile> tomSecretsDecodeStored(
+  String locator,
+  Uint8List stored,
+  Credentials credentials, {
+  String? outerKey,
+}) async {
+  final codec = tomSecretsOuterCodecFor(
+    TomSecretsVaultLocator.parse(locator).fileName,
+    outerKey,
+  );
+  return KdbxFormat().read(
+    codec == null ? stored : await codec.decode(stored),
+    credentials,
+  );
+}
+
+/// [file] saved as the store at [locator] keeps it: its KDBX bytes, under the
+/// outer layer with [outerKey] for a `.tsmx` file.
+Future<Uint8List> tomSecretsEncodeStored(
+  String locator,
+  KdbxFile file, {
+  String? outerKey,
+}) async {
+  final codec = tomSecretsOuterCodecFor(
+    TomSecretsVaultLocator.parse(locator).fileName,
+    outerKey,
+  );
+  final bytes = await file.save();
+  return codec == null ? bytes : codec.encode(bytes);
+}

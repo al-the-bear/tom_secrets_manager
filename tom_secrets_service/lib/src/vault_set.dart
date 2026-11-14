@@ -182,20 +182,6 @@ final class TomSecretsCommitted {
   final int conflicts;
 }
 
-/// The outer layer of a vault file named [fileName]: a `.tsmx` file opened
-/// with [outerKey] (base64), or null for a plain `.kdbx`.
-TomSecretsOuterCodec? tomSecretsOuterCodecFor(
-  String fileName,
-  String? outerKey,
-) => fileName.endsWith(tomSecretsOuterSuffix)
-    ? TomSecretsOuterCodec(
-        path: fileName,
-        keys: [
-          if (outerKey != null) TomSecretsRepositoryKey.fromBase64(outerKey),
-        ],
-      )
-    : null;
-
 /// Each locator to the opener of its kind: `file:` vaults to [file],
 /// `github:` vaults to [github].
 final class TomSecretsLocatorOpener implements TomSecretsVaultOpener {
@@ -282,9 +268,6 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
     return parsed.path;
   }
 
-  static TomSecretsOuterCodec? _codec(String path, String? outerKey) =>
-      tomSecretsOuterCodecFor(path.split(RegExp(r'[/\\]')).last, outerKey);
-
   @override
   Future<TomSecretsOpenedVault> open(
     String locator,
@@ -313,21 +296,20 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
     Uint8List stored,
     Credentials credentials, {
     String? outerKey,
-  }) async {
-    final codec = _codec(_path(locator), outerKey);
-    final kdbx = codec == null ? stored : await codec.decode(stored);
-    return KdbxFormat().read(kdbx, credentials);
+  }) {
+    _path(locator);
+    return tomSecretsDecodeStored(
+      locator,
+      stored,
+      credentials,
+      outerKey: outerKey,
+    );
   }
 
   @override
-  Future<Uint8List> encode(
-    String locator,
-    KdbxFile file, {
-    String? outerKey,
-  }) async {
-    final codec = _codec(_path(locator), outerKey);
-    final bytes = await file.save();
-    return codec == null ? bytes : codec.encode(bytes);
+  Future<Uint8List> encode(String locator, KdbxFile file, {String? outerKey}) {
+    _path(locator);
+    return tomSecretsEncodeStored(locator, file, outerKey: outerKey);
   }
 
   /// Replaces the file at [locator] with [stored] at once.
@@ -895,6 +877,22 @@ final class TomSecretsVaultSet {
         fileName: TomSecretsVaultLocator.parse(e.value.locator).fileName,
       ),
   ], machine);
+
+  /// The copy of the open store [name] the service holds
+  /// (`vaultFileData`, protocol.md 6.4): its locator, its revision (the
+  /// `baseRevision` a `save` of an edit of it names) and the file as the
+  /// store keeps it. Throws [StateError] naming a store that is not open.
+  ({String location, String revision, Uint8List stored}) vaultFile(
+    String name,
+  ) {
+    final opened = _opened[name];
+    if (opened == null) throw StateError(name);
+    return (
+      location: opened.locator,
+      revision: _revisionOf(opened),
+      stored: opened.stored,
+    );
+  }
 
   /// The keys of the open stores (`vaultKeySet.stores`, protocol.md 6.4),
   /// the primary first; only [stores] when given. Each `keys` object carries
