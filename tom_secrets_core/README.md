@@ -216,9 +216,9 @@ print(resolution.entry.pathText);
 resolution.value.dispose();
 ```
 
-The design is part-structure of the idea document
-(`_ai/quests/tom_core/ideas/tom_secrets_manager/tom_secrets_manager.md`); its
-worked examples are `test/worked_examples_test.dart`, row by row.
+The design is the design document's part-structure (not published with the
+source); its worked examples are `test/worked_examples_test.dart`, row by
+row.
 
 ## The live check on github.com
 

@@ -150,7 +150,9 @@ final class TomSecretsServiceConfig {
 /// The executables that may administer a service started from
 /// [serviceExecutable] with [bootstrap] (protocol.md 6.1), as real paths:
 /// `tsm` and the manager app (`tom_secrets_desktop`, `tom_secrets_app`)
-/// beside the service's executable, and the bootstrap's
+/// beside the service's executable, the app of the distribution the service
+/// is part of (`tomSecretsDistributionApp`: the app carries `tsm` and the
+/// service in its `tsm/bin` folder), and the bootstrap's
 /// `admin_executables`.
 Set<String> tomSecretsAdminExecutables(
   String serviceExecutable,
@@ -161,6 +163,10 @@ Set<String> tomSecretsAdminExecutables(
   return {
     for (final name in ['tsm', 'tom_secrets_desktop', 'tom_secrets_app'])
       tomSecretsRealPath('$dir${Platform.pathSeparator}$name$ext', null),
+    tomSecretsRealPath(
+      tomSecretsDistributionApp(dir, operatingSystem: Platform.operatingSystem),
+      null,
+    ),
     for (final path in bootstrap.adminExecutables)
       tomSecretsRealPath(path, null),
   };

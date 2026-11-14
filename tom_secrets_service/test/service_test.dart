@@ -147,6 +147,36 @@ void main() {
     });
   });
 
+  test('the admins: tsm and the app beside the service, the app of the '
+      'distribution around it, the bootstrap\'s admin_executables', () {
+    final root = Directory.systemTemp.createTempSync('tsmdist');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final macos = Platform.isMacOS;
+    final ext = Platform.isWindows ? '.exe' : '';
+    final appDir = macos
+        ? '${root.path}/Tom Secrets Manager.app/Contents/MacOS'
+        : '${root.path}/app';
+    final toolsDir = macos
+        ? '${root.path}/Tom Secrets Manager.app/Contents/Resources/tsm/bin'
+        : '$appDir/tsm/bin';
+    final app = File('$appDir/tom_secrets_app$ext')
+      ..createSync(recursive: true);
+    final service = File('$toolsDir/tom_secrets_service$ext')
+      ..createSync(recursive: true);
+    final tsm = File('$toolsDir/tsm$ext')..createSync();
+    final admins = tomSecretsAdminExecutables(
+      service.path,
+      TomSecretsBootstrap(
+        primary: 'file:/demo/primary.kdbx',
+        dataDirectory: '${root.path}/data',
+        adminExecutables: ['${root.path}/dev/tom_secrets_app$ext'],
+      ),
+    );
+    expect(admins, contains(app.resolveSymbolicLinksSync()));
+    expect(admins, contains(tsm.resolveSymbolicLinksSync()));
+    expect(admins, contains('${root.path}/dev/tom_secrets_app$ext'));
+  });
+
   group('the admin channel', () {
     test('the mutual challenge matches protocol/vectors/hmac.json', () {
       final vectors =

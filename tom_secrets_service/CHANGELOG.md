@@ -13,3 +13,6 @@
 - The unlock takes the primary's key file (when the request carries none)
   and a `.tsmx` primary's repository key from the device keychain; the
   primary is opened, refreshed and written with its outer key.
+- The service admits the manager app of the distribution it is part of
+  (`tomSecretsDistributionApp`: the app carries `tsm` and the service in its
+  `tsm/bin` folder) besides `tsm` and the app beside it.

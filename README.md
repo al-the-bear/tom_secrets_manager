@@ -5,8 +5,26 @@ apps share, and the secrets service that holds the unlocked secrets and answers
 local clients. No Flutter here, so the service, the desktop app and the mobile
 app take the same code.
 
-In the workspace this repository is the submodule `tom_ai/secrets_manager`
-(repository id `TSM`, GitHub `al-the-bear/tom_secrets_manager`, private).
+GitHub: `al-the-bear/tom_secrets_manager`. The product's other two
+repositories are `al-the-bear/tom_secrets_clients` (the protocol, the client
+libraries and `tsm`) and `al-the-bear/tom_app_secrets_manager` (the apps, the
+manual CI and the release build, with the install and first-run guide in its
+README).
+
+## Building
+
+The service is a `dart build cli` bundle (its native library, `tom_pqc`'s,
+in `lib/` beside `bin/`):
+
+```text
+cd tom_secrets_service
+dart build cli --target bin/tom_secrets_service.dart -o build/service
+```
+
+The release build of `tom_app_secrets_manager` (`tom_secrets_build/ci.sh
+:release`) builds it with `tsm` into the app's distribution. The packages
+still take `tom_secrets_client` by path from `tom_secrets_clients`, cloned
+beside this repository under its GitHub name.
 
 ## Packages
 
@@ -31,7 +49,8 @@ closure may hold a GPL-licensed package.
 
 ## Design
 
-The design is the idea document of the tom_core quest,
-`_ai/quests/tom_core/ideas/tom_secrets_manager/tom_secrets_manager.md`
-(section `part-repositories`); the work is tracked in the
-`tom_secrets_manager` quest.
+The design decisions the code and documents cite (`DP-`, `BP-`, `TD-` and
+`IDEA-` ids, the `part-…` sections) are recorded in the product's design
+document, which is not published with the source. The published contract
+between the service and its clients is the protocol document of
+`al-the-bear/tom_secrets_clients` (`protocol/protocol.md`).
