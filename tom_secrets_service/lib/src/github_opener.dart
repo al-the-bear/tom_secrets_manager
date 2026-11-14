@@ -10,6 +10,7 @@
 /// is recorded for the key-expiry reminders.
 library;
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -17,6 +18,8 @@ import 'package:http/http.dart' as http;
 import 'package:tom_basics/diagnostics.dart';
 import 'package:tom_core_storage/github.dart';
 import 'package:tom_core_storage/tom_core_storage.dart';
+import 'package:tom_core_sync/tom_core_sync.dart'
+    show TomCasExhaustedException, TomCommitFailedException, TomSyncConflict;
 import 'package:tom_github_api/tom_github_api.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
@@ -81,7 +84,10 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
   final http.Client? _httpClient;
   final DateTime Function() _clock;
   final Map<String, _Repository> _repositories = {};
-  final Map<String, String> _heads = {};
+
+  /// The unit of each vault opened, kept for its saves: its base is the
+  /// copy the service serves.
+  final Map<String, TomSecretsVaultUnit> _units = {};
   final Map<String, DateTime> _tokenExpiries = {};
 
   /// The expiry GitHub reported for each repository's token
@@ -128,11 +134,10 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
       history: await repository.history(vault.branch),
       clock: () => _clock().toUtc(),
     );
-    // The service only reads through the unit: a save goes through
-    // [write], so the unit's edit stream is never used.
-    await unit.dispose();
+    // Kept for the saves: its base is what the service serves from now on.
+    await _units.remove(locator)?.dispose();
+    _units[locator] = unit;
     final head = unit.head!;
-    _heads[locator] = head;
     // The storage answered from the tree it holds because GitHub did not
     // answer: what was read is the copy held, not a fetch.
     final unanswered = repository.watch.servedOffline
@@ -166,11 +171,10 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
   @override
   Future<Uint8List> read(String locator) async {
     final vault = _parse(locator);
-    final (bytes, head) = await TomSecretsVaultUnit.readAtHead(
+    final (bytes, _) = await TomSecretsVaultUnit.readAtHead(
       _repository(vault).storage,
       locator,
     );
-    _heads[locator] = head;
     return bytes;
   }
 
@@ -192,27 +196,80 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
     String? outerKey,
   }) async => _codec(_parse(locator), outerKey).encode(await file.save());
 
-  /// Commits [stored] to [locator] over the head last read or opened there:
-  /// a branch that moved since refuses the commit
-  /// (`TomCasConflictException`) rather than overwriting what it holds.
+  /// Commits [file] as the vault's new state through the unit [open] kept
+  /// (part-stores, DP-81): one commit on the branch through the REST API,
+  /// committed by this device; when the branch moved, the unit reads the
+  /// new head, merges [file] three-way with it (its base the copy served,
+  /// which is [base]) and tries again; the result goes into the offline
+  /// cache. A branch rewritten without a compaction refuses the save
+  /// (`denied`, `history_rewritten`: the app decides), and so does a branch
+  /// that kept moving over every attempt (`denied`, `branch_moving`). A
+  /// remote that cannot be reached or refuses the token throws that
+  /// storage failure.
   @override
-  Future<void> write(String locator, Uint8List stored) async {
-    final vault = _parse(locator);
-    _heads[locator] = await _repository(vault).storage.commit(
-      locator,
-      TomChangeset.singleFile(stored),
-      expectedHead: _heads[locator],
-      message: TomSecretsVaultUnit.commitMessageFor(vault.fileName, device),
+  Future<TomSecretsCommitted> commit(
+    String locator,
+    KdbxFile file, {
+    required Uint8List base,
+    required Credentials credentials,
+    String? outerKey,
+    Uint8List? stored,
+  }) async {
+    final unit = _units[locator];
+    if (unit == null) throw StateError('$locator is not open');
+    final mergesBefore = unit.merges.length;
+    unit.replaceWorking(file, stored: stored);
+    final List<TomSyncConflict> conflicts;
+    try {
+      conflicts = await unit.push();
+    } on TomCasExhaustedException {
+      throw TomSecretsSaveException(
+        'denied',
+        'the branch moved during every attempt; save again',
+        reason: 'branch_moving',
+      );
+    } on TomCommitFailedException catch (e) {
+      // The storage's own failure (unreachable, the token refused) is what
+      // the caller tells apart.
+      throw e.cause ?? e;
+    }
+    if (conflicts.any((c) => c is TomSecretsHistoryRewritten)) {
+      throw TomSecretsSaveException(
+        'denied',
+        'the branch was rewritten without a compaction',
+        reason: 'history_rewritten',
+      );
+    }
+    return TomSecretsCommitted(
+      opened: TomSecretsOpenedVault(
+        locator: locator,
+        file: unit.working,
+        stored: unit.baseBytes,
+        revision: unit.head,
+        source: 'github',
+        fetchedAt: unit.fetchedAt,
+      ),
+      merged: unit.merges.length > mergesBefore,
+      conflicts: conflicts.whereType<TomSecretsVaultConflict>().length,
     );
+  }
+
+  /// Drops the units it keeps (their open files) and their working copies.
+  @override
+  void drop() {
+    for (final unit in _units.values) {
+      unawaited(unit.dispose());
+    }
+    _units.clear();
   }
 
   /// Closes the connections.
   void close() {
+    drop();
     for (final r in _repositories.values) {
       r.storage.close();
     }
     _repositories.clear();
-    _heads.clear();
   }
 }
 

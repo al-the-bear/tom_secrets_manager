@@ -14,6 +14,7 @@ import 'package:tom_core_storage/tom_core_storage.dart'
     show
         TomKeyRequiredException,
         TomRateLimitException,
+        TomStorageException,
         TomTokenRejectedException,
         TomTokenRequiredException;
 import 'package:tom_crypto/protected_value.dart';
@@ -132,8 +133,45 @@ abstract interface class TomSecretsVaultOpener {
   /// [file] as [locator] keeps it.
   Future<Uint8List> encode(String locator, KdbxFile file, {String? outerKey});
 
-  /// Writes [stored] to [locator], replacing the file at once.
-  Future<void> write(String locator, Uint8List stored);
+  /// Writes [file] to [locator] over [base] (the file as the service holds
+  /// it, as stored): when the file there has moved since, [file] is merged
+  /// three-way with it first, [base] the merge base (part-stores). Answers
+  /// the store as written; [file] is its open file from then on. Throws the
+  /// storage's failure when the remote cannot be reached or refuses the
+  /// token, and [TomSecretsSaveException] when the write is refused. With
+  /// [stored] ([file] as the store keeps it, as it was saved) a write that
+  /// needs no merge writes those bytes as they are.
+  Future<TomSecretsCommitted> commit(
+    String locator,
+    KdbxFile file, {
+    required Uint8List base,
+    required Credentials credentials,
+    String? outerKey,
+    Uint8List? stored,
+  });
+
+  /// Drops whatever the opener keeps of the vaults it opened (on lock).
+  void drop();
+}
+
+/// What [TomSecretsVaultOpener.commit] wrote.
+final class TomSecretsCommitted {
+  /// [opened] as written; [merged] when the file had moved and was merged,
+  /// with [conflicts] recorded in the vault.
+  const TomSecretsCommitted({
+    required this.opened,
+    this.merged = false,
+    this.conflicts = 0,
+  });
+
+  /// The store as written.
+  final TomSecretsOpenedVault opened;
+
+  /// Whether a three-way merge ran.
+  final bool merged;
+
+  /// The conflicts the merge recorded.
+  final int conflicts;
 }
 
 /// The outer layer of a vault file named [fileName]: a `.tsmx` file opened
@@ -199,8 +237,27 @@ final class TomSecretsLocatorOpener implements TomSecretsVaultOpener {
       _for(locator).encode(locator, file, outerKey: outerKey);
 
   @override
-  Future<void> write(String locator, Uint8List stored) =>
-      _for(locator).write(locator, stored);
+  Future<TomSecretsCommitted> commit(
+    String locator,
+    KdbxFile file, {
+    required Uint8List base,
+    required Credentials credentials,
+    String? outerKey,
+    Uint8List? stored,
+  }) => _for(locator).commit(
+    locator,
+    file,
+    base: base,
+    credentials: credentials,
+    outerKey: outerKey,
+    stored: stored,
+  );
+
+  @override
+  void drop() {
+    file.drop();
+    github?.drop();
+  }
 }
 
 /// `file:` vaults: read and written on the local disk (a `.tsmx` file
@@ -265,13 +322,54 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
     return codec == null ? bytes : codec.encode(bytes);
   }
 
-  @override
-  Future<void> write(String locator, Uint8List stored) async {
+  /// Replaces the file at [locator] with [stored] at once.
+  Future<void> _write(String locator, Uint8List stored) async {
     final path = _path(locator);
     final temp = File('$path.tmp');
     await temp.writeAsBytes(stored, flush: true);
     await temp.rename(path);
   }
+
+  @override
+  Future<TomSecretsCommitted> commit(
+    String locator,
+    KdbxFile file, {
+    required Uint8List base,
+    required Credentials credentials,
+    String? outerKey,
+    Uint8List? stored,
+  }) async {
+    final current = await read(locator);
+    var merged = false;
+    var conflicts = 0;
+    if (tomSecretsBlobId(current) != tomSecretsBlobId(base)) {
+      final result = tomSecretsMergeVaults(
+        base: await decode(locator, base, credentials, outerKey: outerKey),
+        ours: file,
+        theirs: await decode(locator, current, credentials, outerKey: outerKey),
+        location: locator,
+      );
+      merged = true;
+      conflicts = result.conflicts.length;
+    }
+    final written = merged || stored == null
+        ? await encode(locator, file, outerKey: outerKey)
+        : stored;
+    await _write(locator, written);
+    return TomSecretsCommitted(
+      opened: TomSecretsOpenedVault(
+        locator: locator,
+        file: file,
+        stored: written,
+        fetchedAt: (await File(_path(locator)).lastModified()).toUtc(),
+      ),
+      merged: merged,
+      conflicts: conflicts,
+    );
+  }
+
+  @override
+  void drop() {}
 }
 
 /// The key material the service holds for one store while unlocked, masked
@@ -576,43 +674,79 @@ final class TomSecretsVaultSet {
     return !_clock().isBefore(next.at);
   }
 
-  /// Writes the open primary back to its file (the service's own edit, e.g.
-  /// a new device key kept in it); the held copy then is what was written.
-  /// Returns the revision written.
+  /// Writes the open primary through the opener's [TomSecretsVaultOpener.
+  /// commit] (the service's own edits: grants, their last use, the device
+  /// key): a `github:` primary as a commit on the branch, merged with a
+  /// remote that moved. The held copy then is what was written; the copy it
+  /// replaces stays a merge base for an app that edited it. Returns the
+  /// revision written.
+  ///
+  /// When the remote cannot be reached or refuses the token, the edits stay
+  /// in the held copy ([primaryWritePending]), the primary goes to
+  /// `offline` / `token_expired`, and the next refresh writes them before it
+  /// fetches; the failure is rethrown. Nothing is kept across a lock.
   Future<String> writePrimary() async {
     final primary = _primary!;
-    final stored = await opener.encode(primary.locator, primary.file);
-    await opener.write(primary.locator, stored);
+    final name = _primaryName;
+    final TomSecretsCommitted committed;
+    try {
+      committed = await opener.commit(
+        primary.locator,
+        primary.file,
+        base: primary.stored,
+        credentials: _primaryKeys!.credentials,
+      );
+    } on Object catch (e) {
+      _primaryPending = true;
+      final failure = _fetchFailureOf(e);
+      if (failure != null && name != null) {
+        _fetched(name, failure);
+        _setStatus(
+          name,
+          primary.locator,
+          TomSecretsStoreState.offlineFor(failure),
+          from: primary,
+          source: primary.source == 'file' ? null : 'cache',
+        );
+      }
+      rethrow;
+    }
+    _primaryPending = false;
     // The copy this write replaces stays a merge base: an app that edited
     // it is merged, not refused (stale_base).
     _ownWrites[_revisionOf(primary)] = primary.stored;
     while (_ownWrites.length > 8) {
       _ownWrites.remove(_ownWrites.keys.first);
     }
-    final written = _primary = TomSecretsOpenedVault(
-      locator: primary.locator,
-      file: primary.file,
-      stored: stored,
-      source: primary.source,
-      fetchedAt: primary.fetchedAt,
-    );
-    final name = _primaryName;
+    final written = _primary = committed.opened;
     if (name != null) {
       _opened[name] = written;
-      final status = _status[name];
-      if (status != null) {
-        _status[name] = TomSecretsStoreStatus(
-          name: name,
-          state: status.state,
-          locator: status.locator,
-          source: status.source,
-          fetchedAt: status.fetchedAt,
-          revision: _revisionOf(written),
-          notPushed: status.notPushed,
-        );
-      }
+      _fetched(name, null);
+      _setStatus(
+        name,
+        written.locator,
+        TomSecretsStoreState.current,
+        from: written,
+      );
+      // A merge brought the remote's changes in.
+      final machine = _machine;
+      if (committed.merged && machine != null) _rebuildOpened(machine);
     }
     return _revisionOf(written);
+  }
+
+  bool _primaryPending = false;
+
+  /// Whether the service's own edits of the primary wait to be written (the
+  /// last [writePrimary] could not reach the remote).
+  bool get primaryWritePending => _primaryPending;
+
+  /// The failure behind [error] a held or cached copy stands in for, or
+  /// null: [error] itself, or the cause a storage failure wraps.
+  static Object? _fetchFailureOf(Object error) {
+    if (tomSecretsIsFetchFailure(error)) return error;
+    final cause = error is TomStorageException ? error.cause : null;
+    return cause != null && tomSecretsIsFetchFailure(cause) ? cause : null;
   }
 
   /// The primary as stored before the service's own writes (revision →
@@ -790,12 +924,16 @@ final class TomSecretsVaultSet {
 
   /// Takes the app's edited file of store [name] (protocol.md 6.4): [stored]
   /// is the whole file as the store keeps it, [baseRevision] the revision
-  /// the app edited. It must open with the store's keys. When the file is
-  /// still at [baseRevision] (or no base is given) it is written as it is;
-  /// when the file has moved but [baseRevision] is the copy the service
-  /// holds, the app's copy is merged three-way into the file as it is now,
-  /// with the held copy as the base; any other base is refused
-  /// (`denied`, `stale_base`). The store is reopened from what was written.
+  /// the app edited. It must open with the store's keys. The edit is
+  /// written through the opener's [TomSecretsVaultOpener.commit] over the
+  /// copy the service holds: when the file has moved since (on the disk, or
+  /// a `github:` branch another device pushed to), the app's copy is merged
+  /// three-way into it, the held copy as the base. [baseRevision] must be
+  /// the held copy, a copy the service wrote over itself (the primary's
+  /// grants; merged onto the held copy first), or the file as it is now;
+  /// any other is refused (`denied`, `stale_base`). A store on its offline
+  /// copy, or whose remote fails during the save, refuses with `offline` /
+  /// `token_expired`. The written file is the store's from then on.
   Future<TomSecretsSaveResult> save(
     String name,
     Uint8List stored, {
@@ -848,70 +986,85 @@ final class TomSecretsVaultSet {
         reason: 'bytes',
       );
     }
-    final current = await opener.read(locator);
-    final currentRevision = tomSecretsBlobId(current);
     final held = _revisionOf(opened);
-    var toWrite = stored;
+    var base = opened.stored;
     var merged = false;
     var conflicts = 0;
-    if (baseRevision != null && baseRevision != currentRevision) {
-      final KdbxFile base;
-      if (baseRevision == held) {
-        base = opened.file;
-      } else if (name == _primaryName && _ownWrites[baseRevision] != null) {
-        // The app edited a copy the service has since written over itself
-        // (grants, their last use): that copy is the base.
-        base = await opener.decode(
-          locator,
-          _ownWrites[baseRevision]!,
-          keys.credentials,
-          outerKey: outerKey,
-        );
-      } else {
-        throw TomSecretsSaveException(
-          'denied',
-          'the file has moved past the revision the app edited',
-          reason: 'stale_base',
-        );
+    final TomSecretsCommitted committed;
+    try {
+      if (baseRevision != null && baseRevision != held) {
+        final own = name == _primaryName ? _ownWrites[baseRevision] : null;
+        if (own != null) {
+          // The app edited a copy the service has since written over itself
+          // (grants, their last use): merged onto the held copy, that copy
+          // the base.
+          final result = tomSecretsMergeVaults(
+            base: await opener.decode(
+              locator,
+              own,
+              keys.credentials,
+              outerKey: outerKey,
+            ),
+            ours: edited,
+            theirs: opened.file,
+            location: '$name (save)',
+          );
+          merged = true;
+          conflicts = result.conflicts.length;
+        } else {
+          // The app edited the file as it is now, newer than the held copy:
+          // that is the base it is written over.
+          final current = await opener.read(locator);
+          if (tomSecretsBlobId(current) != baseRevision) {
+            throw TomSecretsSaveException(
+              'denied',
+              'the file has moved past the revision the app edited',
+              reason: 'stale_base',
+            );
+          }
+          base = current;
+        }
       }
-      final theirs = await opener.decode(
+      committed = await opener.commit(
         locator,
-        current,
-        keys.credentials,
-        outerKey: outerKey,
-      );
-      final result = tomSecretsMergeVaults(
+        edited,
         base: base,
-        ours: edited,
-        theirs: theirs,
-        location: '$name (save)',
+        credentials: keys.credentials,
+        outerKey: outerKey,
+        // Unmerged, the app's file is written as it saved it.
+        stored: merged ? null : stored,
       );
-      merged = true;
-      conflicts = result.conflicts.length;
-      toWrite = await opener.encode(locator, edited, outerKey: outerKey);
+    } on TomSecretsSaveException {
+      rethrow;
+    } on Object catch (e) {
+      final failure = _fetchFailureOf(e);
+      if (failure == null) rethrow;
+      final now = TomSecretsStoreState.offlineFor(failure);
+      _fetched(name, failure);
+      _setStatus(
+        name,
+        locator,
+        now,
+        from: opened,
+        source: opened.source == 'file' ? null : 'cache',
+      );
+      throw TomSecretsSaveException(
+        now.wireName,
+        now == TomSecretsStoreState.offline
+            ? 'the store cannot be reached'
+            : 'the store\'s token was refused',
+      );
     }
-    await opener.write(locator, toWrite);
-    final reopened = await opener.open(
-      locator,
-      keys.credentials,
-      outerKey: outerKey,
-    );
-    _opened[name] = reopened;
-    if (name == _primaryName) _primary = reopened;
-    final revision = _revisionOf(reopened);
-    _status[name] = TomSecretsStoreStatus(
-      name: name,
-      state: TomSecretsStoreState.current,
-      locator: locator,
-      source: reopened.source,
-      fetchedAt: reopened.fetchedAt,
-      revision: revision,
-    );
+    final written = committed.opened;
+    _opened[name] = written;
+    if (name == _primaryName) _primary = written;
+    _fetched(name, null);
+    _setStatus(name, locator, TomSecretsStoreState.current, from: written);
     _rebuildOpened(machine);
     return TomSecretsSaveResult(
-      revision: revision,
-      merged: merged,
-      conflicts: conflicts,
+      revision: _revisionOf(written),
+      merged: merged || committed.merged,
+      conflicts: conflicts + committed.conflicts,
     );
   }
 
@@ -926,8 +1079,10 @@ final class TomSecretsVaultSet {
   /// cache); a file whose key changed goes to `needs_unlock`; a further
   /// vault the primary lists anew, or with new keys, is opened with them,
   /// and one it no longer lists is dropped. The index is rebuilt when
-  /// anything was reopened or dropped. Nothing is done while locked, and a
-  /// lock during the refresh ends it.
+  /// anything was reopened or dropped. Edits of the primary the service
+  /// could not write before ([primaryWritePending]) are written first, and
+  /// the primary is not fetched while they wait. Nothing is done while
+  /// locked, and a lock during the refresh ends it.
   Future<TomSecretsRefreshReport> refresh({bool force = false}) async {
     final primaryName = _primaryName;
     final primaryKeys = _primaryKeys;
@@ -939,7 +1094,18 @@ final class TomSecretsVaultSet {
     final before = Map.of(_status);
     final reopened = <String>[];
     var rebuild = false;
-    if (_due(primaryName, force)) {
+    if (_primaryPending) {
+      // The service's own edits the last write could not deliver go first:
+      // a fetch now would drop them.
+      try {
+        await writePrimary();
+        reopened.add(primaryName);
+      } on Object {
+        // Still not delivered: the held copy stays served.
+      }
+      if (epoch != _epoch) return const TomSecretsRefreshReport();
+    }
+    if (!_primaryPending && _due(primaryName, force)) {
       final outcome = await _refreshStore(
         primaryName,
         _primary!.locator,
@@ -1164,6 +1330,8 @@ final class TomSecretsVaultSet {
   /// ones).
   void lock() {
     _epoch++;
+    opener.drop();
+    _primaryPending = false;
     _next.clear();
     _served = null;
     _primary = null;

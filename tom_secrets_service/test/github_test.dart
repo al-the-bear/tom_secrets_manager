@@ -9,7 +9,10 @@
 /// refuses the token (`offline`, `token_expired`, backing off 1, 2, 4 …
 /// minutes, a refused token not retried until `reload`), tells the attached
 /// admins (`store_state`, `store_changed`), and reminds of expiring keys
-/// (`key_expiry`, `status.expiring`). Demo data only.
+/// (`key_expiry`, `status.expiring`). A save of a `github:` store, and the
+/// service's own writes of a `github:` primary, are commits through the
+/// vault unit: by this device, merged with a branch that moved, cached, and
+/// refused while offline. Demo data only.
 @TestOn('vm')
 @Timeout(Duration(minutes: 2))
 library;
@@ -17,6 +20,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
@@ -194,9 +198,12 @@ void main() {
   Future<TomSecretsService> start({
     bool unlock = true,
     Duration refreshTick = const Duration(minutes: 1),
+    bool approvals = false,
   }) async {
     final service = await demo.start(
       transport: transport,
+      // The service's own approvals and grants, or every value allowed.
+      policy: approvals ? null : const AllowAllPolicy(),
       keychain: keychain,
       githubClient: network,
       clock: () => now,
@@ -671,6 +678,191 @@ void main() {
       expect(at(0, hours: 3)!.step, '1');
       expect(at(0)!.step, 'expired 2026-12-01');
       expect(at(-1)!.daysLeft, -1);
+    });
+  });
+
+  group('saves of github: stores', () {
+    /// The bytes of [path] in the demo repository now.
+    Uint8List onGitHub(String path) => server.bytesAt(_repo, path)!;
+
+    /// The commits on the demo repository's main branch, newest first.
+    List<FakeCommit> commits() {
+      final out = <FakeCommit>[];
+      String? id = server.repos[_repo]!.refs['heads/main'];
+      while (id != null) {
+        final c = server.commits[id]!;
+        out.add(c);
+        id = c.parents.isEmpty ? null : c.parents.first;
+      }
+      return out;
+    }
+
+    Future<KdbxFile> openTeam(Uint8List bytes) =>
+        KdbxFormat().read(bytes, _pw(teamPassword));
+
+    String? token(KdbxFile file) => file.body.rootGroup
+        .getAllEntries()
+        .firstWhere((e) => e.label == 'Token')
+        .getString(KdbxKeyCommon.PASSWORD)
+        ?.getText();
+
+    Future<Uint8List> editedToken(Uint8List held, String value) async {
+      final file = await openTeam(held);
+      file.body.rootGroup
+          .getAllEntries()
+          .firstWhere((e) => e.label == 'Token')
+          .setString(KdbxKeyCommon.PASSWORD, ProtectedValue.fromString(value));
+      return file.save();
+    }
+
+    Future<Object?> save(Uint8List bytes, Uint8List base) =>
+        admin.request('save', {
+          'store': 'team',
+          'bytes': base64.encode(bytes),
+          'baseRevision': tomSecretsBlobId(base),
+        });
+
+    test('a save is one commit on the branch by this device, written as the '
+        'app saved it, kept in the offline cache and announced', () async {
+      final service = await start();
+      final held = onGitHub('team.kdbx');
+      final before = commits().length;
+      final edited = await editedToken(held, 'token-2');
+      await save(edited, held);
+      expect(onGitHub('team.kdbx'), edited, reason: 'as the app saved it');
+      final all = commits();
+      expect(all, hasLength(before + 1));
+      expect(all.first.message, 'tsm: team.kdbx from demo-host');
+      expect(all.first.committer?['email'], 'demo-host@tsm.invalid');
+      expect(all.first.author?['email'], 'demo-host@tsm.invalid');
+      await settle();
+      expect(ofOp('store_changed').single, {
+        'op': 'store_changed',
+        'store': 'team',
+        'revision': tomSecretsBlobId(edited),
+      });
+      expect(await get('team/Api/Token'), 'token-2');
+      final cached = await TomSecretsOfflineCache(
+        Directory(demo.bootstrap.cacheDirectory),
+      ).get(_team);
+      expect(cached!.bytes, edited);
+      final report = await service.refresh(force: true);
+      expect(report.reopened, isEmpty, reason: 'the store is at its commit');
+      expect(stores(service)['team']!['state'], 'current');
+    });
+
+    test('a save racing another device\'s push: merged three-way with the '
+        'held copy as the base, committed on top', () async {
+      await start();
+      final held = onGitHub('team.kdbx');
+      final theirs = await openTeam(held);
+      final note = KdbxEntry.create(theirs, theirs.body.rootGroup)
+        ..setString(KdbxKeyCommon.TITLE, PlainValue('Written meanwhile'));
+      theirs.body.rootGroup.addEntry(note);
+      await put(_team, theirs);
+      final pushed = commits().length;
+
+      await save(await editedToken(held, 'token-2'), held);
+      final now = await openTeam(onGitHub('team.kdbx'));
+      expect(token(now), 'token-2');
+      expect(
+        now.body.rootGroup.getAllEntries().map((e) => e.label),
+        contains('Written meanwhile'),
+      );
+      expect(commits(), hasLength(pushed + 1));
+      expect(commits()[1].message, 'seed', reason: 'on top of the push');
+      expect(await get('team/Api/Token'), 'token-2');
+
+      // A base that is neither the held copy nor the file now is stale.
+      final e = await refused(save(await editedToken(held, 'x'), held));
+      expect(e.kind, 'denied');
+      expect(e.details['reason'], 'stale_base');
+    });
+
+    test('GitHub unreachable or refusing the token during a save: refused '
+        'with offline / token_expired, the store on its copy', () async {
+      final service = await start();
+      final held = onGitHub('team.kdbx');
+      final before = commits().length;
+      for (final (mode, kind) in [
+        (_Net.unreachable, 'offline'),
+        (_Net.rejected, 'token_expired'),
+      ]) {
+        events.clear();
+        network.net = mode;
+        final e = await refused(save(await editedToken(held, 'lost'), held));
+        expect(e.kind, kind, reason: '$mode');
+        expect(e.details['stores'], ['team']);
+        expect(stores(service)['team']!['state'], kind);
+        expect(stores(service)['team']!['source'], 'cache');
+        await settle();
+        expect(ofOp('store_state').single['state'], kind);
+        expect(await get('team/Api/Token'), 'token-1', reason: 'the copy');
+        network.net = _Net.online;
+        await admin.request('reload');
+      }
+      expect(commits(), hasLength(before), reason: 'nothing committed');
+      expect(stores(service)['team']!['state'], 'current');
+    });
+
+    test('the primary\'s own writes: a lastUsed flush is one commit; while '
+        'offline it waits in the held copy and the next refresh delivers '
+        'it', () async {
+      final service = await start(approvals: true);
+      final self = tomSecretsIdentityOf(tomSecretsProcessInfo(pid)!);
+      await admin.request('grants.add', {
+        'grant': {
+          'host': 'demo-host',
+          'subject': self.kind == 'script'
+              ? 'script ${self.interpreter} ${self.script}'
+              : 'exe ${self.exe}',
+          'secret': 'all',
+          'decision': 'allow',
+          'pin': 'off',
+        },
+      });
+      expect(service.approvals!.grants, hasLength(1));
+      Future<String?> lastUsed() async {
+        final file = await KdbxFormat().read(
+          onGitHub('primary.kdbx'),
+          _pw(primaryPassword),
+        );
+        return TomSecretsGrantsGroup(
+              file,
+            ).read('demo-host', TomSecretsSignedKind.grant).single['lastUsed']
+            as String?;
+      }
+
+      expect(await lastUsed(), isNull, reason: 'the grant, committed');
+      expect(await get('primary/Db/Main'), 'demo-db-pw');
+      final before = commits().length;
+      expect(await service.approvals!.flushLastUsed(), isTrue);
+      expect(commits(), hasLength(before + 1), reason: 'one commit');
+      expect(commits().first.message, 'tsm: primary.kdbx from demo-host');
+      expect(await lastUsed(), isNotNull);
+
+      final first = await lastUsed();
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(await get('primary/Db/Main'), 'demo-db-pw');
+      network.net = _Net.unreachable;
+      events.clear();
+      await expectLater(
+        service.approvals!.flushLastUsed(),
+        throwsA(isA<Object>()),
+      );
+      expect(service.vaults.primaryWritePending, isTrue);
+      expect(stores(service)['primary']!['state'], 'offline');
+      await settle();
+      expect(ofOp('store_state').single['store'], 'primary');
+      expect(await lastUsed(), first, reason: 'not delivered');
+
+      network.net = _Net.online;
+      now = now.add(const Duration(minutes: 1));
+      final report = await service.refresh();
+      expect(report.reopened, contains('primary'));
+      expect(service.vaults.primaryWritePending, isFalse);
+      expect(await lastUsed(), isNot(first), reason: 'delivered');
+      expect(stores(service)['primary']!['state'], 'current');
     });
   });
 }

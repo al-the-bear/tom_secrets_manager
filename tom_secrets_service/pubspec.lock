@@ -466,7 +466,7 @@ packages:
     source: hosted
     version: "0.1.2"
   tom_core_sync:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: tom_core_sync
       sha256: "8126322959d85ca2ac75bcdd9a416686b6145da81546e368d793e47334509895"

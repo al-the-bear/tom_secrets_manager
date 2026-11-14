@@ -99,11 +99,19 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   locations; `save` takes the app's edited file, which must open with the
   store's keys. A file still at `baseRevision` is written as it is; a file
   that moved meanwhile is merged three-way when the app edited the service's
-  copy, and refused (`stale_base`) otherwise. The store is reopened and
-  `store_changed` names the new revision. `file:` vaults are written on the
-  local disk; `github:` vaults are committed over the head last read (a
-  branch that moved meanwhile refuses the commit); a store served from its
-  offline copy refuses a save (`offline`, `token_expired`).
+  copy, and refused (`stale_base`) otherwise. Every write goes through the
+  opener's `commit` over the copy the service holds: `file:` vaults on the
+  local disk (merged when the file moved there); `github:` vaults as one
+  commit on the branch by this device through the vault unit kept per store,
+  merged three-way when another device pushed meanwhile, then kept in the
+  offline cache (`denied` with `history_rewritten` for a branch rewritten
+  without a compaction, `branch_moving` when it moved on every attempt).
+  `store_changed` names the new revision. A store on its offline copy, or
+  whose remote fails during the save, refuses with `offline` /
+  `token_expired`. The service's own writes of the primary (grants, their
+  last use, the device key) go the same way; one that cannot be delivered
+  stays in the held copy and the next refresh writes it before fetching
+  (nothing of it survives a lock).
 - **`github:` vaults** (`TomSecretsGitHubOpener`): opened through
   `tom_secrets_core`'s `TomSecretsVaultUnit` over `TomGitHubStorage` (the REST
   API, no clone), with the commit reader for compactions. Each repository's

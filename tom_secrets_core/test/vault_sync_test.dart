@@ -100,6 +100,43 @@ void main() {
       expect(b.merges, hasLength(1));
     });
 
+    test('replaceWorking: a whole edited file (read from its saved bytes) is '
+        'committed over the base, merged with a remote that moved', () async {
+      final (a, b) = await twoDevices();
+      byTitle(a.working, 'Box').setString(notes, PlainValue('from mbp'));
+      a.markEdited();
+      await a.push();
+      // bigbeast's app edited the copy bigbeast holds and saved it whole.
+      final edited = await KdbxFormat().read(
+        await b.working.save(),
+        demoCredentials,
+      );
+      byTitle(edited, 'Main').setString(user, PlainValue('dbuser'));
+      b.replaceWorking(edited);
+      expect(b.hasLocalChanges, isTrue);
+      expect(await b.push(), isEmpty);
+      final now = await KdbxFormat().read(
+        remote.snapshot(locator)[TomChangeset.containerPath]!,
+        demoCredentials,
+      );
+      expect(text(byTitle(now, 'Box'), notes), 'from mbp');
+      expect(text(byTitle(now, 'Main'), user), 'dbuser');
+      expect(identical(b.working, edited), isTrue);
+
+      // Given the saved bytes and with nothing to merge, those are committed
+      // as they are.
+      final again = await KdbxFormat().read(
+        await b.working.save(),
+        demoCredentials,
+      );
+      byTitle(again, 'Main').setString(user, PlainValue('dbuser2'));
+      final bytes = await again.save();
+      b.replaceWorking(again, stored: bytes);
+      await b.push();
+      expect(remote.snapshot(locator)[TomChangeset.containerPath], bytes);
+      expect(b.baseBytes, bytes);
+    });
+
     test('the same field on both: a conflict reaches the sync queue and the '
         'vault', () async {
       final (a, b) = await twoDevices();

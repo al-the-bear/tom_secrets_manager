@@ -446,16 +446,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
         if (isLocked) return const TomSecretsRefreshReport();
         final report = await _vaults.refresh(force: force);
         if (isLocked) return report;
-        for (final status in report.states) {
-          _emit({
-            'op': 'store_state',
-            'store': status.name,
-            'state': status.state.wireName,
-            'source': status.wireSource,
-            'fetchedAt': ?status.fetchedAt?.toUtc().toIso8601String(),
-            'notPushed': status.notPushed,
-          });
-        }
+        report.states.forEach(_emitState);
         for (final name in report.reopened) {
           _emit({
             'op': 'store_changed',
@@ -768,9 +759,37 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   @override
   KdbxFile? get primary => _vaults.primary?.file;
 
+  /// Runs [write] and sends `store_state` for every store whose state or
+  /// source it changed (a write that found the remote unreachable).
+  Future<T> _tellingStates<T>(Future<T> Function() write) async {
+    final before = {for (final s in _vaults.status) s.name: s};
+    try {
+      return await write();
+    } finally {
+      for (final s in _vaults.status) {
+        final was = before[s.name];
+        if (was != null &&
+            (was.state != s.state || was.wireSource != s.wireSource)) {
+          _emitState(s);
+        }
+      }
+    }
+  }
+
+  void _emitState(TomSecretsStoreStatus status) => _emit({
+    'op': 'store_state',
+    'store': status.name,
+    'state': status.state.wireName,
+    'source': status.wireSource,
+    'fetchedAt': ?status.fetchedAt?.toUtc().toIso8601String(),
+    'notPushed': status.notPushed,
+  });
+
   @override
   Future<void> savePrimary() async {
-    final revision = await _vaults.writePrimary();
+    // In turn with the refresh and the saves: they share the primary's
+    // held copy and, for a `github:` primary, its unit.
+    final revision = await _serial(() => _tellingStates(_vaults.writePrimary));
     // The service's own write (grants, their last use): an attached app sees
     // the new revision.
     _emit({
@@ -804,7 +823,9 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     String? baseRevision,
   }) async {
     final result = await _serial(
-      () => _vaults.save(store, stored, baseRevision: baseRevision),
+      () => _tellingStates(
+        () => _vaults.save(store, stored, baseRevision: baseRevision),
+      ),
     );
     log.info('save', {
       'store': store,

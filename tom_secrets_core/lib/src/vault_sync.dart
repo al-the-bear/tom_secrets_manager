@@ -347,9 +347,25 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
 
   /// Records that the working copy changed, so the engine pushes it.
   void markEdited() {
+    _replacedStored = null;
     _dirty = true;
     _edits.add(null);
   }
+
+  /// Makes [file] the working copy (a whole edited file, e.g. the one the
+  /// app saved through the service) and marks it edited: the next [push]
+  /// commits it over the base, merging with the remote when it moved. With
+  /// [stored] (the file as the store keeps it, as it was saved) a push that
+  /// needs no merge commits those bytes as they are.
+  void replaceWorking(KdbxFile file, {Uint8List? stored}) {
+    _working = file;
+    markEdited();
+    _replacedStored = stored;
+  }
+
+  /// The bytes [replaceWorking] was given, until a merge or an edit changes
+  /// the working copy.
+  Uint8List? _replacedStored;
 
   Future<KdbxFile> _read(Uint8List stored) async =>
       KdbxFormat().read(await codec.decode(stored), credentials);
@@ -445,6 +461,8 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
       theirs: theirs,
       location: locator,
     );
+    // The working copy is the merge now, not the bytes it was given.
+    _replacedStored = null;
     _merges.add(result);
     _baseBytes = stored;
     this.head = head;
@@ -461,7 +479,8 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
     for (var attempt = 1; attempt <= maxPushAttempts; attempt++) {
       _working.body.meta.customData[tomSecretsFormatKey] ??=
           tomSecretsFormatVersion;
-      final stored = await codec.encode(await _working.save());
+      final stored =
+          _replacedStored ?? await codec.encode(await _working.save());
       try {
         head = await storage.commit(
           locator,
@@ -470,6 +489,7 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
           message: commitMessage,
         );
         _baseBytes = stored;
+        _replacedStored = null;
         await _retrieved(stored, head!);
         return conflicts;
       } on TomCasConflictException catch (e) {
