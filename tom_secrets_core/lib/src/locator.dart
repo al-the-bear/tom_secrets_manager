@@ -132,12 +132,12 @@ final class TomSecretsGitHubLocator extends TomSecretsVaultLocator {
 
 /// The device keychain's handle of the GitHub token for [owner]/[repository].
 String tomSecretsGitHubTokenHandle(String owner, String repository) =>
-    'tsm.github-token.$owner/$repository';
+    'tsm.github-token.$owner:$repository';
 
 /// The device keychain's handle of the expiry (ISO 8601) recorded with the
 /// GitHub token for [owner]/[repository] when it was entered.
 String tomSecretsGitHubTokenExpiryHandle(String owner, String repository) =>
-    'tsm.github-token-expiry.$owner/$repository';
+    'tsm.github-token-expiry.$owner:$repository';
 
 /// A KDBX file on another git server over smart HTTP; recognised, not
 /// advertised in phase A.

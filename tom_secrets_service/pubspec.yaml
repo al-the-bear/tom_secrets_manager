@@ -24,6 +24,8 @@ dependencies:
   tom_core_storage: ^0.1.2
   # The vault unit's push failures (TomCasExhaustedException, ...).
   tom_core_sync: ^0.1.0
+  # The git remote a compaction pushes to (`compact`).
+  tom_git: ^0.2.0
   # The GitHub client the github: opener reaches GitHub through.
   tom_github_api: ^1.4.0
   http: ^1.2.0

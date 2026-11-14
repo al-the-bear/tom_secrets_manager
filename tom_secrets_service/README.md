@@ -93,7 +93,11 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   `unlock_needed`, `store_changed`, `store_state`, `key_expiry`,
   `approval_needed`, `approval_closed`, `rate_limited`), `vaultKeys`, `save`, `approve`, `approval.redeem`, `approval.issue`,
   `grants.list`, `grants.add`, `grants.revoke`, `approvers.cliSwitch`,
-  `audit.query` and `shutdown`.
+  `audit.query`, `approvals.list` (the requests waiting on this host, as
+  `approval_needed` reads them), `keys` (every key with its due date),
+  `compact` (the history of a `github:` vault repository cut now, with its
+  own `.tsm/compaction.yaml` retention, pushed over git by this device) and
+  `shutdown`.
 - **The editing path** (DP-13, protocol.md 6.4): `vaultKeys` hands the app the
   keys of the open vaults (`password`, `keyFile`, `outerKey`) and their
   locations; `save` takes the app's edited file, which must open with the
@@ -116,7 +120,7 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   `tom_secrets_core`'s `TomSecretsVaultUnit` over `TomGitHubStorage` (the REST
   API, no clone), with the commit reader for compactions. Each repository's
   token is asked for on every request: the device keychain's
-  (`tsm.github-token.<owner>/<repository>`), else one the primary's vault list
+  (`tsm.github-token.<owner>:<repository>`), else one the primary's vault list
   keeps for a vault in that repository (never for the primary's own
   repository). The expiry GitHub reports for a token
   (`GitHub-Authentication-Token-Expiration`) is recorded for the reminders.
@@ -191,8 +195,11 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   D-Bus or credential store) `auto` takes the vault.
 - **Starting it** (`tomSecretsStartService`): the starter makes the admin key,
   starts the service detached, hands the key over on its standard input and
-  reads one status line (`ready`, `already_running`, `error`).
-  `TomSecretsAdminClient` is the admin side for the app and `tsm`.
+  reads one status line (`ready`, `already_running`, `error`). The starter,
+  `TomSecretsAdminClient`, the runtime directory, the data directory and the
+  keychain names are `tom_secrets_client`'s admin library
+  (`package:tom_secrets_client/admin.dart`), which this package re-exports:
+  the app and `tsm` use them without linking the service.
 
 The service reaches KDBX only through `tom_secrets_core` (DP-29).
 

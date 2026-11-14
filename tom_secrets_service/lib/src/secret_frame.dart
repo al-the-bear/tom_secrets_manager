@@ -12,10 +12,10 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:tom_crypto/protected_value.dart';
+import 'package:tom_secrets_client/admin.dart' show tomSecretsRandomBytes;
 import 'package:tom_secrets_client/tom_secrets_client.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
-import 'admin_auth.dart' show tomSecretsRandomBytes;
 
 /// Reads a secret's bytes for the duration of a callback, zeroing them after.
 typedef TomSecretsBytesReader = T Function<T>(T Function(Uint8List bytes) use);

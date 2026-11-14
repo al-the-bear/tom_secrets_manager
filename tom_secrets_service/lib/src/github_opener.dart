@@ -11,6 +11,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -20,10 +21,23 @@ import 'package:tom_core_storage/github.dart';
 import 'package:tom_core_storage/tom_core_storage.dart';
 import 'package:tom_core_sync/tom_core_sync.dart'
     show TomCasExhaustedException, TomCommitFailedException, TomSyncConflict;
+import 'package:tom_git/tom_git.dart' show GitHttpRemote;
 import 'package:tom_github_api/tom_github_api.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'vault_set.dart';
+
+/// The git remote a compaction pushes [vault]'s repository to, with
+/// [token] its credential.
+typedef TomSecretsGitRemoteFor =
+    GitHttpRemote Function(
+      TomSecretsGitHubLocator vault,
+      Future<String?> Function() token,
+    );
+
+/// The commit reader a compaction reads [vault]'s repository's history with.
+typedef TomSecretsCommitReaderFor =
+    TomSecretsCommitReader Function(TomSecretsGitHubLocator vault);
 
 /// The GitHub token for [vault]'s repository, or null when there is none.
 typedef TomSecretsGitHubTokens =
@@ -62,9 +76,16 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
     this.baseUrl = 'https://api.github.com',
     http.Client? httpClient,
     DateTime Function()? clock,
+    TomSecretsGitRemoteFor? remoteFor,
+    TomSecretsCommitReaderFor? readerFor,
   }) : _useCache = useCache ?? _always,
        _httpClient = httpClient,
-       _clock = clock ?? DateTime.now;
+       _clock = clock ?? DateTime.now,
+       _remoteFor = remoteFor,
+       _readerFor = readerFor;
+
+  final TomSecretsGitRemoteFor? _remoteFor;
+  final TomSecretsCommitReaderFor? _readerFor;
 
   static bool _always() => true;
 
@@ -254,6 +275,58 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
     );
   }
 
+  /// The repositories (`owner/repository`) of the vaults open.
+  Set<String> get repositories => {
+    for (final locator in _units.keys) _parse(locator).repositorySlug,
+  };
+
+  /// Compacts the history of [repositorySlug] (`owner/repository`) on
+  /// request (part-stores, `tsm compact`): the cut `tomSecretsCompact` makes,
+  /// keeping the repository's own retention (its `.tsm/compaction.yaml`,
+  /// else the defaults), pushed over git by this device; then the open
+  /// units of that repository follow the new head. Throws [StateError] when
+  /// no open vault is in [repositorySlug], the storage's failure when GitHub
+  /// cannot be reached or refuses the token, and
+  /// [TomSecretsCompactionException] when the cut is refused.
+  Future<TomSecretsCompactionResult> compact(String repositorySlug) async {
+    final locators = [
+      for (final locator in _units.keys)
+        if (_parse(locator).repositorySlug == repositorySlug) locator,
+    ];
+    if (locators.isEmpty) {
+      throw StateError('no open vault in $repositorySlug');
+    }
+    final vault = _parse(locators.first);
+    final repository = _repository(vault);
+    final branch = vault.branch ?? await repository.defaultBranch();
+    final settings = tomSecretsCompactionSettingsOf(
+      await repository.readText(branch, tomSecretsCompactionConfigPath),
+    );
+    final reader =
+        _readerFor?.call(vault) ??
+        (await repository.history(branch)) ??
+        (throw const TomTokenRequiredException(TomGitHubStorage.host));
+    final remote =
+        (_remoteFor ??
+        (v, token) => tomSecretsGitHubRemote(
+          v,
+          token: token,
+          client: _httpClient,
+        ))(vault, () => tokens(vault));
+    final result = await tomSecretsCompact(
+      remote: remote,
+      reader: reader,
+      branch: branch,
+      device: device,
+      retentionDays: settings.retentionDays,
+      now: _clock(),
+    );
+    for (final locator in locators) {
+      await _units[locator]?.followCompaction(result);
+    }
+    return result;
+  }
+
   /// Drops the units it keeps (their open files) and their working copies.
   @override
   void drop() {
@@ -303,6 +376,30 @@ final class _Repository {
 
   /// The commit reader of [branch], when a token is there; without one the
   /// unit merges a moved head as usual (the service never pushes).
+  /// The repository's default branch.
+  Future<String> defaultBranch() async {
+    final token = await opener.tokens(vault);
+    if (token == null) {
+      throw const TomTokenRequiredException(TomGitHubStorage.host);
+    }
+    return _client(
+      token,
+    ).getDefaultBranch(owner: vault.owner, repo: vault.repository);
+  }
+
+  /// The text of [path] on [branch], or null when there is none.
+  Future<String?> readText(String branch, String path) async {
+    try {
+      return utf8.decode(
+        await storage.readBytes(
+          'github:${vault.owner}/${vault.repository}@$branch/$path',
+        ),
+      );
+    } on TomContainerNotFoundException {
+      return null;
+    }
+  }
+
   Future<TomSecretsCommitReader?> history(String? branch) async {
     final token = await opener.tokens(vault);
     if (token == null) return null;

@@ -201,7 +201,7 @@ service parse references with one implementation.
   cannot list itself, and the group never resolves. A repository's own GitHub
   token is kept in the device keychain under
   `tomSecretsGitHubTokenHandle(owner, repository)`
-  (`tsm.github-token.<owner>/<repository>`), the expiry recorded with it
+  (`tsm.github-token.<owner>:<repository>`), the expiry recorded with it
   under `tomSecretsGitHubTokenExpiryHandle` (`tsm.github-token-expiry.…`); a
   token in the vault list carries its expiry in `tsm.github-token-expires`.
 

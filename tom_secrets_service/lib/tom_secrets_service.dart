@@ -8,9 +8,8 @@
 /// handover, the start and the admin client.
 library;
 
+export 'package:tom_secrets_client/admin.dart';
 export 'src/access.dart';
-export 'src/admin_auth.dart';
-export 'src/admin_client.dart';
 export 'src/approvals.dart';
 export 'src/audit.dart';
 export 'src/bootstrap.dart';
@@ -23,10 +22,8 @@ export 'src/link_server.dart';
 export 'src/lock_policy.dart';
 export 'src/log.dart';
 export 'src/peer_identity.dart';
-export 'src/runtime.dart';
 export 'src/secret_frame.dart';
 export 'src/service.dart';
-export 'src/starter.dart';
 export 'src/vault_set.dart';
 
 // The device settings and lock types the service's API hands out; they live

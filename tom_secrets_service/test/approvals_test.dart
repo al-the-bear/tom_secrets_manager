@@ -109,6 +109,30 @@ void main() {
         .having((e) => e.reason, 'reason', reason ?? anything),
   );
 
+  test('approvals.list names the requests waiting on this host, as the '
+      'approvers see them (tsm approvals)', () async {
+    final a = await start();
+    final needed = a.events.firstWhere((e) => e['op'] == 'approval_needed');
+    expect((await a.request('approvals.list'))['approvals'], isEmpty);
+    final c = await client();
+    final answer = c.get('primary/Db/Main');
+    final event = await needed;
+    final list = await a.request('approvals.list');
+    expect(list['op'], 'approvalList');
+    final waiting = (list['approvals']! as List).single as Map;
+    expect(waiting['approvalId'], event['approvalId']);
+    expect(waiting['refs'], ['primary/Db/Main']);
+    expect(waiting['host'], 'demo-host');
+    expect(waiting.containsKey('op'), isFalse);
+    await a.request('approve', {
+      'approvalId': event['approvalId'],
+      'decision': 'once',
+      'secret': 'ref',
+    });
+    expect((await answer).text, 'demo-db-pw');
+    expect((await a.request('approvals.list'))['approvals'], isEmpty);
+  });
+
   test('a prompt answered once: the value, approval_closed, the audit '
       'record; asked again, a new prompt', () async {
     final a = await start();

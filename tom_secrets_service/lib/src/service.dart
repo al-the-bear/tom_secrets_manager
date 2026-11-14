@@ -15,12 +15,12 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:tom_core_storage/settings.dart';
+import 'package:tom_secrets_client/admin.dart';
 import 'package:tom_secrets_client/tom_secrets_client.dart';
 import 'package:tom_crypto/protected_value.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'access.dart';
-import 'admin_auth.dart';
 import 'approvals.dart';
 import 'audit.dart';
 import 'bootstrap.dart';
@@ -32,12 +32,9 @@ import 'link_server.dart';
 import 'lock_policy.dart';
 import 'log.dart';
 import 'peer_identity.dart';
-import 'runtime.dart';
 import 'secret_frame.dart';
 import 'vault_set.dart';
 
-/// The service name of the product's items in the OS keychain.
-const String tomSecretsKeychainService = 'tom-secrets-manager';
 
 /// The service's version, sent in `welcome` and `challenge`.
 const String tomSecretsServiceVersion = '0.1.0';
@@ -52,6 +49,8 @@ final class TomSecretsServiceConfig {
     this.opener,
     this.githubBaseUrl = 'https://api.github.com',
     this.githubClient,
+    this.githubRemoteFor,
+    this.githubReaderFor,
     this.refreshTick = const Duration(minutes: 1),
     DateTime Function()? clock,
     TomSecretsIdleSource? idleSource,
@@ -94,6 +93,12 @@ final class TomSecretsServiceConfig {
 
   /// The HTTP client `github:` vaults are fetched through (null: its own).
   final http.Client? githubClient;
+
+  /// The git remote a compaction pushes to (null: GitHub's smart HTTP).
+  final TomSecretsGitRemoteFor? githubRemoteFor;
+
+  /// The commit reader a compaction reads with (null: GitHub's REST API).
+  final TomSecretsCommitReaderFor? githubReaderFor;
 
   /// How often the refresh looks for stores that are due; each store is
   /// fetched every `refreshMinutes` (the device settings), or after its
@@ -228,6 +233,8 @@ final class TomSecretsService implements TomSecretsApprovalHost {
           baseUrl: config.githubBaseUrl,
           httpClient: config.githubClient,
           clock: config.clock,
+          remoteFor: config.githubRemoteFor,
+          readerFor: config.githubReaderFor,
         )
       : null;
   late final TomSecretsVaultSet _vaults = TomSecretsVaultSet(
@@ -472,8 +479,71 @@ final class TomSecretsService implements TomSecretsApprovalHost {
         return report;
       });
 
+  /// Answers `compact {repository}` (part-stores, `tsm compact`): the cut
+  /// of [repository]'s history through the GitHub opener, in turn with the
+  /// refresh and the saves.
+  Future<void> _compact(
+    int id,
+    String repository,
+    TomSecretsConnection connection,
+  ) async {
+    final github = _github;
+    if (github == null || !github.repositories.contains(repository)) {
+      connection.sendError(id, 'not_found', 'no open vault in $repository', {
+        'repository': repository,
+      });
+      return;
+    }
+    try {
+      final result = await _serial(() => github.compact(repository));
+      log.info('compact', {
+        'repository': repository,
+        'compacted': result.compacted,
+        'kept': result.kept,
+      });
+      connection.send({
+        'op': 'compacted',
+        'id': id,
+        'repository': repository,
+        'compacted': result.compacted,
+        'oldHead': result.oldHead,
+        'newHead': result.newHead,
+        'kept': result.kept,
+      });
+    } on TomSecretsCompactionException catch (e) {
+      // Saves kept landing on every attempt: the user tries again later.
+      if (e.race) {
+        connection.sendError(id, 'denied', e.message, {
+          'reason': 'branch_moving',
+        });
+      } else {
+        log.error('compact_failed', e, {'repository': repository});
+        connection.sendError(id, 'internal', e.message, {'code': 'compaction'});
+      }
+    } on Object catch (e) {
+      final failure = tomSecretsFetchFailureOf(e);
+      if (failure == null) rethrow;
+      final state = TomSecretsStoreState.offlineFor(failure);
+      connection.sendError(
+        id,
+        state.wireName,
+        state == TomSecretsStoreState.offline
+            ? 'GitHub could not be reached'
+            : 'GitHub refused the token',
+        {
+          'stores': [
+            for (final s in _vaults.status)
+              if ((s.locator ?? '').startsWith('github:$repository/') ||
+                  (s.locator ?? '').startsWith('github:$repository@'))
+                s.name,
+          ],
+        },
+      );
+    }
+  }
+
   /// The token of [vault]'s repository: the device keychain's
-  /// (`tsm.github-token.<owner>/<repository>`), else one the primary's vault
+  /// (`tsm.github-token.<owner>:<repository>`), else one the primary's vault
   /// list keeps for a vault in that repository, never for the primary's own
   /// repository (part-stores).
   Future<String?> _githubToken(TomSecretsGitHubLocator vault) async {
@@ -506,7 +576,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
 
   /// The expiry recorded with each repository's GitHub token when it was
   /// entered (`owner/repository` → UTC): the keychain's
-  /// (`tsm.github-token-expiry.<owner>/<repository>`), else the primary's
+  /// (`tsm.github-token-expiry.<owner>:<repository>`), else the primary's
   /// vault list's for a vault in that repository.
   final Map<String, DateTime> _storedTokenExpiries = {};
 
@@ -560,8 +630,15 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   ///   peers it recorded, from 30 days before their rotation age (24
   ///   months, DP-85) is over.
   List<TomSecretsExpiringKey> get expiring {
-    if (isLocked) return const [];
     final now = this.now;
+    return [for (final k in keys) ?k.dueAt(now)];
+  }
+
+  /// Every key the service knows a due date of (`tsm keys`), whether or not
+  /// a reminder is due: the GitHub tokens, the vaults' key files and
+  /// repository keys, the key pairs; [expiring] are those due now.
+  List<TomSecretsKeyDate> get keys {
+    if (isLocked) return const [];
     final trust = _trust;
     final tokens = {..._storedTokenExpiries, ...?_github?.tokenExpiries};
     final primary = _vaults.primary;
@@ -575,30 +652,28 @@ final class TomSecretsService implements TomSecretsApprovalHost {
       // An unreadable date reminds of nothing; the app shows the metadata.
       primaryDue = null;
     }
-    TomSecretsExpiringKey? other(
+    TomSecretsKeyDate? other(
       String kind,
       String key,
       DateTime? expiresAt, {
       String? vault,
     }) => expiresAt == null
         ? null
-        : TomSecretsExpiringKey.due(
+        : TomSecretsKeyDate(
             kind: kind,
             key: key,
             vault: vault,
             expiresAt: expiresAt,
-            now: now,
             firstDays: TomSecretsExpiringKey.otherKeyDays,
           );
-    TomSecretsExpiringKey? pair(String kind, String key, DateTime? since) =>
+    TomSecretsKeyDate? pair(String kind, String key, DateTime? since) =>
         other(kind, key, TomSecretsExpiringKey.keyPairDue(since));
     return [
       for (final MapEntry(key: slug, value: at) in tokens.entries)
-        ?TomSecretsExpiringKey.due(
+        TomSecretsKeyDate(
           kind: 'github_token',
           key: 'github-token:$slug',
           expiresAt: at,
-          now: now,
           firstDays: settings.keyExpiryWarningDays,
         ),
       if (primaryName != null)
@@ -1834,6 +1909,47 @@ final class _AdminSession {
         } else {
           connection.send({'op': 'ok', 'id': id});
         }
+      case 'keys':
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        final now = service.now;
+        connection.send({
+          'op': 'keyList',
+          'id': id,
+          'keys': [for (final k in service.keys) k.toJson(now)],
+        });
+      case 'approvals.list':
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        connection.send({
+          'op': 'approvalList',
+          'id': id,
+          'approvals': [
+            for (final event in service.approvals?.waitingEvents ?? const [])
+              {
+                for (final e in event.entries)
+                  if (e.key != 'op') e.key: e.value,
+              },
+          ],
+        });
+      case 'compact':
+        final repository = m['repository'];
+        if (repository is! String ||
+            !RegExp(r'^[^/\s]+/[^/\s]+$').hasMatch(repository)) {
+          connection.sendError(id, 'malformed', 'repository is owner/name', {
+            'reason': 'repository',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        await service._compact(id, repository, connection);
       case 'lock':
         await service.lock();
         connection.send({'op': 'ok', 'id': id});

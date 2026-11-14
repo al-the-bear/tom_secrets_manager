@@ -158,6 +158,8 @@ final class Demo {
     http.Client? githubClient,
     DateTime Function()? clock,
     Duration refreshTick = const Duration(minutes: 1),
+    TomSecretsGitRemoteFor? githubRemoteFor,
+    TomSecretsCommitReaderFor? githubReaderFor,
   }) async {
     final service = await TomSecretsService.launch(
       TomSecretsServiceConfig(
@@ -181,6 +183,8 @@ final class Demo {
         githubClient: githubClient,
         clock: clock,
         refreshTick: refreshTick,
+        githubRemoteFor: githubRemoteFor,
+        githubReaderFor: githubReaderFor,
       ),
     );
     addTearDown(service.stop);

@@ -482,7 +482,7 @@ packages:
     source: hosted
     version: "1.5.0"
   tom_git:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: tom_git
       sha256: "7757686c959592c4a36fa4b722edfa59c8ccaac64a9e295c6e711e3999c84362"

@@ -117,3 +117,57 @@ final class TomSecretsExpiringKey {
     'daysLeft': daysLeft,
   };
 }
+
+/// A key the service knows the due date of (`tsm keys`, the `keys` admin
+/// request): [kind] and [key] as in [TomSecretsExpiringKey], the [vault] it
+/// belongs to, when it [expiresAt], and how many days before that its
+/// reminders start ([firstDays]).
+final class TomSecretsKeyDate {
+  /// A key of [kind] due at [expiresAt], reminded of from [firstDays] before.
+  const TomSecretsKeyDate({
+    required this.kind,
+    required this.key,
+    required this.expiresAt,
+    required this.firstDays,
+    this.vault,
+  });
+
+  /// As [TomSecretsExpiringKey.kind].
+  final String kind;
+
+  /// As [TomSecretsExpiringKey.key].
+  final String key;
+
+  /// The vault it belongs to, when one.
+  final String? vault;
+
+  /// When it expires or is due for rotation.
+  final DateTime expiresAt;
+
+  /// The days before [expiresAt] its reminders start.
+  final int firstDays;
+
+  /// Its reminder at [now], or null when none is due.
+  TomSecretsExpiringKey? dueAt(DateTime now) => TomSecretsExpiringKey.due(
+    kind: kind,
+    key: key,
+    vault: vault,
+    expiresAt: expiresAt,
+    now: now,
+    firstDays: firstDays,
+  );
+
+  /// As `keyList.keys[]` writes it at [now]: [expiresAt], the whole
+  /// `daysLeft` and whether a reminder is due (`reminding`).
+  Map<String, Object?> toJson(DateTime now) {
+    final at = expiresAt.toUtc();
+    return {
+      'kind': kind,
+      'key': key,
+      'vault': ?vault,
+      'expiresAt': at.toIso8601String(),
+      'daysLeft': (at.difference(now.toUtc()).inMinutes / (24 * 60)).floor(),
+      'reminding': dueAt(now) != null,
+    };
+  }
+}

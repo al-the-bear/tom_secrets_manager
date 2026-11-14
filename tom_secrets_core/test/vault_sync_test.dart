@@ -394,10 +394,15 @@ void main() {
       expect(g.repositorySlug, 'al-the-bear/vault');
       expect(
         g.tokenHandle,
-        'tsm.github-token.al-the-bear/vault',
+        'tsm.github-token.al-the-bear:vault',
         reason: 'one keychain token per repository, any branch',
       );
-      expect(g.tokenExpiryHandle, 'tsm.github-token-expiry.al-the-bear/vault');
+      expect(g.tokenExpiryHandle, 'tsm.github-token-expiry.al-the-bear:vault');
+      // The OS keychain (TomDesktopSecretStore) takes item names of letters,
+      // digits and . _ : @ - only: a handle with a `/` would be refused.
+      final keychainName = RegExp(r'^[A-Za-z0-9._:@-]{1,200}$');
+      expect(g.tokenHandle, matches(keychainName));
+      expect(g.tokenExpiryHandle, matches(keychainName));
       final d =
           TomSecretsVaultLocator.parse('github:o/r/v.kdbx')
               as TomSecretsGitHubLocator;

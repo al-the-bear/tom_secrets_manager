@@ -27,6 +27,8 @@ import 'package:test/test.dart';
 import 'package:tom_core_storage/github.dart';
 import 'package:tom_core_storage/settings.dart';
 import 'package:tom_core_storage/tom_core_storage.dart';
+import 'package:tom_git/testing.dart';
+import 'package:tom_git/tom_git.dart';
 import 'package:tom_github_api/testing.dart';
 import 'package:tom_github_api/tom_github_api.dart';
 import 'package:tom_secrets_client/tom_secrets_client.dart';
@@ -199,8 +201,12 @@ void main() {
     bool unlock = true,
     Duration refreshTick = const Duration(minutes: 1),
     bool approvals = false,
+    TomSecretsGitRemoteFor? remoteFor,
+    TomSecretsCommitReaderFor? readerFor,
   }) async {
     final service = await demo.start(
+      githubRemoteFor: remoteFor,
+      githubReaderFor: readerFor,
       transport: transport,
       // The service's own approvals and grants, or every value allowed.
       policy: approvals ? null : const AllowAllPolicy(),
@@ -879,6 +885,97 @@ void main() {
       expect(await lastUsed(), isNot(first), reason: 'delivered');
       expect(await grantHosts(), ['demo-host', 'bigbeast']);
       expect(stores(service)['primary']!['state'], 'current');
+    });
+  });
+
+  group('the requests tsm makes: keys, compact', () {
+    test('keys lists every key with its due date, reminding or not', () async {
+      await put(
+        _primary,
+        primaryVault(otherExpires: now.add(const Duration(days: 200))),
+      );
+      network.expiration = '2026-11-20 09:00:00 UTC';
+      await start();
+      final list = await admin.request('keys');
+      expect(list['op'], 'keyList');
+      final keys = {
+        for (final k in (list['keys']! as List).cast<Map>()) k['key']: k,
+      };
+      expect(keys['github-token:$_repo'], {
+        'kind': 'github_token',
+        'key': 'github-token:$_repo',
+        'expiresAt': '2026-11-20T09:00:00.000Z',
+        'daysLeft': 7,
+        'reminding': true,
+      });
+      expect(keys['vault-keys:other']!['daysLeft'], 200);
+      expect(keys['vault-keys:other']!['reminding'], isFalse);
+      expect(keys['vault-keys:other']!['vault'], 'other');
+      expect(keys['approver-key:demo-host']!['kind'], 'approver_key');
+      expect(keys['approver-key:demo-host']!['reminding'], isFalse);
+      expect(
+        keys['link-key:demo-host']!['expiresAt'],
+        '2028-11-13T09:00:00.000Z',
+      );
+    });
+
+    test('compact cuts the repository\'s history with its own retention, '
+        'by this device; an unknown repository is not found', () async {
+      final git = GitMemoryServer();
+      final day = 86400;
+      final seconds = now.millisecondsSinceEpoch ~/ 1000;
+      Future<GitObjectId> commit(String text, int daysAgo) async {
+        final repo = git.repository;
+        final parent = await repo.refs.read('refs/heads/main');
+        final tree = await repo.editTree(
+          parent == null ? null : (await repo.readCommit(parent)).tree,
+          writes: {'primary.kdbx': utf8.encode(text)},
+        );
+        final person = GitPerson(
+          name: 'mbp',
+          email: 'mbp@tsm.invalid',
+          seconds: seconds - daysAgo * day,
+        );
+        final id = await repo.commit(
+          tree: tree,
+          parents: [?parent],
+          message: 'tsm: primary.kdbx from mbp',
+          author: person,
+        );
+        await repo.refs.write('refs/heads/main', id);
+        return id;
+      }
+
+      await commit('v1', 40);
+      await commit('v2', 20);
+      final head = await commit('v3', 0);
+      // The repository's own settings, on GitHub: nothing kept.
+      server.commitFiles(_repo, {
+        '.tsm/compaction.yaml': 'retention_days: 0\n',
+      });
+      await start(
+        remoteFor: (vault, token) => GitHttpRemote(git.url, client: git.client),
+        readerFor: (vault) => TomSecretsGitCommitReader(git.repository),
+      );
+      final answer = await admin.request('compact', {'repository': _repo});
+      expect(answer['op'], 'compacted');
+      expect(answer['compacted'], isTrue);
+      expect(answer['oldHead'], head.hex);
+      expect(answer['kept'], 0, reason: 'retention_days: 0 from the repo');
+      final root = await git.repository.readCommit(
+        (await git.repository.refs.read('refs/heads/main'))!,
+      );
+      expect(root.parents, isEmpty);
+      expect(root.author.email, 'demo-host@tsm.invalid');
+
+      final e = await refused(
+        admin.request('compact', {'repository': 'al-the-bear/nothing'}),
+      );
+      expect(e.kind, 'not_found');
+      final bad = await refused(
+        admin.request('compact', {'repository': 'no slash'}),
+      );
+      expect(bad.kind, 'malformed');
     });
   });
 }
