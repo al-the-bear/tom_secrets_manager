@@ -86,7 +86,8 @@ final class TomSecretsStore {
   }
 
   /// The store [file] under [name] (the machine's configuration), else its
-  /// metadata's `tsm.store`, else [fileName] without `.kdbx`.
+  /// metadata's `tsm.store`, else [fileName] without `.kdbx` (and without
+  /// the outer layer's `.kdbx.tsmx`).
   factory TomSecretsStore.fromFile(
     KdbxFile file, {
     String? name,
@@ -96,7 +97,7 @@ final class TomSecretsStore {
     final fromFile = fileName
         ?.split(RegExp(r'[/\\]'))
         .last
-        .replaceFirst(RegExp(r'\.kdbx$', caseSensitive: false), '');
+        .replaceFirst(RegExp(r'\.kdbx(\.tsmx)?$', caseSensitive: false), '');
     final chosen = name ?? metadata.store ?? fromFile;
     if (chosen == null || !_storeName.hasMatch(chosen)) {
       throw ArgumentError.value(chosen, 'name', 'not a store name');

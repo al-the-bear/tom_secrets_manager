@@ -343,7 +343,12 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
       conflicts = result.conflicts.length;
     }
     final written = merged || stored == null
-        ? await encode(locator, file, outerKey: outerKey)
+        ? await tomSecretsEncodeStored(
+            locator,
+            file,
+            outerKey: outerKey,
+            like: current,
+          )
         : stored;
     await _write(locator, written);
     return TomSecretsCommitted(
@@ -624,7 +629,11 @@ final class TomSecretsVaultSet {
     String locator,
     TomSecretsHeldKeys keys,
   ) async {
-    final opened = await opener.open(locator, keys.credentials);
+    final opened = await opener.open(
+      locator,
+      keys.credentials,
+      outerKey: keys.outerKeyText,
+    );
     _primary = opened;
     _primaryKeys = keys;
     return opened;
@@ -685,6 +694,7 @@ final class TomSecretsVaultSet {
         primary.file,
         base: primary.stored,
         credentials: _primaryKeys!.credentials,
+        outerKey: _primaryKeys!.outerKeyText,
       );
     } on Object catch (e) {
       _primaryPending = true;
@@ -1108,7 +1118,7 @@ final class TomSecretsVaultSet {
         primaryName,
         _primary!.locator,
         primaryKeys.credentials,
-        null,
+        primaryKeys.outerKeyText,
         isPrimary: true,
       );
       if (epoch != _epoch) return const TomSecretsRefreshReport();

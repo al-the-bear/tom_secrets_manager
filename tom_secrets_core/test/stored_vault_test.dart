@@ -69,6 +69,35 @@ void main() {
     );
   });
 
+  test('a rewrite keeps the repository\'s cipher: AES-256-GCM written, '
+      'read and written again stays AES-256-GCM', () async {
+    final outerKey = TomSecretsRepositoryKey.generate().toBase64();
+    const locator = 'file:/demo/vaults/demo.kdbx.tsmx';
+    final vault = newTestVault(credentials, 'demo');
+    final aes = await tomSecretsEncodeStored(
+      locator,
+      vault,
+      outerKey: outerKey,
+      cipher: TomSecretsOuterCipher.aes256Gcm,
+    );
+    expect(tomSecretsOuterCipherOf(aes), TomSecretsOuterCipher.aes256Gcm);
+    final again = await tomSecretsEncodeStored(
+      locator,
+      vault,
+      outerKey: outerKey,
+      like: aes,
+    );
+    expect(tomSecretsOuterCipherOf(again), TomSecretsOuterCipher.aes256Gcm);
+    final codec = tomSecretsOuterCodecFor('demo.kdbx.tsmx', outerKey)!;
+    expect(codec.written, TomSecretsOuterCipher.xchacha20Poly1305);
+    await codec.decode(aes);
+    expect(codec.written, TomSecretsOuterCipher.aes256Gcm);
+    expect(
+      tomSecretsOuterCipherOf(await codec.encode(await vault.save())),
+      TomSecretsOuterCipher.aes256Gcm,
+    );
+  });
+
   test('the outer codec only for a .tsmx file', () {
     expect(tomSecretsOuterCodecFor('a.kdbx', null), isNull);
     expect(tomSecretsOuterCodecFor('a.kdbx.tsmx', null), isNotNull);

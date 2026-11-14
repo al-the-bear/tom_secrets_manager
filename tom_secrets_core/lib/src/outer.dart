@@ -144,6 +144,12 @@ Uint8List _lengthPrefixed(String text) {
   ]);
 }
 
+/// The cipher of the `.tsmx` [file], read from its header without
+/// decrypting anything: a rewrite of the file keeps it (the cipher is the
+/// repository's, DP-8).
+TomSecretsOuterCipher tomSecretsOuterCipherOf(Uint8List file) =>
+    _parse(file).cipher;
+
 /// The key ids of the slots of a `.tsmx` file, without decrypting anything.
 List<String> tomSecretsOuterKeyIds(Uint8List file) => [
   for (final s in _parse(file).slots) s.keyIdHex,
@@ -357,20 +363,29 @@ final class TomSecretsOuterCodec implements TomSecretsVaultCodec {
   /// The repository keys held; every write gets a slot for each.
   final List<TomSecretsRepositoryKey> keys;
 
-  /// The repository's cipher.
+  /// The cipher of a new file. Once the codec decoded a file, it writes
+  /// with that file's cipher ([written]): a rewrite never switches the
+  /// repository's cipher.
   final TomSecretsOuterCipher cipher;
   final Random? _random;
+  TomSecretsOuterCipher? _decoded;
+
+  /// The cipher [encode] writes with.
+  TomSecretsOuterCipher get written => _decoded ?? cipher;
 
   @override
-  Future<Uint8List> decode(Uint8List bytes) =>
-      tomSecretsOuterDecrypt(bytes, path: path, keys: keys);
+  Future<Uint8List> decode(Uint8List bytes) async {
+    final content = await tomSecretsOuterDecrypt(bytes, path: path, keys: keys);
+    _decoded = tomSecretsOuterCipherOf(bytes);
+    return content;
+  }
 
   @override
   Future<Uint8List> encode(Uint8List bytes) => tomSecretsOuterEncrypt(
     bytes,
     path: path,
     keys: keys,
-    cipher: cipher,
+    cipher: written,
     random: _random,
   );
 }

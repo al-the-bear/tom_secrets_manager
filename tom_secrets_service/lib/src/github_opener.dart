@@ -43,25 +43,6 @@ typedef TomSecretsCommitReaderFor =
 typedef TomSecretsGitHubTokens =
     Future<String?> Function(TomSecretsGitHubLocator vault);
 
-/// The header GitHub answers a token with an expiry with.
-const String tomSecretsTokenExpirationHeader =
-    'github-authentication-token-expiration';
-
-/// The time in a `GitHub-Authentication-Token-Expiration` header
-/// (`2026-12-01 10:00:00 UTC`, or with a numeric offset), in UTC; null when
-/// it cannot be read.
-DateTime? tomSecretsParseTokenExpiration(String value) {
-  var text = value.trim();
-  if (text.endsWith(' UTC')) {
-    text = '${text.substring(0, text.length - 4)}Z';
-  }
-  text = text.replaceFirstMapped(
-    RegExp(r'\s+([+-]\d{2}:?\d{2})$'),
-    (m) => m[1]!,
-  );
-  return DateTime.tryParse(text.replaceFirst(' ', 'T'))?.toUtc();
-}
-
 /// Opens, reads and writes `github:` vaults.
 final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
   /// An opener committing as [device], asking [tokens] for each repository's

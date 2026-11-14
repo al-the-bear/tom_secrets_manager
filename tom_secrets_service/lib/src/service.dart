@@ -66,10 +66,7 @@ final class TomSecretsServiceConfig {
   }) : clock = clock ?? DateTime.now,
        peerMeasurer = peerMeasurer ?? TomSecretsSystemPeerMeasurer(),
        idleSource = idleSource ?? tomSecretsSystemIdleSource(),
-       host =
-           host ??
-           bootstrap.host ??
-           Platform.localHostname.split('.').first.toLowerCase(),
+       host = host ?? bootstrap.host ?? tomSecretsDefaultHost(),
        log = log ?? TomSecretsLog(bootstrap.logFile, level: bootstrap.logLevel);
 
   /// The runtime directory.
@@ -342,9 +339,10 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   /// stores the machine serves; starts the lock policy. Throws
   /// [KdbxInvalidKeyException] for a wrong password; [keys] are disposed
   /// when the unlock fails.
-  Future<void> unlock(TomSecretsHeldKeys keys) async {
+  Future<void> unlock(TomSecretsHeldKeys given) async {
     final primaryLocator = config.bootstrap.primary;
     final TomSecretsOpenedVault primary;
+    final keys = await _withKeychainKeys(primaryLocator, given);
     try {
       primary = await _vaults.openPrimary(primaryLocator, keys);
     } on Object {
@@ -539,6 +537,64 @@ final class TomSecretsService implements TomSecretsApprovalHost {
         },
       );
     }
+  }
+
+  /// [given] (the master password and the key file the unlock carries)
+  /// completed from the device keychain for the primary at [locator]
+  /// (part-stores): its key file when [given] carries none
+  /// (`tsm.key-file.<id>`, base64), and for a `.tsmx` primary its
+  /// repository key (`tsm.repository-key.<id>`). A keychain that fails is
+  /// logged, and the unlock goes on with what it has.
+  Future<TomSecretsHeldKeys> _withKeychainKeys(
+    String locator,
+    TomSecretsHeldKeys given,
+  ) async {
+    final keychain = config.keychain;
+    if (keychain == null) return given;
+    // A store that can say it is not available (a locked keychain) is not
+    // read: the unlock goes on with what it carries.
+    if (keychain is TomSecretStoreAvailability &&
+        !await (keychain as TomSecretStoreAvailability).isAvailable()) {
+      return given;
+    }
+    final TomSecretsVaultLocator vault;
+    try {
+      vault = TomSecretsVaultLocator.parse(locator);
+    } on TomSecretsLocatorException {
+      return given;
+    }
+    Future<String?> read(String handle) async {
+      try {
+        final value = await keychain.read(handle);
+        return value == null || value.isEmpty ? null : value;
+      } on TomSecretStoreException catch (e) {
+        log.error('keychain_failed', e);
+        return null;
+      }
+    }
+
+    final keyFile = given.keyFile == null
+        ? await read(vault.keyFileHandle)
+        : null;
+    final outerKey = vault.fileName.endsWith(tomSecretsOuterSuffix)
+        ? await read(vault.repositoryKeyHandle)
+        : null;
+    if (keyFile == null && outerKey == null) return given;
+    final Uint8List? keyFileBytes;
+    try {
+      keyFileBytes = keyFile == null ? null : base64.decode(keyFile);
+    } on FormatException {
+      log.info('keychain_key_file_unreadable', {'store': vault.fileName});
+      return given;
+    }
+    final keys = TomSecretsHeldKeys(
+      password: given.password,
+      keyFile: keyFileBytes == null
+          ? given.keyFile
+          : TomProtectedValue.fromBytes(keyFileBytes),
+      outerKey: outerKey == null ? null : TomProtectedValue.of(outerKey),
+    );
+    return keys;
   }
 
   /// The token of [vault]'s repository: the device keychain's

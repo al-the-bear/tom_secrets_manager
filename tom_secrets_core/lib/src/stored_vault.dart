@@ -15,16 +15,19 @@ import 'locator.dart';
 import 'outer.dart';
 
 /// The outer layer of a vault file named [fileName]: a `.tsmx` file opened
-/// with [outerKey] (base64), or null for a plain `.kdbx`.
+/// with [outerKey] (base64), written under [cipher] until it decodes a file
+/// (then under that file's), or null for a plain `.kdbx`.
 TomSecretsOuterCodec? tomSecretsOuterCodecFor(
   String fileName,
-  String? outerKey,
-) => fileName.endsWith(tomSecretsOuterSuffix)
+  String? outerKey, {
+  TomSecretsOuterCipher cipher = TomSecretsOuterCipher.xchacha20Poly1305,
+}) => fileName.endsWith(tomSecretsOuterSuffix)
     ? TomSecretsOuterCodec(
         path: fileName,
         keys: [
           if (outerKey != null) TomSecretsRepositoryKey.fromBase64(outerKey),
         ],
+        cipher: cipher,
       )
     : null;
 
@@ -60,15 +63,23 @@ Future<KdbxFile> tomSecretsDecodeStored(
 }
 
 /// [file] saved as the store at [locator] keeps it: its KDBX bytes, under the
-/// outer layer with [outerKey] for a `.tsmx` file.
+/// outer layer with [outerKey] for a `.tsmx` file. The outer layer keeps the
+/// cipher of [like] (the file as stored before, so a rewrite never switches
+/// the repository's cipher), else uses [cipher].
 Future<Uint8List> tomSecretsEncodeStored(
   String locator,
   KdbxFile file, {
   String? outerKey,
+  Uint8List? like,
+  TomSecretsOuterCipher cipher = TomSecretsOuterCipher.xchacha20Poly1305,
 }) async {
+  final fileName = TomSecretsVaultLocator.parse(locator).fileName;
   final codec = tomSecretsOuterCodecFor(
-    TomSecretsVaultLocator.parse(locator).fileName,
+    fileName,
     outerKey,
+    cipher: like != null && fileName.endsWith(tomSecretsOuterSuffix)
+        ? tomSecretsOuterCipherOf(like)
+        : cipher,
   );
   final bytes = await file.save();
   return codec == null ? bytes : codec.encode(bytes);

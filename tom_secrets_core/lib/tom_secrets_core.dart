@@ -12,6 +12,8 @@ export 'src/compaction.dart';
 export 'src/config.dart';
 export 'src/device_settings.dart';
 export 'src/export_enpass.dart';
+export 'src/first_run.dart';
+export 'src/github_token.dart';
 export 'src/grants.dart';
 export 'src/history.dart';
 export 'src/import.dart';

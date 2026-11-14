@@ -7,6 +7,10 @@
 /// phase A).
 library;
 
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart' as crypto;
+
 /// A locator that cannot be read.
 final class TomSecretsLocatorException implements Exception {
   /// A locator problem described by [message].
@@ -68,6 +72,23 @@ sealed class TomSecretsVaultLocator {
   /// The vault file's name (`fleet.kdbx`).
   String get fileName;
 
+  /// The vault's identity: the locator without a branch, so a key kept for
+  /// the vault holds whichever branch is read.
+  String get vaultIdentity => text;
+
+  /// The identity of the repository the vault is in: its GitHub
+  /// repository, or for a `file:` vault its folder. The outer layer's
+  /// repository key belongs to it (part-stores, BP-18).
+  String get repositoryIdentity;
+
+  /// The device keychain's handle of the vault's key file (part-stores: on a
+  /// device the key file is kept in the keychain).
+  String get keyFileHandle => tomSecretsKeyFileHandle(this);
+
+  /// The device keychain's handle of the repository key of the vault's
+  /// repository.
+  String get repositoryKeyHandle => tomSecretsRepositoryKeyHandle(this);
+
   @override
   String toString() => text;
 }
@@ -85,6 +106,10 @@ final class TomSecretsFileLocator extends TomSecretsVaultLocator {
 
   @override
   String get fileName => path.split(RegExp(r'[/\\]')).last;
+
+  @override
+  String get repositoryIdentity =>
+      'file:${path.substring(0, path.length - fileName.length)}';
 }
 
 /// A KDBX file in a private GitHub repository, read and written through the
@@ -118,6 +143,12 @@ final class TomSecretsGitHubLocator extends TomSecretsVaultLocator {
   @override
   String get fileName => path.split('/').last;
 
+  @override
+  String get vaultIdentity => 'github:$owner/$repository/$path';
+
+  @override
+  String get repositoryIdentity => 'github:$owner/$repository';
+
   /// `owner/repository`.
   String get repositorySlug => '$owner/$repository';
 
@@ -139,6 +170,21 @@ String tomSecretsGitHubTokenHandle(String owner, String repository) =>
 String tomSecretsGitHubTokenExpiryHandle(String owner, String repository) =>
     'tsm.github-token-expiry.$owner:$repository';
 
+/// The device keychain's handle of the key file of the vault at [locator]:
+/// `tsm.key-file.<id>`, the id the first 16 hex digits of SHA-256 over the
+/// vault's identity (an OS keychain refuses `/` in an item's name).
+String tomSecretsKeyFileHandle(TomSecretsVaultLocator locator) =>
+    'tsm.key-file.${_handleId(locator.vaultIdentity)}';
+
+/// The device keychain's handle of the repository key (base64) of the
+/// repository the vault at [locator] is in: `tsm.repository-key.<id>`, the
+/// id as for [tomSecretsKeyFileHandle] over the repository's identity.
+String tomSecretsRepositoryKeyHandle(TomSecretsVaultLocator locator) =>
+    'tsm.repository-key.${_handleId(locator.repositoryIdentity)}';
+
+String _handleId(String identity) =>
+    crypto.sha256.convert(utf8.encode(identity)).toString().substring(0, 16);
+
 /// A KDBX file on another git server over smart HTTP; recognised, not
 /// advertised in phase A.
 final class TomSecretsGitLocator extends TomSecretsVaultLocator {
@@ -150,4 +196,8 @@ final class TomSecretsGitLocator extends TomSecretsVaultLocator {
 
   @override
   String get fileName => text.split('/').last;
+
+  @override
+  String get repositoryIdentity =>
+      text.substring(0, text.length - fileName.length - 1);
 }

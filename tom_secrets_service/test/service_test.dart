@@ -18,8 +18,8 @@ import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:tom_core_storage/io.dart';
 import 'package:tom_core_storage/settings.dart';
-import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_client/tom_secrets_client.dart';
+import 'package:tom_secrets_core/tom_secrets_core.dart';
 import 'package:tom_secrets_service/tom_secrets_service.dart';
 
 import 'support/setup.dart';
@@ -359,6 +359,76 @@ void main() {
       await admin.request('shutdown');
       await service.done;
       expect(File(demo.runtime().infoFile).existsSync(), isFalse);
+    });
+
+    test('a .tsmx primary with a key file: its key file and repository key '
+        'from the keychain, the master password alone unlocks; the '
+        'service\'s own write keeps it .tsmx and AES-256-GCM', () async {
+      final demo = await Demo.create(deviceKey: TomSecretsDeviceKeyMode.vault);
+      final keyFile = TomSecretsKeyFile.generate().toBytes();
+      final repositoryKey = TomSecretsRepositoryKey.generate();
+      final path = '${demo.dir}/primary.kdbx.tsmx';
+      final locator = TomSecretsVaultLocator.parse('file:$path');
+      final primary = tomSecretsNewVault(
+        tomSecretsVaultCredentials(password: primaryPassword, keyFile: keyFile),
+        'primary',
+        argon2: testArgon2,
+      );
+      File(path).writeAsBytesSync(
+        await tomSecretsEncodeStored(
+          locator.text,
+          primary,
+          outerKey: repositoryKey.toBase64(),
+          cipher: TomSecretsOuterCipher.aes256Gcm,
+        ),
+      );
+      demo.bootstrap = TomSecretsBootstrap(
+        primary: locator.text,
+        dataDirectory: '${demo.dir}/data',
+        deviceKey: TomSecretsDeviceKeyMode.vault,
+      );
+      final keychain = TomInMemorySecretStore();
+      await keychain.write(locator.keyFileHandle, base64.encode(keyFile));
+      await keychain.write(
+        locator.repositoryKeyHandle,
+        repositoryKey.toBase64(),
+      );
+      final service = await demo.start(keychain: keychain);
+      final admin = await TomSecretsAdminClient.connect(
+        demo.runtime(),
+        demo.adminKey,
+      );
+      await admin.unlock(primaryPassword);
+      expect(service.isLocked, isFalse);
+      // The vault mode wrote the device settings key into the primary.
+      final written = File(path).readAsBytesSync();
+      expect(tomSecretsOuterCipherOf(written), TomSecretsOuterCipher.aes256Gcm);
+      final reread = await tomSecretsDecodeStored(
+        locator.text,
+        written,
+        tomSecretsVaultCredentials(password: primaryPassword, keyFile: keyFile),
+        outerKey: repositoryKey.toBase64(),
+      );
+      expect(
+        reread.body.rootGroup.getAllEntries().map((e) => e.label),
+        contains('device'),
+      );
+      await admin.request('lock');
+
+      // Without the key file in the keychain, the password alone is wrong.
+      await keychain.delete(locator.keyFileHandle);
+      await expectLater(
+        admin.unlock(primaryPassword),
+        throwsA(
+          isA<TomSecretsAdminException>().having(
+            (e) => e.details['reason'],
+            'reason',
+            'bad_password',
+          ),
+        ),
+      );
+      await admin.unlock(primaryPassword, keyFile: keyFile);
+      expect(service.isLocked, isFalse);
     });
 
     test('a vault whose key does not open is needs_unlock; unlockStore opens '

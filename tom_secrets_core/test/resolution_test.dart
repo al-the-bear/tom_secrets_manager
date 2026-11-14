@@ -245,6 +245,14 @@ void main() {
         'fleet',
       );
       expect(
+        TomSecretsStore.fromFile(
+          DemoVault().file,
+          fileName: '/srv/x/fleet.kdbx.tsmx',
+        ).name,
+        'fleet',
+        reason: 'an outer-encrypted file keeps its store name',
+      );
+      expect(
         () => TomSecretsStore.fromFile(
           DemoVault().file,
           fileName: 'Bad Name.kdbx',

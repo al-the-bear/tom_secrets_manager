@@ -48,3 +48,8 @@
   `TomSecretsDeviceKeys`, `TomSecretsLockPolicy`); the KDBX types the other
   packages handle are re-exported (DP-29). A `.tom-secrets` group is never
   indexed, at any depth.
+- The first run (`TomSecretsFirstRun`): a primary created or opened, local
+  or on GitHub, its key file and repository key kept in the device keychain
+  (`tsm.key-file.<id>`, `tsm.repository-key.<id>`), `tsm.keys-due` 24 months on,
+  the device settings and `bootstrap.yaml`; a `.tsmx` rewrite keeps its
+  cipher; a `.kdbx.tsmx` file's store name drops both suffixes.
