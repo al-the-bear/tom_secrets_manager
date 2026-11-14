@@ -400,6 +400,38 @@ void main() {
           ),
         ),
       );
+      // A vault cut short, and a .tsmx file that is none: not a vault either.
+      final whole = await newTestVault(
+        tomSecretsVaultCredentials(password: _password),
+        'cut',
+      ).save();
+      File(
+        '${dir.path}/cut.kdbx',
+      ).writeAsBytesSync(whole.sublist(0, whole.length - 64));
+      File('${dir.path}/fake.kdbx.tsmx').writeAsStringSync('not a tsmx file');
+      for (final (name, key) in [
+        ('cut.kdbx', null),
+        ('fake.kdbx.tsmx', TomSecretsRepositoryKey.generate()),
+      ]) {
+        await expectLater(
+          run.run(
+            TomSecretsFirstRunSetup(
+              primary: at(name),
+              create: false,
+              masterPassword: _password,
+              repositoryKey: key,
+            ),
+          ),
+          throwsA(
+            isA<TomSecretsFirstRunException>().having(
+              (e) => e.problem,
+              'problem',
+              TomSecretsFirstRunProblem.notAVault,
+            ),
+          ),
+          reason: name,
+        );
+      }
       expect(File(run.bootstrapPath).existsSync(), isFalse);
       expect(await keychain.read(at('new.kdbx').keyFileHandle), isNull);
     });

@@ -47,6 +47,7 @@ export 'package:tom_kdbx_store/tom_kdbx_store.dart'
         KdbxEntry,
         KdbxFile,
         KdbxFormat,
+        KdbxFormatException,
         KdbxGroup,
         KdbxInvalidKeyException,
         KdbxKey,

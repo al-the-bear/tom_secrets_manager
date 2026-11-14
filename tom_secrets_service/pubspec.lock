@@ -501,10 +501,10 @@ packages:
     dependency: "direct dev"
     description:
       name: tom_kdbx_store
-      sha256: "652109f2fb09bbb6969e744c93785b649e1b3fb3e7813dc0e7b92817ea21f872"
+      sha256: d377cff5d111ef0c0bc7773077e9e3c4334ad79bf71da99f536cd4160e4ded38
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.3"
+    version: "0.2.4"
   tom_kpasslib:
     dependency: transitive
     description:

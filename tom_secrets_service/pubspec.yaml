@@ -46,6 +46,6 @@ dependencies:
 dev_dependencies:
   # Tests build demo vaults with the KDBX types directly; the package itself
   # reaches KDBX only through tom_secrets_core (DP-29).
-  tom_kdbx_store: ^0.2.3
+  tom_kdbx_store: ^0.2.4
   lints: ^6.0.0
   test: ^1.25.6

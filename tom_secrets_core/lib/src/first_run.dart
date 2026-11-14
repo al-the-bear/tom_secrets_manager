@@ -495,29 +495,6 @@ final class TomSecretsFirstRun {
 /// [value] as a YAML double-quoted scalar.
 String _yamlString(String value) => jsonEncode(value);
 
-/// The first bytes of a KDBX file (KeePass 2.x).
-const List<int> _kdbxSignature = [
-  0x03,
-  0xD9,
-  0xA2,
-  0x9A,
-  0x67,
-  0xFB,
-  0x4B,
-  0xB5,
-];
-
-/// The first bytes of a `.tsmx` file.
-const List<int> _tsmxMagic = [0x54, 0x53, 0x4D, 0x58];
-
-bool _startsWith(Uint8List bytes, List<int> prefix) {
-  if (bytes.length < prefix.length) return false;
-  for (var i = 0; i < prefix.length; i++) {
-    if (bytes[i] != prefix[i]) return false;
-  }
-  return true;
-}
-
 /// The primary's file, wherever it is.
 sealed class _Primary {
   _Primary(this.locator, this.outerKey, this.cipher);
@@ -537,15 +514,17 @@ sealed class _Primary {
   void close() {}
 
   Future<KdbxFile> decode(Uint8List stored, Credentials credentials) async {
-    // tom_kdbx_store passes a damaged file's error on as its library's own
-    // type; the signatures tell a file this product does not read first.
-    final outer = locator.fileName.endsWith(tomSecretsOuterSuffix);
-    if (!_startsWith(stored, outer ? _tsmxMagic : _kdbxSignature)) {
-      throw TomSecretsFirstRunException(
-        TomSecretsFirstRunProblem.notAVault,
-        '${locator.fileName} is not a${outer ? 'n outer-encrypted' : ''} '
-        'vault.',
-      );
+    // A file that is no `.tsmx` is told apart from one whose key does not
+    // open it: the outer layer's header is read first (no key needed).
+    if (locator.fileName.endsWith(tomSecretsOuterSuffix)) {
+      try {
+        tomSecretsOuterKeyIds(stored);
+      } on TomSecretsOuterException catch (e) {
+        throw TomSecretsFirstRunException(
+          TomSecretsFirstRunProblem.notAVault,
+          '${locator.fileName} is not an outer-encrypted vault: ${e.message}',
+        );
+      }
     }
     try {
       return await tomSecretsDecodeStored(
@@ -570,7 +549,7 @@ sealed class _Primary {
         TomSecretsFirstRunProblem.repositoryKeyWrong,
         '${locator.fileName} does not open: ${e.message}',
       );
-    } on FormatException catch (e) {
+    } on KdbxFormatException catch (e) {
       throw TomSecretsFirstRunException(
         TomSecretsFirstRunProblem.notAVault,
         '${locator.fileName} is not a vault: ${e.message}',
