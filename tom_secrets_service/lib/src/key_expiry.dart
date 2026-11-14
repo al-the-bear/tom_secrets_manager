@@ -4,7 +4,9 @@
 /// The key-expiry reminders (part-key-rotation, Reminders): a key is
 /// reminded of from a number of days before its expiry (the GitHub token
 /// from `keyExpiryWarningDays`, default 14; every other key from 30), then 7
-/// days and 1 day before, and daily once expired. The service computes them
+/// days and 1 day before, and daily once expired. A key with a rotation age
+/// instead of an expiry (the approver and approval-link key pairs, 24
+/// months) expires when its age is over. The service computes them
 /// whenever it reads the vaults; nothing is scheduled for them.
 library;
 
@@ -24,6 +26,24 @@ final class TomSecretsExpiringKey {
   /// The days before the expiry the reminders of every key but the GitHub
   /// token start.
   static const int otherKeyDays = 30;
+
+  /// The rotation age of the approver and approval-link key pairs (DP-85).
+  static const int keyPairAgeMonths = 24;
+
+  /// When a key pair taken into use [since] is due for rotation: [since]
+  /// plus [keyPairAgeMonths]; null when [since] is.
+  static DateTime? keyPairDue(DateTime? since) {
+    if (since == null) return null;
+    final s = since.toUtc();
+    return DateTime.utc(
+      s.year,
+      s.month + keyPairAgeMonths,
+      s.day,
+      s.hour,
+      s.minute,
+      s.second,
+    );
+  }
 
   /// [key] when a reminder is due for it at [now], else null: from
   /// [firstDays] before [expiresAt], then 7 and 1 day before, and once a
@@ -61,11 +81,11 @@ final class TomSecretsExpiringKey {
     );
   }
 
-  /// `github_token` or `vault_keys`.
+  /// `github_token`, `vault_keys`, `approver_key` or `link_key`.
   final String kind;
 
   /// The key's id: `github-token:<owner>/<repository>`,
-  /// `vault-keys:<vault>`.
+  /// `vault-keys:<vault>`, `approver-key:<device>`, `link-key:<device>`.
   final String key;
 
   /// The vault the key belongs to, when one.

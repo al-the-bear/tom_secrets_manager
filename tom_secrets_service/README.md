@@ -131,10 +131,15 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   `store_state`; `reload` answers `offline` or `token_expired` with the
   stores still on their copy.
 - **Key-expiry reminders** (`TomSecretsExpiringKey`): the GitHub tokens from
-  `keyExpiryWarningDays` (default 14) before their expiry, the further
-  vaults' key files and repository keys from 30 days before the Expires of
-  their entry in the primary; then 7 days and 1 day before, and once a day
-  once expired. Each step is sent once as `key_expiry` to the subscribed
+  `keyExpiryWarningDays` (default 14) before their expiry (the one GitHub
+  reports, else the one recorded with the token: the keychain's, or the
+  primary's vault list's); the vaults' key files and repository keys from 30
+  days before their due date (a further vault's entry Expires, the
+  primary's `tsm.keys-due`); this device's approver and approval-link key
+  pairs and those of the peers it recorded from 30 days before their 24
+  months are over (dated at creation, at pairing, at a key change or a new
+  link key; trust material without dates is dated at the next unlock); then
+  7 days and 1 day before, and once a day once expired. Each step is sent once as `key_expiry` to the subscribed
   admins (an admin that subscribes gets those due at that moment), and
   `status` lists the keys due as `expiring`.
 - **Memory hygiene**: the keys the service holds while unlocked are

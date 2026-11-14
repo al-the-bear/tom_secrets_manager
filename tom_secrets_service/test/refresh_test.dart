@@ -565,6 +565,64 @@ void main() {
       ]);
     });
 
+    test('the primary\'s key file and repository key from its '
+        'tsm.keys-due; a token\'s expiry recorded with it (the '
+        'keychain\'s, the primary list\'s) until GitHub reports one', () async {
+      final primary = primaryVault();
+      TomSecretsPrimaryVaults(primary, primaryLocator: _primary).put(
+        TomSecretsVaultKeys(
+          name: 'other',
+          locator: _other,
+          password: _otherPassword,
+          githubToken: 'demo-other-token',
+          githubTokenExpires: now.add(const Duration(days: 12)),
+        ),
+      );
+      final m = TomSecretsMetadata.read(primary);
+      TomSecretsMetadata(
+        format: m.format,
+        store: m.store,
+        kind: m.kind,
+        purpose: m.purpose,
+        binding: m.binding,
+        configYaml: m.configYaml,
+        keysDue: now.add(const Duration(days: 20)),
+      ).writeTo(primary);
+      await put(_primary, primary);
+      await keychain.write(
+        tomSecretsGitHubTokenExpiryHandle('al-the-bear', 'demo-vaults'),
+        now.add(const Duration(days: 10)).toIso8601String(),
+      );
+      final service = await start();
+      await settle();
+      List<Object?> expiring() => [
+        for (final k
+            in (service.statusReport()['expiring']! as List).cast<Map>())
+          (k['kind'], k['key'], k['vault'], k['daysLeft']),
+      ];
+      expect(expiring(), [
+        ('github_token', 'github-token:$_repo', null, 10),
+        ('github_token', 'github-token:$_otherRepo', null, 12),
+        ('vault_keys', 'vault-keys:primary', 'primary', 20),
+      ]);
+      expect(
+        {for (final e in ofOp('key_expiry')) e['key']},
+        {
+          'github-token:$_repo',
+          'github-token:$_otherRepo',
+          'vault-keys:primary',
+        },
+      );
+
+      // GitHub's header wins over the date recorded with the token.
+      network.expiration = '2026-12-23 09:00:00 UTC';
+      await service.refresh(force: true);
+      expect(expiring(), [
+        ('github_token', 'github-token:$_otherRepo', null, 12),
+        ('vault_keys', 'vault-keys:primary', 'primary', 20),
+      ]);
+    });
+
     test('an admin that subscribes gets the reminders due now', () async {
       network.expiration = '2026-11-20 09:00:00 UTC';
       await start();

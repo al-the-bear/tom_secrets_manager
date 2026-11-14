@@ -25,18 +25,26 @@ Uint8List _random(int n) {
 
 Uint8List _b64(Object? text) => base64.decode(text! as String);
 
+DateTime? _time(Object? text) =>
+    text is String ? DateTime.tryParse(text)?.toUtc() : null;
+
+String? _iso(DateTime? time) => time?.toUtc().toIso8601String();
+
 /// An approver device a host recorded at pairing.
 final class TomSecretsRecordedApprover {
   /// The approver [device] with its [approverKey], its [linkKey] (null when
-  /// it never connects over the link), the [tokenKey] the two share, and a
-  /// link key it replaced and is still accepted during the migration period
-  /// ([previousLinkKey]).
+  /// it never connects over the link), the [tokenKey] the two share, a link
+  /// key it replaced and is still accepted during the migration period
+  /// ([previousLinkKey]), and since when each key is recorded
+  /// ([approverKeySince], [linkKeySince]).
   TomSecretsRecordedApprover({
     required this.device,
     required this.approverKey,
     required this.tokenKey,
     this.linkKey,
     this.previousLinkKey,
+    this.approverKeySince,
+    this.linkKeySince,
   });
 
   /// The approver's device id.
@@ -54,6 +62,13 @@ final class TomSecretsRecordedApprover {
   /// The approval-token key (32 bytes).
   final Uint8List tokenKey;
 
+  /// When [approverKey] was recorded (at pairing, or its key change): the
+  /// start of its rotation age.
+  DateTime? approverKeySince;
+
+  /// When [linkKey] was recorded (at pairing, or a new link key).
+  DateTime? linkKeySince;
+
   /// The stored JSON.
   Map<String, Object?> toJson() => {
     'device': device,
@@ -61,6 +76,8 @@ final class TomSecretsRecordedApprover {
     'linkKey': ?linkKey?.toJson(),
     'previousLinkKey': ?previousLinkKey?.toJson(),
     'tokenKey': base64.encode(tokenKey),
+    'approverKeySince': ?_iso(approverKeySince),
+    'linkKeySince': ?_iso(linkKeySince),
   };
 
   /// From [toJson].
@@ -79,18 +96,22 @@ final class TomSecretsRecordedApprover {
               )
             : null,
         tokenKey: _b64(json['tokenKey']),
+        approverKeySince: _time(json['approverKeySince']),
+        linkKeySince: _time(json['linkKeySince']),
       );
 }
 
 /// A host this device approves for (recorded at pairing on the approver).
 final class TomSecretsRecordedHost {
-  /// The [host] with its [linkKey], the [tokenKey] the two share and the
-  /// [address] (`host:port`) its link listens on.
+  /// The [host] with its [linkKey], the [tokenKey] the two share, the
+  /// [address] (`host:port`) its link listens on, and since when the link
+  /// key is recorded ([linkKeySince]).
   TomSecretsRecordedHost({
     required this.host,
     required this.linkKey,
     required this.tokenKey,
     this.address,
+    this.linkKeySince,
   });
 
   /// The host's name.
@@ -105,12 +126,16 @@ final class TomSecretsRecordedHost {
   /// Where its link listens (`address:port`), when known.
   final String? address;
 
+  /// When [linkKey] was recorded (at pairing, or a new link key).
+  DateTime? linkKeySince;
+
   /// The stored JSON.
   Map<String, Object?> toJson() => {
     'host': host,
     'linkKey': linkKey.toJson(),
     'tokenKey': base64.encode(tokenKey),
     'address': ?address,
+    'linkKeySince': ?_iso(linkKeySince),
   };
 
   /// From [toJson].
@@ -122,6 +147,7 @@ final class TomSecretsRecordedHost {
         ),
         tokenKey: _b64(json['tokenKey']),
         address: json['address'] as String?,
+        linkKeySince: _time(json['linkKeySince']),
       );
 }
 
@@ -135,6 +161,8 @@ final class TomSecretsTrust {
     required this.approvers,
     required this.hosts,
     required this.cliApprovals,
+    this.approverKeySince,
+    this.linkKeySince,
     Map<String, String>? pins,
     Map<String, TomSecretsClientTokenRecord>? clientTokens,
   }) : pins = pins ?? {},
@@ -142,17 +170,23 @@ final class TomSecretsTrust {
        _approverSeeds = approverSeeds,
        _linkSeeds = linkSeeds;
 
-  /// New trust material for [device]: fresh key pairs and audit-log key, no
-  /// approver or host recorded, command-line approvals off.
-  factory TomSecretsTrust.create(String device) => TomSecretsTrust._(
-    device: device,
-    approverSeeds: _random(64),
-    linkSeeds: _random(96),
-    auditKey: _random(32),
-    approvers: [],
-    hosts: [],
-    cliApprovals: false,
-  );
+  /// New trust material for [device]: fresh key pairs (created [now],
+  /// default the current time) and audit-log key, no approver or host
+  /// recorded, command-line approvals off.
+  factory TomSecretsTrust.create(String device, {DateTime? now}) {
+    final created = (now ?? DateTime.now()).toUtc();
+    return TomSecretsTrust._(
+      device: device,
+      approverSeeds: _random(64),
+      linkSeeds: _random(96),
+      auditKey: _random(32),
+      approvers: [],
+      hosts: [],
+      cliApprovals: false,
+      approverKeySince: created,
+      linkKeySince: created,
+    );
+  }
 
   /// From the stored JSON.
   factory TomSecretsTrust.fromJson(Map<String, Object?> json) =>
@@ -170,6 +204,8 @@ final class TomSecretsTrust {
             TomSecretsRecordedHost.fromJson((h as Map).cast()),
         ],
         cliApprovals: json['cliApprovals'] == true,
+        approverKeySince: _time(json['approverKeySince']),
+        linkKeySince: _time(json['linkKeySince']),
         pins: ((json['pins'] as Map?) ?? const {}).cast<String, String>(),
         clientTokens: {
           for (final MapEntry(:key, :value)
@@ -201,6 +237,38 @@ final class TomSecretsTrust {
   /// Whether `tsm` on this device may pre-approve and issue tokens (DP-19);
   /// switched only from the manager app.
   bool cliApprovals;
+
+  /// When this device's approver key pair was created: the start of its
+  /// rotation age (part-key-rotation); null in trust material written
+  /// before the date was kept ([stampKeyDates]).
+  DateTime? approverKeySince;
+
+  /// When this device's approval-link key pair was created.
+  DateTime? linkKeySince;
+
+  /// Gives every key without a recorded date the date [now]: trust material
+  /// written before the dates were kept counts its keys' age from then.
+  /// Whether anything changed (the caller writes the trust back).
+  bool stampKeyDates(DateTime now) {
+    final at = now.toUtc();
+    var changed = false;
+    DateTime stamp(DateTime? since) {
+      if (since != null) return since;
+      changed = true;
+      return at;
+    }
+
+    approverKeySince = stamp(approverKeySince);
+    linkKeySince = stamp(linkKeySince);
+    for (final a in approvers) {
+      a.approverKeySince = stamp(a.approverKeySince);
+      if (a.linkKey != null) a.linkKeySince = stamp(a.linkKeySince);
+    }
+    for (final h in hosts) {
+      h.linkKeySince = stamp(h.linkKeySince);
+    }
+    return changed;
+  }
 
   /// The SHA-256 recorded for each pinned grant of this host (grant id →
   /// hex): a grant's signed members carry no hash, and the host keeps it
@@ -258,6 +326,8 @@ final class TomSecretsTrust {
     'approvers': [for (final a in approvers) a.toJson()],
     'hosts': [for (final h in hosts) h.toJson()],
     'cliApprovals': cliApprovals,
+    'approverKeySince': ?_iso(approverKeySince),
+    'linkKeySince': ?_iso(linkKeySince),
     'pins': pins,
     'clientTokens': {
       for (final e in clientTokens.entries) e.key: e.value.toJson(),

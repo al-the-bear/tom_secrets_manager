@@ -132,6 +132,7 @@ stores:
         purpose: 'The fleet\'s system secrets',
         binding: {'env': 'prod', 'region': 'eu'},
         configYaml: 'dimensions:\n  - name: region\n',
+        keysDue: DateTime.utc(2028, 11, 13),
       )..writeTo(v.file);
       m.writeTo(v.file);
       final back = TomSecretsMetadata.read(
@@ -143,6 +144,7 @@ stores:
       expect(back.binding, {'env': 'prod', 'region': 'eu'});
       expect(back.config!.dimension('region'), isNotNull);
       expect(back.format, 1);
+      expect(back.keysDue, DateTime.utc(2028, 11, 13), reason: 'tsm.keys-due');
       expect(
         v.file.body.rootGroup.entries.where(
           (e) => e.label == tomSecretsMetadataTitle,
@@ -177,6 +179,7 @@ stores:
         (TomSecretsMetadataFields.format, 'one'),
         (TomSecretsMetadataFields.kind, 'secret'),
         (TomSecretsMetadataFields.store, 'Bad Name'),
+        (TomSecretsMetadataFields.keysDue, 'next year'),
       ]) {
         final v = DemoVault(store: 'fleet');
         tomSecretsMetadataEntry(v.file)!.setString(field, PlainValue(value));

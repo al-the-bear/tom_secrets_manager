@@ -21,7 +21,8 @@ service parse references with one implementation.
   group (`Telegram/@host:bomber/Bot`), nestable.
 - **The metadata entry** `.tom-secrets` (`TomSecretsMetadata`): `tsm.format`,
   `tsm.store`, `tsm.kind`, `tsm.purpose`, `tsm.dimensions` (the file binding)
-  and, in the primary vault, `tsm.config`.
+  and, in the primary vault, `tsm.config` and `tsm.keys-due` (when the
+  primary's own key file and repository key are due for rotation).
 - **The shared configuration** `tsm.config` (`TomSecretsConfig`): the
   dimensions in priority order with an optional configured `default` and
   `fallback_to_default` (off unless set), and the stores per environment
@@ -99,7 +100,10 @@ service parse references with one implementation.
   (`TomSecretsGrantsGroup`, `tsm.grants/<host>`); and a device's trust
   material in its device settings container (`TomSecretsTrust`: its
   approver and link key pairs, the audit-log key, the approvers and hosts it
-  recorded with their approval-token keys, recorded pin hashes). Tested
+  recorded with their approval-token keys, recorded pin hashes, and since
+  when each key pair is in use, the start of its rotation age:
+  `stampKeyDates` dates the keys of trust material written before the dates
+  were kept). Tested
   byte for byte against `signatures.json`, `approval_codes.json` and
   `link_handshake.json`.
 - **The outer encryption** (`tomSecretsOuterEncrypt` / `Decrypt`,
@@ -197,7 +201,9 @@ service parse references with one implementation.
   cannot list itself, and the group never resolves. A repository's own GitHub
   token is kept in the device keychain under
   `tomSecretsGitHubTokenHandle(owner, repository)`
-  (`tsm.github-token.<owner>/<repository>`).
+  (`tsm.github-token.<owner>/<repository>`), the expiry recorded with it
+  under `tomSecretsGitHubTokenExpiryHandle` (`tsm.github-token-expiry.…`); a
+  token in the vault list carries its expiry in `tsm.github-token-expires`.
 
 ```dart
 final resolver = TomSecretsResolver(

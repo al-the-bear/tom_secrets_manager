@@ -30,6 +30,9 @@ abstract final class TomSecretsVaultFields {
   /// primary's.
   static const githubToken = KdbxKey('tsm.github-token');
 
+  /// When [githubToken] expires (ISO 8601), as recorded when it was entered.
+  static const githubTokenExpires = KdbxKey('tsm.github-token-expires');
+
   /// The attachment holding the key file.
   static const keyFile = KdbxKey('keyfile');
 }
@@ -44,6 +47,7 @@ final class TomSecretsVaultKeys {
     this.keyFile,
     this.outerKey,
     this.githubToken,
+    this.githubTokenExpires,
     this.expires,
   });
 
@@ -64,6 +68,9 @@ final class TomSecretsVaultKeys {
 
   /// A GitHub token for its repository, or null (the primary's applies).
   final String? githubToken;
+
+  /// When [githubToken] expires, as recorded when it was entered, or null.
+  final DateTime? githubTokenExpires;
 
   /// When its key file and repository key are due for rotation: the entry's
   /// KDBX Expires (part-key-rotation), or null when the entry does not
@@ -138,6 +145,12 @@ final class TomSecretsPrimaryVaults {
       keyFile: e.getBinary(TomSecretsVaultFields.keyFile)?.value,
       outerKey: text(TomSecretsVaultFields.outerKey),
       githubToken: text(TomSecretsVaultFields.githubToken),
+      githubTokenExpires: switch (text(
+        TomSecretsVaultFields.githubTokenExpires,
+      )) {
+        null => null,
+        final at => DateTime.tryParse(at)?.toUtc(),
+      },
       expires: e.times.expires.get() == true
           ? e.times.expiryTime.get()?.toUtc()
           : null,
@@ -173,6 +186,11 @@ final class TomSecretsPrimaryVaults {
       set(KdbxKeyCommon.PASSWORD, keys.password);
       set(TomSecretsVaultFields.outerKey, keys.outerKey);
       set(TomSecretsVaultFields.githubToken, keys.githubToken);
+      set(
+        TomSecretsVaultFields.githubTokenExpires,
+        keys.githubTokenExpires?.toUtc().toIso8601String(),
+        secret: false,
+      );
       target.times.expires.set(keys.expires != null);
       if (keys.expires != null) target.times.expiryTime.set(keys.expires);
       target.removeBinary(TomSecretsVaultFields.keyFile);

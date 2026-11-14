@@ -34,6 +34,11 @@ abstract final class TomSecretsMetadataFields {
 
   /// The shared configuration (primary vault only).
   static const config = KdbxKey('tsm.config');
+
+  /// When this vault's own key file and repository key are due for
+  /// rotation (ISO 8601). Read for the primary (part-key-rotation); a
+  /// further vault's date is the Expires of its entry in the primary.
+  static const keysDue = KdbxKey('tsm.keys-due');
 }
 
 /// What a vault is for (BP-25).
@@ -96,6 +101,7 @@ final class TomSecretsMetadata {
     this.purpose,
     Map<String, String> binding = const {},
     this.configYaml,
+    this.keysDue,
   }) : binding = Map.unmodifiable(binding);
 
   /// The metadata of a file without a metadata entry: no binding, kind
@@ -146,6 +152,12 @@ final class TomSecretsMetadata {
         text(TomSecretsMetadataFields.dimensions) ?? '',
       ),
       configYaml: text(TomSecretsMetadataFields.config),
+      keysDue: switch (text(TomSecretsMetadataFields.keysDue)) {
+        null => null,
+        final due =>
+          DateTime.tryParse(due)?.toUtc() ??
+              (throw TomSecretsMetadataException('tsm.keys-due is "$due"')),
+      },
     );
   }
 
@@ -166,6 +178,11 @@ final class TomSecretsMetadata {
 
   /// `tsm.config` as written, or null (only the primary vault has one).
   final String? configYaml;
+
+  /// When the vault's own key file and repository key are due for rotation
+  /// (`tsm.keys-due`), or null. The primary's is reminded of; a further
+  /// vault's date is the Expires of its entry in the primary.
+  final DateTime? keysDue;
 
   /// The shared configuration of `tsm.config`, or null when absent.
   TomSecretsConfig? get config =>
@@ -196,6 +213,7 @@ final class TomSecretsMetadata {
         binding.entries.map((e) => '${e.key}=${e.value}').join(';'),
       );
       set(TomSecretsMetadataFields.config, configYaml);
+      set(TomSecretsMetadataFields.keysDue, keysDue?.toUtc().toIso8601String());
     });
   }
 }

@@ -296,6 +296,7 @@ void main() {
           locator: 'github:al-the-bear/demo-vaults/vaults/fleet.kdbx',
           password: 'fleet-pw',
           githubToken: 'demo-other-token',
+          githubTokenExpires: DateTime.utc(2027, 2, 1),
           expires: DateTime.utc(2027, 11, 13),
         ),
       );
@@ -306,6 +307,7 @@ void main() {
       expect(keys.locator, 'github:al-the-bear/demo-vaults/vaults/fleet.kdbx');
       expect(keys.githubToken, 'demo-other-token');
       expect(keys.expires, DateTime.utc(2027, 11, 13), reason: 'KDBX Expires');
+      expect(keys.githubTokenExpires, DateTime.utc(2027, 2, 1));
       expect(keys.toString(), isNot(contains('fleet-pw')));
       final opened = await KdbxFormat().read(fleetBytes, keys.credentials);
       expect(byTitle(opened, 'Main').label, 'Main');
@@ -358,6 +360,7 @@ void main() {
         'tsm.github-token.al-the-bear/vault',
         reason: 'one keychain token per repository, any branch',
       );
+      expect(g.tokenExpiryHandle, 'tsm.github-token-expiry.al-the-bear/vault');
       final d =
           TomSecretsVaultLocator.parse('github:o/r/v.kdbx')
               as TomSecretsGitHubLocator;

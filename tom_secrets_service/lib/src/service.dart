@@ -359,7 +359,10 @@ final class TomSecretsService implements TomSecretsApprovalHost {
         minutes: refreshMinutes > 0 ? refreshMinutes : 5,
       );
       await _vaults.openStores(machine: machine, served: settings.servedStores);
-      _trust = await _device!.trust(config.host);
+      final trust = _trust = await _device!.trust(config.host, now: now);
+      // Trust material written before the key dates were kept counts its
+      // keys' rotation age from this unlock.
+      if (trust.stampKeyDates(now)) await _device!.writeTrust(trust);
       _audit = TomSecretsAuditLog(
         '${config.bootstrap.dataDirectory}${Platform.pathSeparator}audit',
         _trust!.auditKey,
@@ -405,6 +408,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
       'unavailable': states.where((s) => s == 'unavailable').length,
     });
     _emit({'op': 'unlocked'});
+    await _readTokenExpiries();
     _remindKeys();
   }
 
@@ -472,6 +476,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
             ],
           });
         }
+        await _readTokenExpiries();
         _remindKeys();
         return report;
       });
@@ -508,16 +513,96 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     return null;
   }
 
-  /// The keys due for a reminder now (part-key-rotation): each repository's
-  /// GitHub token from `keyExpiryWarningDays` before the expiry GitHub
-  /// reported, each further vault's key file and repository key from 30
-  /// days before its entry's Expires.
+  /// The expiry recorded with each repository's GitHub token when it was
+  /// entered (`owner/repository` → UTC): the keychain's
+  /// (`tsm.github-token-expiry.<owner>/<repository>`), else the primary's
+  /// vault list's for a vault in that repository.
+  final Map<String, DateTime> _storedTokenExpiries = {};
+
+  /// Reads [_storedTokenExpiries] for the repositories of the vaults open
+  /// or listed.
+  Future<void> _readTokenExpiries() async {
+    final primary = _vaults.primary;
+    if (primary == null) return;
+    final repositories = <String, TomSecretsGitHubLocator>{};
+    final listed = <String, DateTime>{};
+    for (final locator in [
+      primary.locator,
+      for (final keys in _vaults.listed) keys.locator,
+    ]) {
+      final parsed = TomSecretsVaultLocator.parse(locator);
+      if (parsed is TomSecretsGitHubLocator) {
+        repositories[parsed.repositorySlug] = parsed;
+      }
+    }
+    for (final keys in _vaults.listed) {
+      final parsed = TomSecretsVaultLocator.parse(keys.locator);
+      final at = keys.githubTokenExpires;
+      if (parsed is TomSecretsGitHubLocator && at != null) {
+        listed[parsed.repositorySlug] = at;
+      }
+    }
+    _storedTokenExpiries.clear();
+    for (final MapEntry(key: slug, value: vault) in repositories.entries) {
+      DateTime? at;
+      final keychain = config.keychain;
+      if (keychain != null) {
+        try {
+          final text = await keychain.read(vault.tokenExpiryHandle);
+          at = text == null ? null : DateTime.tryParse(text)?.toUtc();
+        } on TomSecretStoreException catch (e) {
+          log.error('keychain_failed', e);
+        }
+      }
+      at ??= listed[slug];
+      if (at != null) _storedTokenExpiries[slug] = at;
+    }
+  }
+
+  /// The keys due for a reminder now (part-key-rotation):
+  /// - each repository's GitHub token, from `keyExpiryWarningDays` before
+  ///   the expiry GitHub reported for it, else the one recorded with it;
+  /// - the key file and repository key of each further vault, from 30 days
+  ///   before the Expires of its entry in the primary, and of the primary,
+  ///   from 30 days before its metadata's `tsm.keys-due`;
+  /// - this device's approver and approval-link key pairs and those of the
+  ///   peers it recorded, from 30 days before their rotation age (24
+  ///   months, DP-85) is over.
   List<TomSecretsExpiringKey> get expiring {
     if (isLocked) return const [];
-    final now = config.clock().toUtc();
+    final now = this.now;
+    final trust = _trust;
+    final tokens = {..._storedTokenExpiries, ...?_github?.tokenExpiries};
+    final primary = _vaults.primary;
+    final primaryName = _vaults.primaryName;
+    DateTime? primaryDue;
+    try {
+      primaryDue = primary == null
+          ? null
+          : TomSecretsMetadata.read(primary.file).keysDue;
+    } on TomSecretsMetadataException {
+      // An unreadable date reminds of nothing; the app shows the metadata.
+      primaryDue = null;
+    }
+    TomSecretsExpiringKey? other(
+      String kind,
+      String key,
+      DateTime? expiresAt, {
+      String? vault,
+    }) => expiresAt == null
+        ? null
+        : TomSecretsExpiringKey.due(
+            kind: kind,
+            key: key,
+            vault: vault,
+            expiresAt: expiresAt,
+            now: now,
+            firstDays: TomSecretsExpiringKey.otherKeyDays,
+          );
+    TomSecretsExpiringKey? pair(String kind, String key, DateTime? since) =>
+        other(kind, key, TomSecretsExpiringKey.keyPairDue(since));
     return [
-      for (final MapEntry(key: slug, value: at)
-          in (_github?.tokenExpiries ?? const <String, DateTime>{}).entries)
+      for (final MapEntry(key: slug, value: at) in tokens.entries)
         ?TomSecretsExpiringKey.due(
           kind: 'github_token',
           key: 'github-token:$slug',
@@ -525,16 +610,35 @@ final class TomSecretsService implements TomSecretsApprovalHost {
           now: now,
           firstDays: settings.keyExpiryWarningDays,
         ),
+      if (primaryName != null)
+        ?other(
+          'vault_keys',
+          'vault-keys:$primaryName',
+          primaryDue,
+          vault: primaryName,
+        ),
       for (final keys in _vaults.listed)
-        if (keys.expires != null)
-          ?TomSecretsExpiringKey.due(
-            kind: 'vault_keys',
-            key: 'vault-keys:${keys.name}',
-            vault: keys.name,
-            expiresAt: keys.expires!,
-            now: now,
-            firstDays: TomSecretsExpiringKey.otherKeyDays,
-          ),
+        ?other(
+          'vault_keys',
+          'vault-keys:${keys.name}',
+          keys.expires,
+          vault: keys.name,
+        ),
+      if (trust != null) ...[
+        ?pair(
+          'approver_key',
+          'approver-key:${trust.device}',
+          trust.approverKeySince,
+        ),
+        ?pair('link_key', 'link-key:${trust.device}', trust.linkKeySince),
+        for (final a in trust.approvers) ...[
+          ?pair('approver_key', 'approver-key:${a.device}', a.approverKeySince),
+          if (a.linkKey != null)
+            ?pair('link_key', 'link-key:${a.device}', a.linkKeySince),
+        ],
+        for (final h in trust.hosts)
+          ?pair('link_key', 'link-key:${h.host}', h.linkKeySince),
+      ],
     ];
   }
 
@@ -657,6 +761,9 @@ final class TomSecretsService implements TomSecretsApprovalHost {
 
   @override
   TomSecretsTrust get trust => _trust!;
+
+  @override
+  DateTime get now => config.clock().toUtc();
 
   @override
   KdbxFile? get primary => _vaults.primary?.file;

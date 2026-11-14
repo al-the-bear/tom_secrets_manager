@@ -490,10 +490,43 @@ void main() {
     test(
       'trust material round-trips; the keys come back from their seeds',
       () async {
-        final trust = TomSecretsTrust.create('mbp');
+        final created = DateTime.utc(2026, 11, 14, 8);
+        final trust = TomSecretsTrust.create('mbp', now: created);
+        expect(trust.approverKeySince, created);
+        expect(trust.linkKeySince, created);
+        final peerKey = (await trust.approverKey()).publicKey;
+        final peerLink = (await trust.linkKey()).publicKey;
+        trust
+          ..approvers.add(
+            TomSecretsRecordedApprover(
+              device: 'bigbeast',
+              approverKey: peerKey,
+              linkKey: peerLink,
+              tokenKey: Uint8List(32),
+              approverKeySince: created,
+            ),
+          )
+          ..hosts.add(
+            TomSecretsRecordedHost(
+              host: 'bomber',
+              linkKey: peerLink,
+              tokenKey: Uint8List(32),
+            ),
+          );
         final again = TomSecretsTrust.fromJson(
           (jsonDecode(jsonEncode(trust.toJson())) as Map).cast(),
         );
+        expect(again.approverKeySince, created);
+        expect(again.linkKeySince, created);
+        expect(again.approver('bigbeast')!.approverKeySince, created);
+        expect(again.approver('bigbeast')!.linkKeySince, isNull);
+        expect(again.host('bomber')!.linkKeySince, isNull);
+        final later = created.add(const Duration(days: 2));
+        expect(again.stampKeyDates(later), isTrue, reason: 'two undated');
+        expect(again.approver('bigbeast')!.linkKeySince, later);
+        expect(again.host('bomber')!.linkKeySince, later);
+        expect(again.approverKeySince, created, reason: 'a date stays');
+        expect(again.stampKeyDates(later), isFalse);
         expect(
           (await again.approverKey()).keyId,
           (await trust.approverKey()).keyId,

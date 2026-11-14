@@ -56,6 +56,9 @@ abstract interface class TomSecretsApprovalHost {
 
   /// The operational log.
   TomSecretsLog get log;
+
+  /// The current time (UTC) the key dates are recorded at.
+  DateTime get now;
 }
 
 /// An answer to a prompt.
@@ -1101,7 +1104,9 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
             await fail('denied', 'not accepted', 'refused');
             return;
           }
-          recorded.approverKey = newKey;
+          recorded
+            ..approverKey = newKey
+            ..approverKeySince = service.now;
           await service.writeTrust();
           await reload();
           await ok();
@@ -1116,7 +1121,8 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
             ..linkKey = TomSecretsLinkPublicKey(
               base64.decode(m['x25519']! as String),
               base64.decode(m['mlKem768']! as String),
-            );
+            )
+            ..linkKeySince = service.now;
           await service.writeTrust();
           await ok();
         default:

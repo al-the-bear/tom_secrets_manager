@@ -440,12 +440,12 @@ final class TomSecretsDeviceContainer {
   TomSecretsTrust? _trust;
 
   /// The device's trust material (its keys, the approvers and hosts it
-  /// recorded), created for [device] and committed when the container holds
-  /// none yet.
-  Future<TomSecretsTrust> trust(String device) async {
+  /// recorded), created for [device] (its key pairs dated [now]) and
+  /// committed when the container holds none yet.
+  Future<TomSecretsTrust> trust(String device, {DateTime? now}) async {
     final existing = _trust;
     if (existing != null) return existing;
-    final created = TomSecretsTrust.create(device);
+    final created = TomSecretsTrust.create(device, now: now);
     await writeTrust(created);
     return created;
   }
