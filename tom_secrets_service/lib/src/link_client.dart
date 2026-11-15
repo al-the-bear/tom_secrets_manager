@@ -9,6 +9,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:tom_secrets_core/tom_secrets_core.dart';
@@ -36,12 +37,18 @@ final class TomSecretsLinkDeliveryException implements Exception {
 /// name; each must be answered `ok`. Throws
 /// [TomSecretsLinkDeliveryException]; [timeout] bounds the connection and
 /// each answer.
+///
+/// A host that rotated its own link key and was reached under its previous
+/// one sends its new key first (`linkKey {id, device, x25519, mlKem768}`,
+/// protocol.md 9.7): [onHostLinkKey] records it (in the session authenticated
+/// under the old keys), and the host is answered `ok`.
 Future<void> tomSecretsDeliverOverLink({
   required String address,
   required TomSecretsLinkKey me,
   required TomSecretsLinkPublicKey hostKey,
   required String device,
   required List<Map<String, Object?>> messages,
+  Future<void> Function(TomSecretsLinkPublicKey key)? onHostLinkKey,
   Duration timeout = const Duration(seconds: 5),
 }) async {
   final at = address.lastIndexOf(':');
@@ -77,8 +84,13 @@ Future<void> tomSecretsDeliverOverLink({
       await session.send({...message, 'id': id});
       Map<String, Object?>? answer;
       while (await answers.moveNext().timeout(timeout)) {
-        if (answers.current['id'] == id) {
-          answer = answers.current;
+        final current = answers.current;
+        if (current['op'] == 'linkKey' && current['id'] is String) {
+          await _takeHostLinkKey(session, current, onHostLinkKey);
+          continue;
+        }
+        if (current['id'] == id) {
+          answer = current;
           break;
         }
       }
@@ -110,4 +122,38 @@ Future<void> tomSecretsDeliverOverLink({
       socket.destroy();
     }
   }
+}
+
+/// Records the host's new link key of [message] through [onHostLinkKey] and
+/// answers it: `ok`, or `error` for a key of another device or that cannot
+/// be read.
+Future<void> _takeHostLinkKey(
+  TomSecretsLinkSession session,
+  Map<String, Object?> message,
+  Future<void> Function(TomSecretsLinkPublicKey key)? onHostLinkKey,
+) async {
+  final id = message['id'];
+  Future<void> fail(String why) => session.send({
+    'op': 'error',
+    'id': id,
+    'kind': 'denied',
+    'message': why,
+    'details': {'reason': 'refused'},
+  });
+  if (message['device'] != session.peerDevice) {
+    await fail('the key names another device');
+    return;
+  }
+  final TomSecretsLinkPublicKey key;
+  try {
+    key = TomSecretsLinkPublicKey(
+      base64.decode(message['x25519']! as String),
+      base64.decode(message['mlKem768']! as String),
+    );
+  } on Object {
+    await fail('the key cannot be read');
+    return;
+  }
+  await onHostLinkKey?.call(key);
+  await session.send({'op': 'ok', 'id': id});
 }

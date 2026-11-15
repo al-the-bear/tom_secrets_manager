@@ -12,6 +12,7 @@
 @Timeout(Duration(minutes: 2))
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -239,6 +240,109 @@ void main() {
       (await mbp.trust.linkKey()).publicKey.x25519,
     );
     expect(mbp.trust.linkKeyPending, isEmpty);
+  });
+
+  test('the host rotated its link key: an approver that connects within the '
+      'migration period under the old key takes the new one', () async {
+    await pair(listening: true);
+    final oldHostKey = (await bigbeast.trust.linkKey()).publicKey;
+    // bigbeast rotates its own link key (it approves for nobody).
+    final rotated = await adminB.request('keys.rotate', {
+      'approver': false,
+      'link': true,
+    });
+    expect(rotated['delivered'], isEmpty);
+    final newHostKey = (await bigbeast.trust.linkKey()).publicKey;
+    expect(newHostKey.x25519, isNot(oldHostKey.x25519));
+    expect(
+      mbp.trust.host('bigbeast')!.linkKey.x25519,
+      oldHostKey.x25519,
+      reason: 'mbp knows only the old key',
+    );
+
+    // mbp connects (its own key change to deliver) under bigbeast's old key;
+    // bigbeast answers under it and passes its new key first.
+    final answer = await adminA.request('keys.rotate', {
+      'approver': true,
+      'link': false,
+    });
+    expect(answer['delivered'], ['bigbeast']);
+    final recorded = mbp.trust.host('bigbeast')!;
+    expect(recorded.linkKey.x25519, newHostKey.x25519);
+    expect(recorded.linkKey.mlKem768, newHostKey.mlKem768);
+    expect(recorded.linkKeySince, isNotNull);
+    expect(
+      bigbeast.trust.approver('mbp')!.approverKey.keyId,
+      answer['approverKeyId'],
+      reason: 'the key change went through in the same session',
+    );
+
+    // From now on mbp connects under bigbeast's new key, and the new key is
+    // kept across mbp's restart (written to its trust material).
+    await tomSecretsDeliverOverLink(
+      address: '127.0.0.1:${bigbeast.linkServer!.port}',
+      me: await mbp.trust.linkKey(),
+      hostKey: newHostKey,
+      device: 'mbp',
+      messages: const [],
+    );
+    await adminA.request('lock');
+    await adminA.unlock(primaryPassword);
+    expect(mbp.trust.host('bigbeast')!.linkKey.x25519, newHostKey.x25519);
+  });
+
+  test('a host link key that names another device is refused and not '
+      'recorded; the session still delivers', () async {
+    final hostKey = await TomSecretsLinkKey.fromSeeds(
+      Uint8List(32)..[0] = 11,
+      Uint8List(64)..[0] = 11,
+    );
+    final approverKey = await mbp.trust.linkKey();
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    final answers = <Map<String, Object?>>[];
+    server.listen((socket) async {
+      final session = await TomSecretsLinkSession.respond(
+        TomSecretsSocketChannel(socket),
+        me: hostKey,
+        approvers: [(device: 'mbp', key: approverKey.publicKey)],
+        host: 'bigbeast',
+      );
+      // Listened to before anything is sent: a broadcast stream keeps
+      // nothing for a late listener.
+      session.messages.listen((m) async {
+        if (m['id'] == 'host-link-key') {
+          answers.add(m);
+        } else if (m['id'] is int) {
+          await session.send({'op': 'ok', 'id': m['id']});
+        }
+      });
+      final other = await TomSecretsLinkKey.fromSeeds(
+        Uint8List(32)..[0] = 12,
+        Uint8List(64)..[0] = 12,
+      );
+      await session.send({
+        'op': 'linkKey',
+        'id': 'host-link-key',
+        'device': 'impostor',
+        'x25519': base64.encode(other.publicKey.x25519),
+        'mlKem768': base64.encode(other.publicKey.mlKem768),
+      });
+    });
+    TomSecretsLinkPublicKey? taken;
+    await tomSecretsDeliverOverLink(
+      address: '127.0.0.1:${server.port}',
+      me: approverKey,
+      hostKey: hostKey.publicKey,
+      device: 'mbp',
+      messages: const [
+        {'op': 'ping'},
+      ],
+      onHostLinkKey: (key) async => taken = key,
+    );
+    expect(taken, isNull);
+    await pumpEventQueue();
+    expect(answers.single['op'], 'error');
   });
 
   test('keys.rotate refuses nothing to rotate and a locked service', () async {

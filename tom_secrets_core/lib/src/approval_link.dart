@@ -626,8 +626,9 @@ final class TomSecretsLinkSession {
     this._send,
     this._receive,
     this.peerDevice,
-    this.handshakeHash,
-  );
+    this.handshakeHash, {
+    this.underPreviousKey = false,
+  });
 
   final TomSecretsApprovalChannel _channel;
   final TomSecretsLinkCipher _send;
@@ -636,6 +637,11 @@ final class TomSecretsLinkSession {
   /// The peer: the approver's device id (on the host) or the host's name
   /// (on the approver).
   final String peerDevice;
+
+  /// On the host: whether the approver connected under the host's previous
+  /// link key (`respond(previousMe:)`) — it does not know the new one yet,
+  /// and the host passes it (`linkKey`). Always false on the approver.
+  final bool underPreviousKey;
 
   /// The handshake hash.
   final Uint8List handshakeHash;
@@ -821,6 +827,7 @@ final class TomSecretsLinkSession {
           TomSecretsLinkCipher(keys.initiatorToResponder),
           device,
           keys.handshakeHash,
+          underPreviousKey: previousMe != null && identical(mine, previousMe),
         );
         // Nothing is sent before `ready` has decrypted: it proves the
         // approver holds its static ML-KEM key.

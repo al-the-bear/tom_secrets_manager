@@ -68,7 +68,7 @@ final class TomSecretsLinkServer {
           approvers: approvers,
           host: host,
         );
-        approvals.addLinkSession(session);
+        approvals.addLinkSession(session, linkKey: me.publicKey);
       } on Object catch (e) {
         log.info('link_refused', {
           'error': e.runtimeType.toString(),

@@ -40,7 +40,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.9.0';
+const String tomSecretsServiceVersion = '0.10.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -1221,6 +1221,14 @@ final class TomSecretsService implements TomSecretsApprovalHost {
           me: await trust.linkKeyFor(host.host, now: now),
           hostKey: host.linkKey,
           device: trust.device,
+          // The host rotated its own link key: it is recorded at once.
+          onHostLinkKey: (key) async {
+            host
+              ..linkKey = key
+              ..linkKeySince = now;
+            changed = true;
+            log.info('host_link_key_taken', {'host': host.host});
+          },
           messages: [
             if (sendStatement) {'op': 'keychange', 'statement': statement},
             if (!host.linkKeyDelivered)

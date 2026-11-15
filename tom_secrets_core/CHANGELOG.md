@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6
+
+- `TomSecretsLinkSession.underPreviousKey`: on the host, whether the
+  approver connected under the host's previous link key, so the host passes
+  it the new one.
+
 ## 0.1.5
 
 - A device rotates its own key pairs (part-key-rotation):

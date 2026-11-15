@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0
+
+- A host that rotated its own link key passes the new one to an approver
+  that connects under its previous key, first in that session (`linkKey`,
+  protocol.md 9.7); the host takes the approver's answer. The approver's
+  side (`tomSecretsDeliverOverLink(onHostLinkKey:)`) records it for that
+  host and answers `ok`, and the service writes it into its trust material,
+  so the approver connects under the new key from then on.
+
 ## 0.9.0
 
 - `vault.move` (manager app only, protocol.md 6.4): a store's outer

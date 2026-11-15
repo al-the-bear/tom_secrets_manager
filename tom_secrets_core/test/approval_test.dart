@@ -385,6 +385,8 @@ void main() {
         );
         final hostSession = await hostSide;
         expect(hostSession.peerDevice, 'mbp', reason: expected);
+        expect(hostSession.underPreviousKey, expected == 'previous');
+        expect(approverSession.underPreviousKey, isFalse);
         await approverSession.close();
         await hostSession.close();
       }

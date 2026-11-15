@@ -1036,9 +1036,29 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
   /// Serves [session] (an approver connected over the approval link): sends
   /// it every waiting prompt, takes its answers, grants, revocations, key
   /// changes and new link keys (protocol.md 9.7).
-  void addLinkSession(TomSecretsLinkSession session) {
+  ///
+  /// An approver that connected under this host's previous link key (a
+  /// rotation, `keys.rotate`) is first sent the current one, [linkKey]
+  /// (`linkKey {id, device, x25519, mlKem768}`, protocol.md 9.7), before
+  /// anything else, so even a short session takes it.
+  void addLinkSession(
+    TomSecretsLinkSession session, {
+    TomSecretsLinkPublicKey? linkKey,
+  }) {
     final peer = _LinkPeer(session);
     _links.add(peer);
+    if (session.underPreviousKey && linkKey != null) {
+      unawaited(
+        session.send({
+          'op': 'linkKey',
+          'id': 'host-link-key',
+          'device': service.host,
+          'x25519': base64.encode(linkKey.x25519),
+          'mlKem768': base64.encode(linkKey.mlKem768),
+        }),
+      );
+      service.log.info('link_key_sent', {'device': session.peerDevice});
+    }
     for (final event in waitingEvents) {
       unawaited(session.send(event));
     }
@@ -1071,6 +1091,15 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
         });
     try {
       switch (m['op']) {
+        // The approver's answer to what this host sent it (its new link
+        // key): nothing to answer.
+        case 'ok' || 'error':
+          if (m['id'] == 'host-link-key') {
+            service.log.info('link_key_answered', {
+              'device': session.peerDevice,
+              'op': m['op'],
+            });
+          }
         case 'approve':
           await approve(
             m['approvalId']! as String,
