@@ -176,6 +176,10 @@ final class TomSecretsLockTimer {
     _timer = Timer.periodic(interval, (_) => check());
   }
 
+  /// Watches [policy] from now on without restarting the unlocked time (a
+  /// changed setting while unlocked).
+  void update(TomSecretsLockPolicy policy) => _policy = policy;
+
   /// Stops watching (at a lock).
   void stop() {
     _timer?.cancel();

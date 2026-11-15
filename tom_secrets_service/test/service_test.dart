@@ -952,6 +952,84 @@ void main() {
       );
     });
   });
+
+  group('settings.get and settings.set (protocol.md 6.3)', () {
+    Future<(TomSecretsService, TomSecretsAdminClient)> unlocked() async {
+      final demo = await Demo.create();
+      final service = await demo.start();
+      final admin = await TomSecretsAdminClient.connect(
+        demo.runtime(),
+        demo.adminKey,
+      );
+      addTearDown(admin.close);
+      await admin.unlock(primaryPassword);
+      return (service, admin);
+    }
+
+    test('the settings, the command-line approval switch and the stores the '
+        'primary names', () async {
+      final (_, admin) = await unlocked();
+      final answer = await admin.request('settings.get');
+      expect(answer['op'], 'deviceSettings');
+      expect(answer['cliApprovals'], isFalse);
+      expect(answer['stores'], ['primary', 'team']);
+      final device = (answer['device']! as Map).cast<String, Object?>();
+      expect(device['refreshMinutes'], 5);
+      expect(device['approvalTimeoutSeconds'], 60);
+      expect((device['serviceLock']! as Map)['mode'], 'idle');
+    });
+
+    test('written into the container, applied now or named for the next '
+        'unlock; refused when malformed or locked', () async {
+      final (service, admin) = await unlocked();
+      final answer = await admin.request('settings.set', {
+        'device': {
+          'serviceLock': {'mode': 'never', 'idleSeconds': 600},
+          'refreshMinutes': 0,
+          'approvalTimeoutSeconds': 30,
+          'servedStores': ['team'],
+          'defaultEnvironment': 'prod',
+        },
+      });
+      expect(answer['nextUnlock'], ['servedStores', 'defaultEnvironment']);
+      expect(service.settings.serviceLock.mode, TomSecretsLockMode.never);
+      expect(service.settings.approvalTimeout, const Duration(seconds: 30));
+      expect(service.settings.refreshMinutes, 0);
+      final back = await admin.request('settings.get');
+      expect((back['device']! as Map)['servedStores'], ['team']);
+
+      for (final bad in [
+        {'refreshMinutes': -1},
+        {'approvalTimeoutSeconds': 1},
+        {
+          'serviceLock': {'mode': 'sometimes'},
+        },
+        {
+          'servedStores': [1],
+        },
+        {'approvalLink': '10.8.0.7'},
+      ]) {
+        final e = await _refusedRequest(
+          admin.request('settings.set', {'device': bad}),
+        );
+        expect(e.kind, 'malformed', reason: '$bad');
+      }
+      await admin.request('lock');
+      expect(
+        (await _refusedRequest(admin.request('settings.get'))).kind,
+        'locked',
+      );
+    });
+  });
+}
+
+Future<TomSecretsAdminException> _refusedRequest(Future<Object?> f) async {
+  try {
+    await f;
+  } on TomSecretsAdminException catch (e) {
+    return e;
+  }
+  fail('the request was not refused');
 }
 
 /// A keychain that says it is not available, and counts reads.

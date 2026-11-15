@@ -38,7 +38,7 @@ import 'secret_frame.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.2.0';
+const String tomSecretsServiceVersion = '0.3.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -955,6 +955,49 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   @override
   Future<void> writeTrust() => _device!.writeTrust(_trust!);
 
+  /// The device settings of `settings.get` (protocol.md 6.3): the settings,
+  /// the command-line approval switch and the stores the primary names.
+  Map<String, Object?> settingsReport() => {
+    'device': settings.toJson(),
+    'cliApprovals': _trust?.cliApprovals ?? false,
+    'stores': [
+      ?_vaults.primaryName,
+      for (final k in _vaults.listed) k.name,
+      for (final k in _vaults.unserved) k.name,
+    ],
+  };
+
+  /// Writes [value] as the device settings (`settings.set`) and applies what
+  /// can change while unlocked: the lock policy, the refresh interval and
+  /// timer, the timeouts (read when used), the offline cache and the
+  /// reminder period. Answers the settings that apply at the next unlock
+  /// (the stores served, the default environment, the approval link).
+  Future<List<String>> writeSettings(TomSecretsDeviceSettings value) async {
+    final old = settings;
+    await _device!.write(value);
+    _lockTimer.update(value.serviceLock);
+    _vaults.refreshInterval = Duration(
+      minutes: value.refreshMinutes > 0 ? value.refreshMinutes : 5,
+    );
+    if (value.refreshMinutes > 0 && _refreshTimer == null) {
+      _refreshTimer = Timer.periodic(
+        config.refreshTick,
+        (_) => unawaited(_tick()),
+      );
+    } else if (value.refreshMinutes <= 0) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+    }
+    bool sameList(List<String>? a, List<String>? b) =>
+        a == null || b == null ? a == b : a.join('\u0000') == b.join('\u0000');
+    return [
+      if (!sameList(old.servedStores, value.servedStores)) 'servedStores',
+      if (old.defaultEnvironment != value.defaultEnvironment)
+        'defaultEnvironment',
+      if (old.approvalLink != value.approvalLink) 'approvalLink',
+    ];
+  }
+
   @override
   bool get hasLocalApprover => _admins.any((a) => a.subscribed && a.isApprover);
 
@@ -990,6 +1033,59 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     if (store == _vaults.primaryName) await _approvals?.reload();
     return result;
   }
+}
+
+/// What makes [device] unacceptable as device settings (`settings.set`), or
+/// null: the types and ranges a setting must have. Members it does not know
+/// are ignored, as every reader does (protocol.md 8).
+String? tomSecretsSettingsProblem(Map<String, Object?> device) {
+  String? range(String key, int min, int max) {
+    final v = device[key];
+    if (v == null) return null;
+    if (v is! int || v < min || v > max) return '$key is $min..$max';
+    return null;
+  }
+
+  String? lock(String key) {
+    final v = device[key];
+    if (v == null) return null;
+    if (v is! Map) return '$key is an object';
+    final mode = v['mode'];
+    if (mode != null && !TomSecretsLockMode.values.any((m) => m.name == mode)) {
+      return '$key.mode is never or idle';
+    }
+    for (final k in ['idleSeconds', 'maxUnlockedSeconds']) {
+      final s = v[k];
+      if (s != null && (s is! int || s < 60 || s > 7 * 24 * 3600)) {
+        return '$key.$k is 60..604800';
+      }
+    }
+    return null;
+  }
+
+  final served = device['servedStores'];
+  if (served != null && (served is! List || served.any((s) => s is! String))) {
+    return 'servedStores is a list of store names';
+  }
+  for (final key in ['defaultEnvironment', 'approvalLink']) {
+    final v = device[key];
+    if (v != null && (v is! String || v.isEmpty)) return '$key is a string';
+  }
+  final link = device['approvalLink'];
+  if (link is String &&
+      !RegExp(r'^[^\s:]+:\d{1,5}$').hasMatch(link) &&
+      !RegExp(r'^\[[0-9a-fA-F:]+\]:\d{1,5}$').hasMatch(link)) {
+    return 'approvalLink is address:port';
+  }
+  if (device['offlineCache'] case final v? when v is! bool) {
+    return 'offlineCache is true or false';
+  }
+  return lock('serviceLock') ??
+      lock('appLock') ??
+      range('refreshMinutes', 0, 24 * 60) ??
+      range('keyExpiryWarningDays', 1, 365) ??
+      range('approvalTimeoutSeconds', 5, 3600) ??
+      range('codeTimeoutSeconds', 60, 3600);
 }
 
 /// The keys a request's `password` and `keyFile` (base64) carry, held masked;
@@ -2132,6 +2228,43 @@ final class _AdminSession {
           service._reminded[key.key] = key.step;
           connection.send(key.toEvent());
         }
+      case 'settings.get':
+        if (service.isLocked || service.deviceContainer == null) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        connection.send({
+          'op': 'deviceSettings',
+          'id': id,
+          ...service.settingsReport(),
+        });
+      case 'settings.set':
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked || service.deviceContainer == null) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        final device = m['device'];
+        final problem = device is Map
+            ? tomSecretsSettingsProblem(device.cast<String, Object?>())
+            : 'device is an object';
+        if (problem != null) {
+          connection.sendError(id, 'malformed', problem, {
+            'reason': 'settings',
+          });
+          return;
+        }
+        final value = TomSecretsDeviceSettings.fromJson(
+          (device! as Map).cast<String, Object?>(),
+        );
+        final later = await service.writeSettings(value);
+        service.log.info('settings', {'nextUnlock': later.length});
+        connection.send({'op': 'ok', 'id': id, 'nextUnlock': later});
       case 'approve' ||
           'approval.redeem' ||
           'approval.issue' ||

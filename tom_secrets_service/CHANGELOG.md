@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- `settings.get` and `settings.set` (protocol.md 6.3): the device settings,
+  the command-line approval switch and the stores the primary names; a
+  write is accepted only from the manager app, checked
+  (`tomSecretsSettingsProblem`), applied at once for the lock policy, the
+  refresh, the timeouts, the cache and the reminder period, and answers
+  which settings apply at the next unlock.
+
 ## 0.2.0
 
 - A vault the primary lists that this machine does not serve can be edited

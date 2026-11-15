@@ -93,7 +93,9 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   `unlock_needed`, `store_changed`, `store_state`, `key_expiry`,
   `approval_needed`, `approval_closed`, `rate_limited`), `vaultKeys`, `save`, `approve`, `approval.redeem`, `approval.issue`,
   `grants.list`, `grants.add`, `grants.revoke`, `approvers.cliSwitch`,
-  `audit.query`, `approvals.list` (the requests waiting on this host, as
+  `audit.query`, `settings.get` / `settings.set` (the device settings; a
+  write only from the manager app, applied at once where it can be and the
+  rest named for the next unlock), `approvals.list` (the requests waiting on this host, as
   `approval_needed` reads them), `keys` (every key with its due date),
   `compact` (the history of a `github:` vault repository cut now, with its
   own `.tsm/compaction.yaml` retention, pushed over git by this device) and
