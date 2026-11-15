@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+- `token.set {repository, token}` (manager app only, protocol.md 6.3):
+  renews a vault repository's GitHub token. The token is checked first
+  (`tomSecretsCheckGitHubToken`: it sees the repository, a short-lived
+  `tsm-token-check-…` branch is created and deleted to prove it may write,
+  the expiry GitHub reports is taken), then it replaces the old one where
+  that lives (the device keychain with its expiry, else the primary's
+  vault entries for that repository) and every store is fetched again.
+
 ## 0.6.0
 
 - Re-keyed saves (part-key-rotation, protocol.md 6.4): a further vault's

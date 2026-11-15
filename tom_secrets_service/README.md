@@ -99,7 +99,12 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   `approval_needed` reads them), `keys` (every key with its due date),
   `compact` (the history of a `github:` vault repository cut now, with its
   own `.tsm/compaction.yaml` retention or `retentionDays` instead, 0 after a
-  key change, pushed over git by this device) and
+  key change, pushed over git by this device), `token.set` (a vault
+  repository's GitHub token renewed, manager app only: checked first —
+  it sees the repository, a short-lived `tsm-token-check-…` branch is
+  created and deleted to prove it may write, the expiry GitHub reports —
+  then kept where the old one was, the keychain with its expiry or the
+  primary's vault entries, and every store fetched again) and
   `shutdown`.
 - **The editing path** (DP-13, protocol.md 6.4): `vaultKeys` hands the app the
   keys of the open vaults (`password`, `keyFile`, `outerKey`) and their

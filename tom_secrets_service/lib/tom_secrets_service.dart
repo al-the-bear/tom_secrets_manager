@@ -24,6 +24,7 @@ export 'src/log.dart';
 export 'src/peer_identity.dart';
 export 'src/secret_frame.dart';
 export 'src/service.dart';
+export 'src/token_check.dart';
 export 'src/vault_set.dart';
 
 // The device settings and lock types the service's API hands out; they live

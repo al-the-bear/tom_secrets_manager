@@ -57,9 +57,33 @@ final class _Network extends http.BaseClient {
   String? expiration;
   final List<(String, String?)> requests = [];
 
+  /// Tokens GitHub refuses (401), tokens that do not see the repository
+  /// (404 on it), and tokens that may read but not write (403 on a ref).
+  final Set<String> refusedTokens = {};
+  final Set<String> blindTokens = {};
+  final Set<String> readOnlyTokens = {};
+
+  http.StreamedResponse _status(int code, String message) =>
+      http.StreamedResponse(
+        Stream.value(utf8.encode('{"message": "$message"}')),
+        code,
+        headers: {'content-type': 'application/json'},
+      );
+
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     requests.add((request.url.path, request.headers['Authorization']));
+    final auth = request.headers['Authorization'] ?? '';
+    bool carries(Set<String> tokens) => tokens.any(auth.endsWith);
+    if (net == _Net.online) {
+      if (carries(refusedTokens)) return _status(401, 'Bad credentials');
+      if (carries(blindTokens)) return _status(404, 'Not Found');
+      if (carries(readOnlyTokens) &&
+          request.method != 'GET' &&
+          request.url.path.contains('/git/')) {
+        return _status(403, 'Resource not accessible by personal access token');
+      }
+    }
     switch (net) {
       case _Net.unreachable:
         throw const SocketException('demo: the network is down');
@@ -1066,6 +1090,144 @@ void main() {
       expect(await lastUsed(), isNot(first), reason: 'delivered');
       expect(await grantHosts(), ['demo-host', 'bigbeast']);
       expect(stores(service)['primary']!['state'], 'current');
+    });
+  });
+
+  group('token.set (part-key-rotation §3)', () {
+    /// The refs of the demo repository whose name is the token check's.
+    Iterable<String> probes(String repo) => server.repos[repo]!.refs.keys.where(
+      (r) => r.contains('tsm-token-check-'),
+    );
+
+    test('a token kept in the keychain: checked (it writes a branch and '
+        'deletes it), replaced with its expiry, used from then on', () async {
+      final service = await start();
+      network.expiration = '2027-02-01 09:00:00 UTC';
+      network.requests.clear();
+      final answer = await admin.request('token.set', {
+        'repository': _repo,
+        'token': ' demo-new-token ',
+      });
+      expect(answer['op'], 'tokenSet');
+      expect(answer['where'], 'keychain');
+      expect(answer['expiresAt'], '2027-02-01T09:00:00.000Z');
+      final repoKeychain =
+          TomSecretsVaultLocator.parse(_team) as TomSecretsGitHubLocator;
+      expect(await keychain.read(repoKeychain.tokenHandle), 'demo-new-token');
+      expect(
+        await keychain.read(repoKeychain.tokenExpiryHandle),
+        '2027-02-01T09:00:00.000Z',
+      );
+      final paths = [for (final (path, _) in network.requests) path];
+      expect(
+        paths.where((p) => p.endsWith('/git/refs')),
+        isNotEmpty,
+        reason: 'the check branch was created',
+      );
+      expect(probes(_repo), isEmpty, reason: 'and deleted again');
+      // The refresh after it fetched with the new token.
+      final after = network.requests.lastWhere(
+        (r) => r.$1.contains('/repos/$_repo/'),
+      );
+      expect(after.$2, endsWith('demo-new-token'));
+      expect(stores(service)['team']!['state'], 'current');
+      final keys = await admin.request('keys');
+      final token = (keys['keys']! as List).cast<Map>().firstWhere(
+        (k) => k['key'] == 'github-token:$_repo',
+      );
+      expect(token['expiresAt'], '2027-02-01T09:00:00.000Z');
+      expect(await get('team/Api/Token'), 'token-1');
+    });
+
+    test('a token kept in the primary\'s vault list: its entries take it, '
+        'the primary is written, the keychain stays empty', () async {
+      await start();
+      final answer = await admin.request('token.set', {
+        'repository': _otherRepo,
+        'token': 'demo-other-token-2',
+      });
+      expect(answer['where'], 'primary');
+      expect(answer.containsKey('expiresAt'), isFalse, reason: 'no expiry');
+      final primary = await KdbxFormat().read(
+        server.bytesAt(_repo, 'primary.kdbx')!,
+        _pw(primaryPassword),
+      );
+      final other = TomSecretsPrimaryVaults(primary).byName('other')!;
+      expect(other.githubToken, 'demo-other-token-2');
+      expect(other.githubTokenExpires, isNull);
+      expect(
+        await keychain.read(
+          tomSecretsGitHubTokenHandle('al-the-bear', 'other-vaults'),
+        ),
+        isNull,
+      );
+      expect(await get('other/Web/Key'), 'key-1');
+    });
+
+    test('a refused, blind or read-only token changes nothing; a token '
+        'that renews an expired one brings the store back', () async {
+      final service = await start();
+      network.refusedTokens.add('demo-keychain-token');
+      await refused(admin.request('reload'));
+      expect(stores(service)['team']!['state'], 'token_expired');
+
+      network
+        ..refusedTokens.add('demo-bad-token')
+        ..blindTokens.add('demo-blind-token')
+        ..readOnlyTokens.add('demo-read-token');
+      Future<String?> reasonOf(String token) async =>
+          (await refused(
+                admin.request('token.set', {
+                  'repository': _repo,
+                  'token': token,
+                }),
+              )).details['reason']
+              as String?;
+      expect(await reasonOf('demo-bad-token'), 'token_refused');
+      expect(await reasonOf('demo-blind-token'), 'token_no_access');
+      expect(await reasonOf('demo-read-token'), 'token_read_only');
+      expect(probes(_repo), isEmpty);
+      expect(
+        await keychain.read(
+          tomSecretsGitHubTokenHandle('al-the-bear', 'demo-vaults'),
+        ),
+        'demo-keychain-token',
+        reason: 'nothing replaced',
+      );
+
+      await admin.request('token.set', {
+        'repository': _repo,
+        'token': 'demo-new-token',
+      });
+      expect(stores(service)['team']!['state'], 'current');
+      expect(stores(service)['primary']!['state'], 'current');
+    });
+
+    test('malformed, an unknown repository, unreachable', () async {
+      await start();
+      expect(
+        (await refused(
+          admin.request('token.set', {'repository': _repo}),
+        )).details['reason'],
+        'token',
+      );
+      expect(
+        (await refused(
+          admin.request('token.set', {
+            'repository': 'al-the-bear/nothing',
+            'token': 'demo-token',
+          }),
+        )).kind,
+        'not_found',
+      );
+      network.net = _Net.unreachable;
+      expect(
+        (await refused(
+          admin.request('token.set', {'repository': _repo, 'token': 'demo-x'}),
+        )).kind,
+        'offline',
+      );
+      network.net = _Net.online;
     });
   });
 

@@ -35,10 +35,11 @@ import 'lock_policy.dart';
 import 'log.dart';
 import 'peer_identity.dart';
 import 'secret_frame.dart';
+import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.6.0';
+const String tomSecretsServiceVersion = '0.7.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -986,6 +987,112 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     _emit({'op': 'store_changed', 'store': store, 'revision': result.revision});
     if (store == _vaults.primaryName) await _approvals?.reload();
     return result;
+  }
+
+  /// Replaces the GitHub token of [repository] (`owner/name`, the
+  /// repository of the primary or of a vault the primary lists) with
+  /// [token] (`token.set`, part-key-rotation §3): first checks it with
+  /// [tomSecretsCheckGitHubToken] (it sees the repository and can write
+  /// there; the expiry GitHub reports), then writes it where the old one
+  /// lives — the device keychain's `tsm.github-token.<owner>:<repository>`
+  /// with its expiry (`tsm.github-token-expiry.…`), else the entries of the
+  /// primary's vault list that keep a token for that repository (never for
+  /// the primary's own repository) — and fetches every store again. A
+  /// repository with no token yet takes the keychain, else the vault list.
+  /// Throws [StateError] for a repository no vault is in,
+  /// [TomSecretsTokenCheckException] for a refused token, and
+  /// [UnsupportedError] when there is nowhere to keep it (no keychain, the
+  /// primary's own repository).
+  Future<({String where, DateTime? expiresAt})> setGitHubToken(
+    String repository,
+    String token,
+  ) async {
+    final primary = _vaults.primary;
+    if (primary == null) throw StateError('locked');
+    final listed = TomSecretsPrimaryVaults(primary.file).list();
+    TomSecretsGitHubLocator? vault;
+    for (final locator in [
+      primary.locator,
+      for (final k in listed) k.locator,
+    ]) {
+      final parsed = TomSecretsVaultLocator.parse(locator);
+      if (parsed is TomSecretsGitHubLocator &&
+          parsed.repositorySlug == repository) {
+        vault = parsed;
+        break;
+      }
+    }
+    if (vault == null) throw StateError(repository);
+    final expiresAt = await tomSecretsCheckGitHubToken(
+      owner: vault.owner,
+      repository: vault.repository,
+      token: token,
+      baseUrl: config.githubBaseUrl,
+      client: config.githubClient,
+    );
+    final own = TomSecretsVaultLocator.parse(primary.locator);
+    final ownRepository =
+        own is TomSecretsGitHubLocator && own.repositorySlug == repository;
+    bool inRepository(TomSecretsVaultKeys k) {
+      final at = TomSecretsVaultLocator.parse(k.locator);
+      return at is TomSecretsGitHubLocator && at.repositorySlug == repository;
+    }
+
+    final holders = [
+      if (!ownRepository)
+        for (final k in listed)
+          if (inRepository(k) && k.githubToken != null) k,
+    ];
+    final keychain = config.keychain;
+    var inKeychain = false;
+    if (keychain != null) {
+      try {
+        final old = await keychain.read(vault.tokenHandle);
+        inKeychain = old != null && old.isNotEmpty;
+      } on TomSecretStoreException catch (e) {
+        log.error('keychain_failed', e);
+      }
+    }
+    final String where;
+    if (keychain != null && (inKeychain || holders.isEmpty)) {
+      await keychain.write(vault.tokenHandle, token);
+      if (expiresAt == null) {
+        await keychain.delete(vault.tokenExpiryHandle);
+      } else {
+        await keychain.write(
+          vault.tokenExpiryHandle,
+          expiresAt.toUtc().toIso8601String(),
+        );
+      }
+      where = 'keychain';
+    } else if (!ownRepository) {
+      final list = TomSecretsPrimaryVaults(primary.file);
+      final targets = holders.isEmpty ? listed.where(inRepository) : holders;
+      for (final k in targets) {
+        list.put(
+          TomSecretsVaultKeys(
+            name: k.name,
+            locator: k.locator,
+            password: k.password,
+            keyFile: k.keyFile,
+            outerKey: k.outerKey,
+            githubToken: token,
+            githubTokenExpires: expiresAt,
+            expires: k.expires,
+          ),
+        );
+      }
+      await savePrimary();
+      where = 'primary';
+    } else {
+      throw UnsupportedError(
+        'no keychain on this device to keep the token of the primary\'s '
+        'repository in',
+      );
+    }
+    log.info('token_set', {'repository': repository, 'where': where});
+    await refresh(force: true);
+    return (where: where, expiresAt: expiresAt);
   }
 
   /// Writes the service's own edits of the primary (grants, revocations,
@@ -2406,6 +2513,62 @@ final class _AdminSession {
             if (e.kind == 'offline' || e.kind == 'token_expired')
               'stores': [store],
             'reason': ?e.reason,
+          });
+        }
+      case 'token.set':
+        final repository = m['repository'];
+        final token = m['token'];
+        if (repository is! String ||
+            !RegExp(r'^[^/\s]+/[^/\s]+$').hasMatch(repository) ||
+            token is! String ||
+            token.trim().isEmpty) {
+          connection.sendError(
+            id,
+            'malformed',
+            'token.set names a repository owner/name and a token',
+            {'reason': 'token'},
+          );
+          return;
+        }
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        try {
+          final set = await service.setGitHubToken(repository, token.trim());
+          connection.send({
+            'op': 'tokenSet',
+            'id': id,
+            'repository': repository,
+            'where': set.where,
+            if (set.expiresAt != null)
+              'expiresAt': set.expiresAt!.toUtc().toIso8601String(),
+          });
+        } on TomSecretsTokenCheckException catch (e) {
+          service.log.info('token_refused', {
+            'repository': repository,
+            'reason': e.reason,
+          });
+          if (e.problem == TomSecretsTokenProblem.unreachable) {
+            connection.sendError(id, 'offline', e.message, {
+              'repository': repository,
+            });
+          } else {
+            connection.sendError(id, 'denied', e.message, {'reason': e.reason});
+          }
+        } on StateError {
+          connection.sendError(id, 'not_found', 'no vault in $repository', {
+            'repository': repository,
+          });
+        } on UnsupportedError catch (e) {
+          connection.sendError(id, 'unsupported', '${e.message}', {
+            'reason': 'no_keychain',
           });
         }
       case 'settings.get':
