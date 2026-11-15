@@ -76,6 +76,14 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   link keys; a connected approver gets the prompts and sends answers,
   signed grants (applied at once as pending copies), revocations, key
   changes and new link keys.
+- **Pairing** (protocol.md 6.3, 9.8): the apps run the pairing between the
+  two machines (tom_secrets_core's `TomSecretsPairingWindow` /
+  `tomSecretsReceivePairingAt`); the service gives this device's public keys
+  (`pair.identity`) and keeps what the pairing gave (`pair.record`): the peer
+  as an approver of this host and/or a host this device approves for, with
+  the approval-token key both derived, and on the giving side the device
+  record in the primary. `pair.revoke` ends it, `pair.list` lists the
+  device records.
 - **The audit log** (`TomSecretsAuditLog`): one record per resolved item
   (time, host, identity, reference, outcome, grant or approver, entry UUID,
   never a value), each encrypted with XChaCha20-Poly1305 under the audit-log

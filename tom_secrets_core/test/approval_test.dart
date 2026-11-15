@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 /// The core's signed objects, approval codes and approval link against the
-/// protocol's vectors (protocol.md 9.8: signatures.json,
+/// protocol's vectors (protocol.md 9.9: signatures.json,
 /// approval_codes.json, link_handshake.json), and a link session end to end
 /// over an in-memory channel; the grants group and the trust material.
 @TestOn('vm')

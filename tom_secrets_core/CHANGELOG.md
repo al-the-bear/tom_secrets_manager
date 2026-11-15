@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.0
+
+- Pairing (part-sharing, DP-60–DP-64, DP-177):
+  - `TomSecretsSpake2`: SPAKE2 as RFC 9382 specifies it (P256-SHA256-HKDF-HMAC,
+    the RFC's M and N, key confirmation), checked with the RFC's test vectors,
+    refusing a point off the curve.
+  - `tomSecretsGivePairing` / `tomSecretsReceivePairing`: the pairing over a
+    channel. The code (`TomSecretsPairingCode`, `<number>-<word>-<word>`)
+    proved by SPAKE2, an ML-KEM-768 exchange inside, the session key mixing
+    both secrets with the transcript; then the giving side's bundle
+    (`TomSecretsPairingBundle`: vaults with their key files and repository
+    keys, the shared configuration, tokens pasted for the device, its public
+    keys), the receiving side's public keys, and the approval-token key both
+    derive.
+  - `TomSecretsPairingWindow`: the giving side's window on the LAN and VPN
+    addresses only, the first connection only, five minutes.
+  - `tomSecretsReceivePairingAt`: the receiving side over TCP.
+- `TomSecretsDeviceRecords`: the device records of the primary
+  (`.tom-secrets/devices`, DP-62).
+- `TomSecretsLinkFrameReader`: the approval link's framing, for pairing.
+
 ## 0.1.6
 
 - `TomSecretsLinkSession.underPreviousKey`: on the host, whether the

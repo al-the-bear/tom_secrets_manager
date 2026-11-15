@@ -40,7 +40,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.10.0';
+const String tomSecretsServiceVersion = '0.11.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -1352,6 +1352,121 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     }
   }
 
+  /// This device's public keys for a pairing (`pair.identity`,
+  /// part-sharing): its approver key, its approval-link key and the address
+  /// its link listens on (null when it does not).
+  Future<TomSecretsPairingPeerKeys> pairingIdentity() async {
+    final trust = _trust;
+    if (trust == null) throw StateError('locked');
+    return TomSecretsPairingPeerKeys(
+      linkKey: (await trust.linkKey()).publicKey,
+      approverKey: (await trust.approverKey()).publicKey,
+      linkAddress: _linkServer?.address,
+    );
+  }
+
+  /// Records what a pairing gave (`pair.record`, part-sharing): the peer
+  /// [device] as an approver of this host (its approver and link keys) and
+  /// as a host this device approves for (its link key and address), with
+  /// the approval-token key both derived, every key dated now; a device
+  /// paired again replaces what was recorded. With [record] the giving
+  /// side's device record goes into the primary (DP-62).
+  Future<void> recordPairing({
+    required String device,
+    required Uint8List tokenKey,
+    TomSecretsApproverPublicKey? approverKey,
+    TomSecretsLinkPublicKey? approverLinkKey,
+    TomSecretsLinkPublicKey? hostLinkKey,
+    String? hostAddress,
+    ({String? platform, List<String> keyIds})? record,
+  }) async {
+    final trust = _trust;
+    final primary = _vaults.primary;
+    if (trust == null || primary == null) throw StateError('locked');
+    if (device == trust.device) {
+      throw ArgumentError.value(device, 'device', 'this device itself');
+    }
+    final at = now;
+    trust.approvers.removeWhere((a) => a.device == device);
+    trust.hosts.removeWhere((h) => h.host == device);
+    if (approverKey != null) {
+      trust.approvers.add(
+        TomSecretsRecordedApprover(
+          device: device,
+          approverKey: approverKey,
+          linkKey: approverLinkKey,
+          tokenKey: tokenKey,
+          approverKeySince: at,
+          linkKeySince: approverLinkKey == null ? null : at,
+        ),
+      );
+    }
+    if (hostLinkKey != null) {
+      trust.hosts.add(
+        TomSecretsRecordedHost(
+          host: device,
+          linkKey: hostLinkKey,
+          tokenKey: tokenKey,
+          address: hostAddress,
+          linkKeySince: at,
+        ),
+      );
+    }
+    await writeTrust();
+    if (record != null) {
+      TomSecretsDeviceRecords(primary.file).put(
+        TomSecretsDeviceRecord(
+          device: device,
+          platform: record.platform,
+          paired: at,
+          pairedBy: trust.device,
+          keyIds: record.keyIds,
+          approverKeyId: approverKey?.keyId,
+          approverKeySince: approverKey == null ? null : at,
+          linkKeySince: hostLinkKey == null && approverLinkKey == null
+              ? null
+              : at,
+        ),
+      );
+      await savePrimary();
+    }
+    await _approvals?.reload();
+    log.info('paired', {
+      'device': device,
+      'approver': approverKey != null,
+      'host': hostLinkKey != null,
+    });
+    _remindKeys();
+  }
+
+  /// Revokes the paired [device] (`pair.revoke`): what this device recorded
+  /// of it goes (it approves here no longer, this device approves for it no
+  /// longer), and its device record in the primary is marked revoked.
+  /// Whether anything was recorded of it.
+  Future<bool> revokePairing(String device) async {
+    final trust = _trust;
+    final primary = _vaults.primary;
+    if (trust == null || primary == null) throw StateError('locked');
+    final before = trust.approvers.length + trust.hosts.length;
+    trust.approvers.removeWhere((a) => a.device == device);
+    trust.hosts.removeWhere((h) => h.host == device);
+    final trusted = trust.approvers.length + trust.hosts.length != before;
+    if (trusted) await writeTrust();
+    final recorded = TomSecretsDeviceRecords(primary.file).revoke(device, now);
+    if (recorded) await savePrimary();
+    await _approvals?.reload();
+    log.info('pairing_revoked', {'device': device});
+    return trusted || recorded;
+  }
+
+  /// The device records of the primary (`pair.list`).
+  List<TomSecretsDeviceRecord> get pairedDevices {
+    final primary = _vaults.primary;
+    return primary == null
+        ? const []
+        : TomSecretsDeviceRecords(primary.file).list();
+  }
+
   /// Writes the service's own edits of the primary (grants, revocations,
   /// approval records, their last use). When the remote cannot be reached
   /// or refuses the token, the edits stay in the held copy, in effect on
@@ -2373,6 +2488,96 @@ final class _AdminSession {
     }
   }
 
+  /// The pairing requests (protocol.md 6.3, part-sharing): the app runs the
+  /// pairing itself; the service gives this device's public keys and keeps
+  /// what the pairing gave.
+  Future<void> _pairing(int id, String op, Map<String, Object?> m) async {
+    Never malformed(String reason) => throw FormatException(reason);
+    try {
+      switch (op) {
+        case 'pair.identity':
+          final keys = await service.pairingIdentity();
+          connection.send({
+            'op': 'pairIdentity',
+            'id': id,
+            'device': service.trust.device,
+            ...keys.toJson(),
+          });
+        case 'pair.record':
+          final device = m['device'];
+          final tokenKey = m['tokenKey'];
+          if (device is! String || device.isEmpty || tokenKey is! String) {
+            malformed('pair.record names a device and its tokenKey');
+          }
+          final token = base64.decode(tokenKey);
+          if (token.length != 32) malformed('tokenKey is 32 bytes');
+          final approver = m['approver'];
+          final host = m['host'];
+          final record = m['record'];
+          if ((approver != null && approver is! Map) ||
+              (host != null && host is! Map) ||
+              (record != null && record is! Map) ||
+              (approver == null && host == null)) {
+            malformed('pair.record carries an approver, a host or both');
+          }
+          final a = (approver as Map?)?.cast<String, Object?>();
+          final h = (host as Map?)?.cast<String, Object?>();
+          final r = (record as Map?)?.cast<String, Object?>();
+          await service.recordPairing(
+            device: device,
+            tokenKey: token,
+            approverKey: a == null
+                ? null
+                : TomSecretsApproverPublicKey.fromJson(
+                    (a['approverKey']! as Map).cast(),
+                  ),
+            approverLinkKey: a?['linkKey'] == null
+                ? null
+                : TomSecretsLinkPublicKey.fromJson(
+                    (a!['linkKey']! as Map).cast(),
+                  ),
+            hostLinkKey: h == null
+                ? null
+                : TomSecretsLinkPublicKey.fromJson(
+                    (h['linkKey']! as Map).cast(),
+                  ),
+            hostAddress: h?['address'] as String?,
+            record: r == null
+                ? null
+                : (
+                    platform: r['platform'] as String?,
+                    keyIds: [
+                      for (final k in (r['keyIds'] as List? ?? const [])) '$k',
+                    ],
+                  ),
+          );
+          connection.send({'op': 'ok', 'id': id});
+        case 'pair.revoke':
+          final device = m['device'];
+          if (device is! String) malformed('pair.revoke names a device');
+          if (!await service.revokePairing(device)) {
+            connection.sendError(id, 'not_found', 'no paired device $device');
+            return;
+          }
+          connection.send({'op': 'ok', 'id': id});
+        case 'pair.list':
+          connection.send({
+            'op': 'pairedDevices',
+            'id': id,
+            'devices': [for (final d in service.pairedDevices) d.toJson()],
+          });
+      }
+    } on ArgumentError catch (e) {
+      connection.sendError(id, 'malformed', '${e.message}', {'reason': 'pair'});
+    } on FormatException catch (e) {
+      connection.sendError(id, 'malformed', e.message, {'reason': 'pair'});
+    } on TypeError {
+      connection.sendError(id, 'malformed', 'a key cannot be read', {
+        'reason': 'pair',
+      });
+    }
+  }
+
   Future<void> _request(int id, String op, Map<String, Object?> m) async {
     switch (op) {
       case 'unlock':
@@ -2844,6 +3049,18 @@ final class _AdminSession {
             'reason': ?e.reason,
           });
         }
+      case 'pair.identity' || 'pair.record' || 'pair.revoke' || 'pair.list':
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        await _pairing(id, op, m);
       case 'keys.rotate':
         final approver = m['approver'] ?? true;
         final link = m['link'] ?? true;

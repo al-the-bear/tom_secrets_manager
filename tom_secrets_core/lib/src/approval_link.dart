@@ -530,6 +530,23 @@ Uint8List tomSecretsLinkFrame(List<int> bytes) {
   return out;
 }
 
+/// The frames of a channel read one by one ([next]), for the protocols that
+/// share the approval link's framing (pairing, DP-64): a frame over 1 MiB,
+/// or the channel's end, ends it.
+final class TomSecretsLinkFrameReader {
+  /// The reader of [channel]'s frames.
+  TomSecretsLinkFrameReader(TomSecretsApprovalChannel channel)
+    : _queue = _FrameQueue(channel);
+
+  final _FrameQueue _queue;
+
+  /// The next frame, or null when the channel ended or [timeout] passed.
+  Future<Uint8List?> next(Duration timeout) => _queue.next(timeout);
+
+  /// Stops reading.
+  Future<void> cancel() => _queue.cancel();
+}
+
 /// The frames of a channel: during the handshake read one by one with
 /// [next], afterwards handed to a callback ([deliver]); a frame over 1 MiB,
 /// or the channel's end, ends it.

@@ -116,6 +116,16 @@ service parse references with one implementation.
   new key has not reached for 14 days, `linkKeyFor`). Tested
   byte for byte against `signatures.json`, `approval_codes.json` and
   `link_handshake.json`.
+- **Pairing** (part-sharing, protocol.md 9.8; DP-60–DP-64, DP-177):
+  `TomSecretsSpake2` (RFC 9382, P256-SHA256-HKDF-HMAC, checked with the
+  RFC's vectors), the pairing code (`TomSecretsPairingCode`,
+  `<number>-<word>-<word>`), the pairing itself over a channel
+  (`tomSecretsGivePairing` / `tomSecretsReceivePairing`: SPAKE2, an
+  ML-KEM-768 exchange inside, the session key over both secrets and the
+  transcript, the bundle and the receiving side's keys under it, the
+  approval-token key), the giving side's window on the LAN and VPN
+  addresses (`TomSecretsPairingWindow`), and the device records of the
+  primary (`TomSecretsDeviceRecords`).
 - **The outer encryption** (`tomSecretsOuterEncrypt` / `Decrypt`,
   `TomSecretsOuterCodec`, DP-80, DP-84): a vault stored as
   `<vault>.kdbx.tsmx`, encrypted once under a fresh random file key that is

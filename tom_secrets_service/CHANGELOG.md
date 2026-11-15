@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.0
+
+- Pairing (manager app only, protocol.md 6.3, 9.8):
+  - `pair.identity`: this device's public keys and link address.
+  - `pair.record`: a paired device recorded as an approver of this host
+    and/or a host this device approves for, with the approval-token key,
+    every key dated now, a device paired again replaced, and with `record`
+    its device record in the primary.
+  - `pair.revoke`: what was recorded of the device goes and its record is
+    marked revoked.
+  - `pair.list`: the device records.
+
 ## 0.10.0
 
 - A host that rotated its own link key passes the new one to an approver
