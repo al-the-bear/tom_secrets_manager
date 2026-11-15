@@ -757,6 +757,36 @@ void main() {
       expect(stores(service)['team']!['state'], 'current');
     });
 
+    test(
+      'a vault this machine does not serve (BP-15): read from GitHub with '
+      'the listed keys, saved as one commit by this device, never served',
+      () async {
+        final service = await start();
+        await service.deviceContainer!.write(
+          const TomSecretsDeviceSettings(servedStores: ['other']),
+        );
+        await admin.request('lock');
+        await admin.unlock(primaryPassword);
+        expect(stores(service).keys, isNot(contains('team')));
+        final keySet = await admin.request('vaultKeys');
+        expect(keySet['unserved'], [
+          {'store': 'team', 'location': _team},
+        ]);
+        final answer = await admin.request('vaultFile', {'store': 'team'});
+        expect(answer['served'], isFalse);
+        final held = base64.decode(answer['bytes'] as String);
+        expect(held, onGitHub('team.kdbx'));
+        final before = commits().length;
+        final edited = await editedToken(held, 'token-elsewhere');
+        await save(edited, held);
+        expect(onGitHub('team.kdbx'), edited);
+        expect(commits(), hasLength(before + 1));
+        expect(commits().first.committer?['email'], 'demo-host@tsm.invalid');
+        expect(stores(service).keys, isNot(contains('team')));
+        await expectLater(get('team/Api/Token'), throwsA(anything));
+      },
+    );
+
     test('a save racing another device\'s push: merged three-way with the '
         'held copy as the base, committed on top', () async {
       await start();

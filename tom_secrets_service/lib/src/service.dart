@@ -15,6 +15,8 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:tom_core_storage/settings.dart';
+import 'package:tom_core_storage/tom_core_storage.dart'
+    show TomKeyRequiredException;
 import 'package:tom_secrets_client/admin.dart';
 import 'package:tom_secrets_client/tom_secrets_client.dart';
 import 'package:tom_crypto/protected_value.dart';
@@ -36,7 +38,7 @@ import 'secret_frame.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.1.0';
+const String tomSecretsServiceVersion = '0.2.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -1887,7 +1889,15 @@ final class _AdminSession {
           final keys = service.vaults.vaultKeys(
             stores: (stores as List?)?.cast<String>(),
           );
-          connection.send({'op': 'vaultKeySet', 'id': id, 'stores': keys});
+          connection.send({
+            'op': 'vaultKeySet',
+            'id': id,
+            'stores': keys,
+            'unserved': [
+              for (final v in service.vaults.unserved)
+                {'store': v.name, 'location': v.locator},
+            ],
+          });
           service.log.info('vault_keys', {'stores': keys.length});
         } on StateError catch (e) {
           connection.sendError(id, 'not_found', 'no open store ${e.message}', {
@@ -1906,13 +1916,49 @@ final class _AdminSession {
           connection.sendError(id, 'locked', 'unlock the service first');
           return;
         }
-        final ({String location, String revision, Uint8List stored}) file;
+        final ({
+          String location,
+          String revision,
+          Uint8List stored,
+          bool served,
+        })
+        file;
         try {
-          file = service.vaults.vaultFile(store);
+          file = await service.vaults.vaultFile(store);
         } on StateError catch (e) {
-          connection.sendError(id, 'not_found', 'no open store ${e.message}', {
+          connection.sendError(id, 'not_found', 'no store ${e.message}', {
             'store': e.message,
           });
+          return;
+        } on KdbxInvalidKeyException {
+          connection.sendError(
+            id,
+            'needs_unlock',
+            'the listed keys do not open $store',
+            {'store': store},
+          );
+          return;
+        } on TomKeyRequiredException {
+          connection.sendError(
+            id,
+            'needs_unlock',
+            'the listed keys do not open $store',
+            {'store': store},
+          );
+          return;
+        } on Object catch (e) {
+          final failure = tomSecretsFetchFailureOf(e);
+          if (failure != null) {
+            final kind = TomSecretsStoreState.offlineFor(failure).wireName;
+            connection.sendError(id, kind, '$store cannot be read now', {
+              'stores': [store],
+            });
+          } else {
+            service.log.error('vault_file_failed', e, {'store': store});
+            connection.sendError(id, 'unavailable', '$store cannot be read', {
+              'store': store,
+            });
+          }
           return;
         }
         final bytes = base64.encode(file.stored);
@@ -1933,11 +1979,13 @@ final class _AdminSession {
           'store': store,
           'location': file.location,
           'revision': file.revision,
+          if (!file.served) 'served': false,
           'bytes': bytes,
         });
         service.log.info('vault_file', {
           'store': store,
           'size': file.stored.length,
+          if (!file.served) 'served': false,
         });
       case 'save':
         final store = m['store'];

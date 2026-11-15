@@ -604,6 +604,13 @@ final class TomSecretsVaultSet {
   TomSecretsMachine? _machine;
   TomSecretsResolver? _resolver;
 
+  // The vaults the primary lists that this machine does not serve, opened
+  // for the app's editing only (protocol.md 6.4): never resolved, served or
+  // refreshed; dropped on the lock.
+  final Map<String, TomSecretsOpenedVault> _editOnly = {};
+  final Map<String, TomSecretsVaultKeys> _editListed = {};
+  final Map<String, TomSecretsHeldKeys> _editHeld = {};
+
   /// Whether the primary is open.
   bool get isUnlocked => _primary != null;
 
@@ -641,6 +648,35 @@ final class TomSecretsVaultSet {
 
   /// The further vaults the primary lists, as last read.
   List<TomSecretsVaultKeys> get listed => _keys.values.toList();
+
+  /// The further vaults the primary lists that this machine does not serve
+  /// (its device settings name others): editable through [vaultKeys],
+  /// [vaultFile] and [save], never served (protocol.md 6.4).
+  List<TomSecretsVaultKeys> get unserved {
+    final primary = _primary;
+    if (primary == null || _primaryName == null) return const [];
+    return [
+      for (final keys in TomSecretsPrimaryVaults(primary.file).list())
+        if (keys.name != _primaryName && !_keys.containsKey(keys.name)) keys,
+    ];
+  }
+
+  /// The keys of the vault not served [name], held until the lock; throws
+  /// [StateError] naming a vault the primary does not list as not served.
+  TomSecretsHeldKeys _editKeys(String name) {
+    final listed = unserved.where((k) => k.name == name).firstOrNull;
+    if (listed == null) throw StateError(name);
+    final old = _editListed[name];
+    if (old != null && !_sameKeys(old, listed)) _dropEditOnly(name);
+    _editListed[name] = listed;
+    return _editHeld[name] ??= TomSecretsHeldKeys.fromVaultKeys(listed);
+  }
+
+  void _dropEditOnly(String name) {
+    _editOnly.remove(name);
+    _editListed.remove(name);
+    _editHeld.remove(name)?.dispose();
+  }
 
   /// Records a fetch of [name] that failed with [failure] (null: it
   /// succeeded): the next one is due a refresh interval later, after a
@@ -892,15 +928,43 @@ final class TomSecretsVaultSet {
   /// (`vaultFileData`, protocol.md 6.4): its locator, its revision (the
   /// `baseRevision` a `save` of an edit of it names) and the file as the
   /// store keeps it. Throws [StateError] naming a store that is not open.
-  ({String location, String revision, Uint8List stored}) vaultFile(
-    String name,
-  ) {
-    final opened = _opened[name];
-    if (opened == null) throw StateError(name);
+  ///
+  /// A vault the primary lists that this machine does not serve is read
+  /// from its location with its listed keys (and the repository's token)
+  /// on the first call and held for editing until the lock (`served`
+  /// false). Throws what opening it throws: [KdbxInvalidKeyException] or
+  /// `TomKeyRequiredException` when its keys do not open it, a fetch
+  /// failure when its location cannot be read.
+  Future<({String location, String revision, Uint8List stored, bool served})>
+  vaultFile(String name) async {
+    final served = _opened[name];
+    if (served != null) {
+      return (
+        location: served.locator,
+        revision: _revisionOf(served),
+        stored: served.stored,
+        served: true,
+      );
+    }
+    final keys = _editKeys(name);
+    var opened = _editOnly[name];
+    if (opened == null) {
+      final listed = _editListed[name]!;
+      final epoch = _epoch;
+      opened = await opener.open(
+        listed.locator,
+        keys.credentials,
+        outerKey: keys.outerKeyText,
+      );
+      // Locked meanwhile: the keys are gone, nothing is held.
+      if (epoch != _epoch) throw StateError(name);
+      _editOnly[name] = opened;
+    }
     return (
       location: opened.locator,
       revision: _revisionOf(opened),
       stored: opened.stored,
+      served: false,
     );
   }
 
@@ -914,8 +978,11 @@ final class TomSecretsVaultSet {
       for (final name in _opened.keys)
         if (name != _primaryName) name,
     ];
+    final notServed = {for (final k in unserved) k.name};
     for (final name in stores ?? const <String>[]) {
-      if (!open.contains(name)) throw StateError(name);
+      if (!open.contains(name) && !notServed.contains(name)) {
+        throw StateError(name);
+      }
     }
     return [
       for (final name in open)
@@ -927,7 +994,21 @@ final class TomSecretsVaultSet {
                 (name == _primaryName ? _primaryKeys : _held[name])?.toWire() ??
                 const <String, Object?>{},
           },
+      // A vault not served only when named: the app opens it for editing.
+      for (final name in stores ?? const <String>[])
+        if (notServed.contains(name))
+          {
+            'store': name,
+            'location': _editListedOrNew(name).locator,
+            'served': false,
+            'keys': _editKeys(name).toWire(),
+          },
     ];
+  }
+
+  TomSecretsVaultKeys _editListedOrNew(String name) {
+    _editKeys(name);
+    return _editListed[name]!;
   }
 
   /// Takes the app's edited file of store [name] (protocol.md 6.4): [stored]
@@ -947,8 +1028,15 @@ final class TomSecretsVaultSet {
     Uint8List stored, {
     String? baseRevision,
   }) async {
-    final opened = _opened[name];
-    final keys = name == _primaryName ? _primaryKeys : _held[name];
+    // A vault not served, opened for editing by vaultFile.
+    final editOnly =
+        !_opened.containsKey(name) &&
+        _editOnly.containsKey(name) &&
+        unserved.any((k) => k.name == name);
+    final opened = _opened[name] ?? (editOnly ? _editOnly[name] : null);
+    final keys = name == _primaryName
+        ? _primaryKeys
+        : (_held[name] ?? (editOnly ? _editHeld[name] : null));
     final machine = _machine;
     if (opened == null || keys == null || machine == null) {
       final state = _status[name]?.state;
@@ -1048,14 +1136,16 @@ final class TomSecretsVaultSet {
       final failure = tomSecretsFetchFailureOf(e);
       if (failure == null) rethrow;
       final now = TomSecretsStoreState.offlineFor(failure);
-      _fetched(name, failure);
-      _setStatus(
-        name,
-        locator,
-        now,
-        from: opened,
-        source: opened.source == 'file' ? null : 'cache',
-      );
+      if (!editOnly) {
+        _fetched(name, failure);
+        _setStatus(
+          name,
+          locator,
+          now,
+          from: opened,
+          source: opened.source == 'file' ? null : 'cache',
+        );
+      }
       throw TomSecretsSaveException(
         now.wireName,
         now == TomSecretsStoreState.offline
@@ -1064,6 +1154,14 @@ final class TomSecretsVaultSet {
       );
     }
     final written = committed.opened;
+    if (editOnly) {
+      _editOnly[name] = written;
+      return TomSecretsSaveResult(
+        revision: _revisionOf(written),
+        merged: merged || committed.merged,
+        conflicts: conflicts + committed.conflicts,
+      );
+    }
     _opened[name] = written;
     if (name == _primaryName) _primary = written;
     _fetched(name, null);
@@ -1132,6 +1230,15 @@ final class TomSecretsVaultSet {
       for (final keys in TomSecretsPrimaryVaults(_primary!.file).list())
         if (served == null || served.contains(keys.name)) keys.name: keys,
     };
+    // A vault opened for editing whose listing went or changed is dropped;
+    // the app reads it again.
+    for (final name in [..._editOnly.keys]) {
+      final now = unserved.where((k) => k.name == name).firstOrNull;
+      final old = _editListed[name];
+      if (now == null || old == null || !_sameKeys(old, now)) {
+        _dropEditOnly(name);
+      }
+    }
     for (final name in [..._status.keys]) {
       if (name == primaryName || listed.containsKey(name)) continue;
       _status.remove(name);
@@ -1328,6 +1435,9 @@ final class TomSecretsVaultSet {
 
   void _disposeHeld() {
     _ownWrites.clear();
+    for (final name in [..._editOnly.keys, ..._editHeld.keys]) {
+      _dropEditOnly(name);
+    }
     for (final keys in _held.values) {
       keys.dispose();
     }

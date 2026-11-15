@@ -20,6 +20,7 @@ import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_client/tom_secrets_client.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart'
     show
+        TomSecretsDeviceSettings,
         TomSecretsKeyFile,
         tomSecretsBlobId,
         tomSecretsDecodeStored,
@@ -201,6 +202,123 @@ void main() {
         (await _refused(admin.request('vaultFile', {'store': 'team'}))).kind,
         'locked',
       );
+    });
+  });
+
+  group('a vault this machine does not serve (BP-15)', () {
+    /// Unlocked with the device settings serving only the primary.
+    Future<TomSecretsService> primaryOnly() async {
+      final service = await demo.start(transport: transport);
+      admin = await TomSecretsAdminClient.connect(
+        demo.runtime(transport),
+        demo.adminKey,
+      );
+      addTearDown(admin.close);
+      await admin.unlock(primaryPassword);
+      await service.deviceContainer!.write(
+        const TomSecretsDeviceSettings(servedStores: []),
+      );
+      await admin.request('lock');
+      await admin.unlock(primaryPassword);
+      return service;
+    }
+
+    test('listed in unserved, its keys only when named, never served to '
+        'clients', () async {
+      await primaryOnly();
+      final all = await admin.request('vaultKeys');
+      expect((all['stores'] as List).map((s) => (s as Map)['store']), [
+        'primary',
+      ]);
+      expect(all['unserved'], [
+        {'store': 'team', 'location': 'file:${demo.teamPath}'},
+      ]);
+      final named = await admin.request('vaultKeys', {
+        'stores': ['team'],
+      });
+      final team = (named['stores'] as List).single as Map;
+      expect(team['served'], isFalse);
+      expect(team['location'], 'file:${demo.teamPath}');
+      expect(team['keys'], {'password': teamPassword});
+      await expectLater(get('team/Api/Token'), throwsA(anything));
+      final status = await admin.request('status');
+      expect((status['stores'] as List).map((s) => (s as Map)['name']), [
+        'primary',
+      ]);
+    });
+
+    test(
+      'read from its location, edited and saved there; still not served',
+      () async {
+        await primaryOnly();
+        final answer = await admin.request('vaultFile', {'store': 'team'});
+        expect(answer['served'], isFalse);
+        expect(answer['location'], 'file:${demo.teamPath}');
+        final stored = base64.decode(answer['bytes'] as String);
+        expect(stored, File(demo.teamPath).readAsBytesSync());
+        final edited = await _edited(stored, (f) => _setToken(f, 'from-app'));
+        await admin.request('save', {
+          'store': 'team',
+          'bytes': base64.encode(edited),
+          'baseRevision': answer['revision'],
+        });
+        final written = await KdbxFormat().read(
+          File(demo.teamPath).readAsBytesSync(),
+          _team(),
+        );
+        expect(
+          _entry(written, 'Token').getString(KdbxKeyCommon.PASSWORD)?.getText(),
+          'from-app',
+        );
+        // The held copy is the written one: its revision is the next base.
+        final again = await admin.request('vaultFile', {'store': 'team'});
+        expect(
+          again['revision'],
+          tomSecretsBlobId(File(demo.teamPath).readAsBytesSync()),
+        );
+        await expectLater(get('team/Api/Token'), throwsA(anything));
+        // A stale base is refused as for a served store.
+        final stale = await _refused(
+          admin.request('save', {
+            'store': 'team',
+            'bytes': base64.encode(edited),
+            'baseRevision': 'not-a-revision',
+          }),
+        );
+        expect(stale.details['reason'], 'stale_base');
+      },
+    );
+
+    test('listed keys that do not open it: needs_unlock; a vault the primary '
+        'does not list: not_found; the lock drops the copy', () async {
+      final service = await primaryOnly();
+      // The team file now has another password than the primary lists.
+      final other = tomSecretsNewVault(
+        Credentials(ProtectedValue.fromString('another-demo-password')),
+        'team',
+        argon2: testArgon2,
+      );
+      final original = File(demo.teamPath).readAsBytesSync();
+      File(demo.teamPath).writeAsBytesSync(await other.save());
+      final refused = await _refused(
+        admin.request('vaultFile', {'store': 'team'}),
+      );
+      expect(refused.kind, 'needs_unlock');
+      expect(
+        (await _refused(admin.request('vaultFile', {'store': 'nope'}))).kind,
+        'not_found',
+      );
+      File(demo.teamPath).writeAsBytesSync(original);
+      await admin.request('vaultFile', {'store': 'team'});
+      await admin.request('lock');
+      expect(service.vaults.unserved, isEmpty);
+      final save = await _refused(
+        admin.request('save', {
+          'store': 'team',
+          'bytes': base64.encode(original),
+        }),
+      );
+      expect(save.kind, 'locked');
     });
   });
 

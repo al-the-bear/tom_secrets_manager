@@ -110,6 +110,13 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   merged three-way when another device pushed meanwhile, then kept in the
   offline cache (`denied` with `history_rewritten` for a branch rewritten
   without a compaction, `branch_moving` when it moved on every attempt).
+  **A vault this machine does not serve** (BP-15) goes the same way: the
+  primary lists it with its keys, `vaultKeySet.unserved` names it,
+  `vaultKeys` naming it answers its keys (`served` false), and `vaultFile`
+  naming it reads it from its location with those keys and the repository's
+  token and holds the copy for editing until the lock; `save` writes it as
+  above. It is never resolved, served to clients, refreshed or listed in
+  `status`.
   `store_changed` names the new revision. A store on its offline copy, or
   whose remote fails during the save, refuses with `offline` /
   `token_expired`. The service's own writes of the primary (grants, their

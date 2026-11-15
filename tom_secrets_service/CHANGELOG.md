@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+- A vault the primary lists that this machine does not serve can be edited
+  through the editing path (BP-15, protocol.md 6.4): `vaultKeySet.unserved`
+  lists such vaults, `vaultKeys` naming one answers its keys with `served`
+  false, `vaultFile` naming one reads it from its location and holds it for
+  editing until the lock, and `save` writes it there (a `github:` vault as
+  a commit by this device). It is never served to clients.
+
 ## 0.1.0
 
 - The service: the runtime directory with its owner and mode check, the
