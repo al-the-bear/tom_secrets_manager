@@ -36,7 +36,11 @@ service parse references with one implementation.
   rank vectors (2 bound to the value, 1 kept by the fallback, 0 unbound);
   ambiguity; the field (a string field, `attachment:<name>`, the virtual
   `totp`; passkey fields are `denied`). Failures are
-  `TomSecretsResolveException`s with the protocol's kinds and details. The
+  `TomSecretsResolveException`s with the protocol's kinds and details.
+  `explain` walks the same ranking without reading a field: the request's
+  values, every candidate kept with its rank vector or dropped by the binding
+  that drops it, and the outcome (resolved, ambiguous, not found), for an
+  editor that shows how a request resolves. The
   value (`TomSecretsFieldValue`) is held as a `TomProtectedValue` of
   `tom_crypto`: masked, read with `withBytes` (bytes zeroed after use; a
   protected field never passes through a `String`), and zeroed by

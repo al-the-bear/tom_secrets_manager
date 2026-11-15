@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- `TomSecretsResolver.explain`: a request explained step by step (the
+  request's values, every candidate kept with its rank vector or dropped by
+  the binding that drops it, the outcome with its winner or tied candidates),
+  ranked through the same code as `resolve`.
+
 ## 0.1.0
 
 - Stores over KDBX files with their index (logical paths, bindings, keys),

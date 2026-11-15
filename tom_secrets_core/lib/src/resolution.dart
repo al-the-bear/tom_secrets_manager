@@ -148,6 +148,95 @@ final class TomSecretsResolution {
   );
 }
 
+/// One candidate of an explained request (step 1) and what step 2 did with
+/// it: kept with its rank vector, or dropped by one of its bindings.
+final class TomSecretsExplainedCandidate {
+  const TomSecretsExplainedCandidate._(
+    this.entry, {
+    this.vector,
+    this.dropDimension,
+    this.dropBound,
+  });
+
+  /// The candidate.
+  final TomSecretsIndexedEntry entry;
+
+  /// Its ranks in priority order (2 bound to the request's value, 1 bound
+  /// to `default` and kept by the fallback, 0 unbound), or null when it was
+  /// dropped.
+  final List<int>? vector;
+
+  /// The dimension whose binding dropped it, or null when kept.
+  final String? dropDimension;
+
+  /// The value it is bound to on [dropDimension], or null when kept.
+  final String? dropBound;
+
+  /// Whether it was kept.
+  bool get kept => vector != null;
+
+  @override
+  String toString() => kept
+      ? '$entry ${vector!.join(',')}'
+      : '$entry dropped by $dropDimension:$dropBound';
+}
+
+/// How an explained request ends (step 3).
+enum TomSecretsExplainOutcome {
+  /// One candidate ranks best: it serves the request.
+  resolved,
+
+  /// Several candidates rank equal: the request is refused.
+  ambiguous,
+
+  /// No candidate is kept: the request finds nothing.
+  notFound,
+}
+
+/// A request explained step by step ([TomSecretsResolver.explain]): the
+/// request's values, every candidate kept (best first) or dropped (in the
+/// order found), and the outcome with its winner or the tied candidates.
+final class TomSecretsExplanation {
+  const TomSecretsExplanation._({
+    required this.requestValues,
+    required this.candidates,
+    required this.outcome,
+  });
+
+  /// The request's value per dimension, in priority order.
+  final Map<String, String> requestValues;
+
+  /// Every candidate: the kept ones best first, then the dropped ones.
+  final List<TomSecretsExplainedCandidate> candidates;
+
+  /// How the request ends.
+  final TomSecretsExplainOutcome outcome;
+
+  /// The kept candidates, best first.
+  List<TomSecretsExplainedCandidate> get kept =>
+      candidates.where((c) => c.kept).toList();
+
+  /// The dropped candidates.
+  List<TomSecretsExplainedCandidate> get dropped =>
+      candidates.where((c) => !c.kept).toList();
+
+  /// The winner when [outcome] is resolved, else null.
+  TomSecretsIndexedEntry? get winner =>
+      outcome == TomSecretsExplainOutcome.resolved
+      ? candidates.first.entry
+      : null;
+
+  /// The candidates ranking equal best when [outcome] is ambiguous.
+  List<TomSecretsIndexedEntry> get tied {
+    if (outcome != TomSecretsExplainOutcome.ambiguous) return const [];
+    final best = candidates.first.vector!;
+    return [
+      for (final c in kept)
+        if (TomSecretsResolver._compare(c.vector!, best) == 0) c.entry,
+    ];
+  }
+}
+
 /// Resolves references over [stores] under [config] for [machine].
 final class TomSecretsResolver {
   /// A resolver.
@@ -208,13 +297,11 @@ final class TomSecretsResolver {
       );
     }
     final values = requestValues(parsed, dimensions);
-    final candidates = _candidates(parsed);
-    final ranked = <TomSecretsRankedCandidate>[];
-    for (final c in candidates) {
-      final vector = _rank(c, values);
-      if (vector != null) ranked.add(TomSecretsRankedCandidate._(c, vector));
-    }
-    ranked.sort((a, b) => _compare(b.vector, a.vector));
+    final ranked = [
+      for (final c in _explain(parsed, values))
+        if (c.vector case final vector?)
+          TomSecretsRankedCandidate._(c.entry, vector),
+    ];
     if (ranked.isEmpty) {
       throw TomSecretsResolveException(
         TomSecretsErrorKind.notFound,
@@ -242,6 +329,72 @@ final class TomSecretsResolver {
       requestValues: values,
       ranked: List.unmodifiable(ranked),
     );
+  }
+
+  /// Explains [reference] with the call's [dimensions] the way [resolve]
+  /// ranks it, without reading a field: the request's values, every
+  /// candidate (step 1) kept with its rank vector or dropped by the binding
+  /// that drops it (step 2), and the outcome (step 3). Throws
+  /// [TomSecretsResolveException] (`malformed`) for a reference or dimension
+  /// [resolve] refuses before ranking.
+  TomSecretsExplanation explain(
+    String reference, {
+    Map<String, String> dimensions = const {},
+  }) {
+    final TomSecretReference parsed;
+    try {
+      parsed = TomSecretReference.parse(reference);
+    } on TomSecretsClientException catch (e) {
+      throw TomSecretsResolveException(
+        TomSecretsErrorKind.malformed,
+        e.message,
+        details: e.details,
+      );
+    }
+    final values = requestValues(parsed, dimensions);
+    final candidates = _explain(parsed, values);
+    final kept = candidates.where((c) => c.kept).toList();
+    final TomSecretsExplainOutcome outcome;
+    if (kept.isEmpty) {
+      outcome = TomSecretsExplainOutcome.notFound;
+    } else if (kept.length > 1 &&
+        _compare(kept[0].vector!, kept[1].vector!) == 0) {
+      outcome = TomSecretsExplainOutcome.ambiguous;
+    } else {
+      outcome = TomSecretsExplainOutcome.resolved;
+    }
+    return TomSecretsExplanation._(
+      requestValues: values,
+      candidates: List.unmodifiable(candidates),
+      outcome: outcome,
+    );
+  }
+
+  /// Steps 1 and 2 for [parsed] with the request's [values]: every
+  /// candidate, the kept ones best first, then the dropped ones in the order
+  /// found. [resolve] and [explain] both rank through here.
+  List<TomSecretsExplainedCandidate> _explain(
+    TomSecretReference parsed,
+    Map<String, String> values,
+  ) {
+    final kept = <TomSecretsExplainedCandidate>[];
+    final dropped = <TomSecretsExplainedCandidate>[];
+    for (final c in _candidates(parsed)) {
+      final rank = _rank(c, values);
+      if (rank.vector != null) {
+        kept.add(TomSecretsExplainedCandidate._(c, vector: rank.vector));
+      } else {
+        dropped.add(
+          TomSecretsExplainedCandidate._(
+            c,
+            dropDimension: rank.dimension,
+            dropBound: rank.bound,
+          ),
+        );
+      }
+    }
+    kept.sort((a, b) => _compare(b.vector!, a.vector!));
+    return [...kept, ...dropped];
   }
 
   /// The request's value of every declared dimension: a binding in the
@@ -323,18 +476,22 @@ final class TomSecretsResolver {
   TomSecretsStore? _store(String name) =>
       stores.where((s) => s.name == name).firstOrNull;
 
-  /// The candidate's rank vector, or null when step 2 drops it.
-  List<int>? _rank(TomSecretsIndexedEntry c, Map<String, String> values) {
+  /// The candidate's rank vector, or the binding that drops it in step 2.
+  ({List<int>? vector, String? dimension, String? bound}) _rank(
+    TomSecretsIndexedEntry c,
+    Map<String, String> values,
+  ) {
     for (final MapEntry(key: dimension, value: bound) in c.bindings.entries) {
       final d = config.dimension(dimension);
-      if (d == null) return null; // bound on a dimension nobody declared
+      // Bound on a dimension nobody declared.
+      if (d == null) return (vector: null, dimension: dimension, bound: bound);
       final requested = values[dimension]!;
       final keep =
           bound == requested ||
           (bound == tomSecretsDefaultValue && d.fallbackToDefault);
-      if (!keep) return null;
+      if (!keep) return (vector: null, dimension: dimension, bound: bound);
     }
-    return [
+    final vector = [
       for (final d in config.dimensions)
         switch (c.bindings[d.name]) {
           null => 0,
@@ -342,6 +499,7 @@ final class TomSecretsResolver {
           _ => 1, // bound to `default`, kept by the fallback
         },
     ];
+    return (vector: vector, dimension: null, bound: null);
   }
 
   static int _compare(List<int> a, List<int> b) {

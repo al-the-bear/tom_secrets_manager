@@ -518,4 +518,92 @@ void main() {
       },
     );
   });
+
+  group('explain', () {
+    late TomSecretsStore fleet;
+    late TomSecretsStore prod;
+    setUp(() {
+      fleet =
+          (DemoVault()
+                ..add('Api/Stripe', password: 'shared', key: 'stripe.key')
+                ..add('@host:bomber/Api/Stripe', password: 'bomber')
+                ..add('Api/Twin', password: 't')
+                ..add('@host:bomber/Api/Twin', password: 'a')
+                ..add('@host:bomber/Api/Twin', password: 'b'))
+              .store('fleet');
+      prod = (DemoVault(
+        binding: {'env': 'prod'},
+      )..add('Stripe', password: 'prod', key: 'stripe.key')).store('prod');
+    });
+
+    test('every candidate kept with its rank vector, best first, or dropped '
+        'by its binding; the winner is resolve\'s', () {
+      final r = resolver([fleet, prod], host: 'bomber');
+      final x = r.explain('[env:prod]stripe.key');
+      expect(x.requestValues, {
+        'host': 'bomber',
+        'platform': 'linux',
+        'env': 'prod',
+      });
+      expect(x.outcome, TomSecretsExplainOutcome.resolved);
+      expect(x.kept.map((c) => c.vector), [
+        [2, 0, 0],
+        [0, 0, 2],
+        [0, 0, 0],
+      ]);
+      expect(x.dropped, isEmpty);
+      expect(x.winner!.uuid, r.resolve('[env:prod]stripe.key').entry.uuid);
+      expect(
+        r.resolve('[env:prod]stripe.key').ranked.map((c) => c.vector),
+        x.kept.map((c) => c.vector),
+      );
+
+      final mbp = resolver([fleet, prod], host: 'mbp').explain('stripe.key');
+      expect(mbp.winner!.store, 'fleet');
+      expect(mbp.winner!.isOverlay, isFalse);
+      expect(mbp.dropped.map((c) => '${c.dropDimension}:${c.dropBound}'), [
+        'host:bomber',
+        'env:prod',
+      ]);
+      expect(mbp.dropped.every((c) => c.vector == null), isTrue);
+    });
+
+    test('ambiguous names the tied candidates; nothing kept is not found; a '
+        'malformed request throws as resolve does', () {
+      final r = resolver([fleet], host: 'bomber');
+      final twin = r.explain('fleet/Api/Twin');
+      expect(twin.outcome, TomSecretsExplainOutcome.ambiguous);
+      expect(twin.tied, hasLength(2));
+      expect(twin.winner, isNull);
+      expect(
+        () => r.resolve('fleet/Api/Twin'),
+        fails(TomSecretsErrorKind.ambiguous),
+      );
+
+      final none = resolver([prod], host: 'mbp').explain('stripe.key');
+      expect(none.outcome, TomSecretsExplainOutcome.notFound);
+      expect(none.kept, isEmpty);
+      expect(none.dropped.single.dropDimension, 'env');
+      expect(none.winner, isNull);
+
+      expect(
+        () => r.explain('[region:eu]stripe.key'),
+        fails(TomSecretsErrorKind.malformed, reason: 'undeclared_dimension'),
+      );
+      expect(
+        () => r.explain('not a reference'),
+        fails(TomSecretsErrorKind.malformed),
+      );
+    });
+
+    test('a binding on a dimension nobody declared drops the candidate', () {
+      final odd = (DemoVault(
+        binding: {'region': 'eu'},
+      )..add('X', password: 'x', key: 'odd.x')).store('odd');
+      final x = resolver([odd], host: 'mbp').explain('odd.x');
+      expect(x.outcome, TomSecretsExplainOutcome.notFound);
+      expect(x.dropped.single.dropDimension, 'region');
+      expect(x.dropped.single.dropBound, 'eu');
+    });
+  });
 }
