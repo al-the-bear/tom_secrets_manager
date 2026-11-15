@@ -16,6 +16,7 @@ import 'dart:math';
 import 'package:tom_core_storage/io.dart';
 import 'package:tom_core_storage/settings.dart';
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
+import 'first_run.dart' show tomSecretsPrimaryKeyMonths;
 import 'primary.dart';
 import 'trust.dart';
 
@@ -153,6 +154,10 @@ final class TomSecretsDeviceSettings {
     this.codeTimeout = const Duration(minutes: 5),
     this.startAtLogin = false,
     this.approvalLink,
+    this.otherKeyWarningDays = 30,
+    this.keyPairAgeMonths = 24,
+    this.primaryKeyAgeMonths = tomSecretsPrimaryKeyMonths,
+    this.vaultKeyAgeMonths = 12,
   });
 
   /// From the stored JSON; a value missing takes its default.
@@ -189,6 +194,10 @@ final class TomSecretsDeviceSettings {
       ),
       startAtLogin: json['startAtLogin'] == true,
       approvalLink: json['approvalLink'] as String?,
+      otherKeyWarningDays: intOf('otherKeyWarningDays', d.otherKeyWarningDays),
+      keyPairAgeMonths: intOf('keyPairAgeMonths', d.keyPairAgeMonths),
+      primaryKeyAgeMonths: intOf('primaryKeyAgeMonths', d.primaryKeyAgeMonths),
+      vaultKeyAgeMonths: intOf('vaultKeyAgeMonths', d.vaultKeyAgeMonths),
     );
   }
 
@@ -226,6 +235,22 @@ final class TomSecretsDeviceSettings {
   /// Whether the app starts at login [B].
   final bool startAtLogin;
 
+  /// How many days before its due date the reminders of a key other than
+  /// the GitHub token start (part-key-rotation, Reminders; DP-85: 30).
+  final int otherKeyWarningDays;
+
+  /// The rotation age of the approver and approval-link key pairs, in
+  /// months (DP-85: 24).
+  final int keyPairAgeMonths;
+
+  /// The rotation age a new key file or repository key of the primary vault
+  /// gets, in months (DP-85: 24; rotating them means pairing again).
+  final int primaryKeyAgeMonths;
+
+  /// The rotation age a new key file or repository key of every other vault
+  /// gets, in months (DP-85: 12).
+  final int vaultKeyAgeMonths;
+
   /// The JSON kept in the container.
   Map<String, Object?> toJson() => {
     'serviceLock': serviceLock.toJson(),
@@ -239,6 +264,10 @@ final class TomSecretsDeviceSettings {
     'codeTimeoutSeconds': codeTimeout.inSeconds,
     'approvalLink': ?approvalLink,
     'startAtLogin': startAtLogin,
+    'otherKeyWarningDays': otherKeyWarningDays,
+    'keyPairAgeMonths': keyPairAgeMonths,
+    'primaryKeyAgeMonths': primaryKeyAgeMonths,
+    'vaultKeyAgeMonths': vaultKeyAgeMonths,
   };
 }
 

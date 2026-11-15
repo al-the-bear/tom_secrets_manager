@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- The key reminders take the rotation age of the key pairs and the reminder
+  start of the other keys from the device settings (`keyPairAgeMonths`,
+  `otherKeyWarningDays`, DP-85) instead of constants; `settings.set` checks
+  the new settings' ranges.
+
 ## 0.3.0
 
 - `settings.get` and `settings.set` (protocol.md 6.3): the device settings,

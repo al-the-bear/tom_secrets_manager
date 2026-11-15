@@ -154,11 +154,12 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
 - **Key-expiry reminders** (`TomSecretsExpiringKey`): the GitHub tokens from
   `keyExpiryWarningDays` (default 14) before their expiry (the one GitHub
   reports, else the one recorded with the token: the keychain's, or the
-  primary's vault list's); the vaults' key files and repository keys from 30
-  days before their due date (a further vault's entry Expires, the
-  primary's `tsm.keys-due`); this device's approver and approval-link key
-  pairs and those of the peers it recorded from 30 days before their 24
-  months are over (dated at creation, at pairing, at a key change or a new
+  primary's vault list's); the vaults' key files and repository keys from
+  `otherKeyWarningDays` (default 30) days before their due date (a further
+  vault's entry Expires, the primary's `tsm.keys-due`); this device's
+  approver and approval-link key pairs and those of the peers it recorded
+  from `otherKeyWarningDays` before their rotation age (`keyPairAgeMonths`,
+  default 24, DP-85) is over (dated at creation, at pairing, at a key change or a new
   link key; trust material without dates is dated at the next unlock); then
   7 days and 1 day before, and once a day once expired. Each step is sent once as `key_expiry` to the subscribed
   admins (an admin that subscribes gets those due at that moment), and

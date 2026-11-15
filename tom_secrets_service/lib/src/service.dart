@@ -38,7 +38,7 @@ import 'secret_frame.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.3.0';
+const String tomSecretsServiceVersion = '0.4.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -686,12 +686,13 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   /// The keys due for a reminder now (part-key-rotation):
   /// - each repository's GitHub token, from `keyExpiryWarningDays` before
   ///   the expiry GitHub reported for it, else the one recorded with it;
-  /// - the key file and repository key of each further vault, from 30 days
-  ///   before the Expires of its entry in the primary, and of the primary,
-  ///   from 30 days before its metadata's `tsm.keys-due`;
+  /// - the key file and repository key of each further vault, from
+  ///   `otherKeyWarningDays` (default 30) before the Expires of its entry in
+  ///   the primary, and of the primary, before its metadata's
+  ///   `tsm.keys-due`;
   /// - this device's approver and approval-link key pairs and those of the
-  ///   peers it recorded, from 30 days before their rotation age (24
-  ///   months, DP-85) is over.
+  ///   peers it recorded, from `otherKeyWarningDays` before their rotation
+  ///   age (`keyPairAgeMonths`, default 24, DP-85) is over.
   List<TomSecretsExpiringKey> get expiring {
     final now = this.now;
     return [for (final k in keys) ?k.dueAt(now)];
@@ -727,10 +728,16 @@ final class TomSecretsService implements TomSecretsApprovalHost {
             key: key,
             vault: vault,
             expiresAt: expiresAt,
-            firstDays: TomSecretsExpiringKey.otherKeyDays,
+            firstDays: settings.otherKeyWarningDays,
           );
-    TomSecretsKeyDate? pair(String kind, String key, DateTime? since) =>
-        other(kind, key, TomSecretsExpiringKey.keyPairDue(since));
+    TomSecretsKeyDate? pair(String kind, String key, DateTime? since) => other(
+      kind,
+      key,
+      TomSecretsExpiringKey.keyPairDue(
+        since,
+        months: settings.keyPairAgeMonths,
+      ),
+    );
     return [
       for (final MapEntry(key: slug, value: at) in tokens.entries)
         TomSecretsKeyDate(
@@ -1084,6 +1091,10 @@ String? tomSecretsSettingsProblem(Map<String, Object?> device) {
       lock('appLock') ??
       range('refreshMinutes', 0, 24 * 60) ??
       range('keyExpiryWarningDays', 1, 365) ??
+      range('otherKeyWarningDays', 1, 365) ??
+      range('keyPairAgeMonths', 1, 120) ??
+      range('primaryKeyAgeMonths', 1, 120) ??
+      range('vaultKeyAgeMonths', 1, 120) ??
       range('approvalTimeoutSeconds', 5, 3600) ??
       range('codeTimeoutSeconds', 60, 3600);
 }

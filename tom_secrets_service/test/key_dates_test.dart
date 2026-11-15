@@ -120,6 +120,30 @@ void main() {
     });
   });
 
+  test('the rotation age and the reminder start come from the device '
+      'settings (DP-85)', () async {
+    await admin.request('settings.set', {
+      'device': {
+        ...service.settings.toJson(),
+        'keyPairAgeMonths': 12,
+        'otherKeyWarningDays': 60,
+      },
+    });
+    // 12 months less 60 days.
+    now = DateTime.utc(2027, 9, 14, 9);
+    expect(expiring(), [
+      ('approver-key:demo-host', 60),
+      ('link-key:demo-host', 60),
+    ]);
+    final keys = (await admin.request('keys'))['keys']! as List;
+    expect(
+      (keys.cast<Map>().firstWhere(
+        (k) => k['key'] == 'approver-key:demo-host',
+      ))['expiresAt'],
+      DateTime.utc(2027, 11, 13, 9).toIso8601String(),
+    );
+  });
+
   test('trust material without dates is dated at the next unlock', () async {
     service.trust
       ..approverKeySince = null

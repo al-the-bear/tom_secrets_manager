@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- The device settings carry the rotation ages and the reminder start of
+  DP-85: `otherKeyWarningDays` (30), `keyPairAgeMonths` (24),
+  `primaryKeyAgeMonths` (24), `vaultKeyAgeMonths` (12).
+
 ## 0.1.1
 
 - `TomSecretsResolver.explain`: a request explained step by step (the

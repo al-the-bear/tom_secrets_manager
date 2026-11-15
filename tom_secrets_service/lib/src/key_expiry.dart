@@ -23,21 +23,25 @@ final class TomSecretsExpiringKey {
     this.vault,
   });
 
-  /// The days before the expiry the reminders of every key but the GitHub
-  /// token start.
+  /// The default days before the expiry the reminders of every key but the
+  /// GitHub token start (DP-85; the device setting `otherKeyWarningDays`).
   static const int otherKeyDays = 30;
 
-  /// The rotation age of the approver and approval-link key pairs (DP-85).
+  /// The default rotation age of the approver and approval-link key pairs
+  /// (DP-85; the device setting `keyPairAgeMonths`).
   static const int keyPairAgeMonths = 24;
 
   /// When a key pair taken into use [since] is due for rotation: [since]
-  /// plus [keyPairAgeMonths]; null when [since] is.
-  static DateTime? keyPairDue(DateTime? since) {
+  /// plus [months] (default [keyPairAgeMonths]); null when [since] is.
+  static DateTime? keyPairDue(
+    DateTime? since, {
+    int months = keyPairAgeMonths,
+  }) {
     if (since == null) return null;
     final s = since.toUtc();
     return DateTime.utc(
       s.year,
-      s.month + keyPairAgeMonths,
+      s.month + months,
       s.day,
       s.hour,
       s.minute,
