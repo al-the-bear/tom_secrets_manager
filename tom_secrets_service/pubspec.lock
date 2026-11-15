@@ -535,7 +535,7 @@ packages:
       path: "../tom_secrets_core"
       relative: true
     source: path
-    version: "0.1.6"
+    version: "0.2.0"
   typed_data:
     dependency: transitive
     description:
