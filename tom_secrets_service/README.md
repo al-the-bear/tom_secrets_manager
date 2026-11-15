@@ -266,6 +266,16 @@ does not run `tom_pqc`'s build hook).
 It is started by the app or `tsm start`, not by hand: it expects the handover
 line on its standard input (`TomSecretsHandover`).
 
+`tsm pair` starts it in its **pairing mode** instead (a
+`TomSecretsPairingHandover`, `tomSecretsRunPairingMode`): it receives a
+pairing from the giving machine's Pairing screen (nothing stored), reports
+what it got, takes the master password tsm sends (three tries), sets the
+machine up from the bundle (the keys and tokens in the keychain, the device
+settings container with the trust material and the giving device recorded
+as its approver and as a host it approves for, `bootstrap.yaml`) and ends;
+tsm then starts it as usual and unlocks it. Exit codes: 0 set up, 2 the
+handover cannot be used, 6 the pairing failed, 7 the setup failed.
+
 ## Testing
 
 ```sh

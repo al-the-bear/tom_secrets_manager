@@ -9,6 +9,11 @@
 /// Exit codes: 0 stopped, 2 the handover or the bootstrap cannot be read,
 /// 3 already running, 4 the runtime directory is refused, 5 the device key's
 /// keychain is not available.
+///
+/// Started by `tsm pair` with a pairing handover instead, it runs the
+/// pairing mode (`tomSecretsRunPairingMode`): it receives a pairing, sets
+/// the machine up with the master password tsm sends, and ends (0 set up,
+/// 2 the handover cannot be used, 6 the pairing failed, 7 the setup failed).
 library;
 
 import 'dart:async';
@@ -29,13 +34,27 @@ Future<void> main() async {
     exit(code);
   }
 
+  final lines = StreamIterator(
+    stdin.transform(utf8.decoder).transform(const LineSplitter()),
+  );
   final TomSecretsHandover handover;
   final TomSecretsBootstrap bootstrap;
   try {
-    final line = await stdin
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .first;
+    if (!await lines.moveNext()) throw const FormatException('no handover');
+    final line = lines.current;
+    // `tsm pair`: the pairing mode sets the machine up and ends.
+    final pairing = TomSecretsPairingHandover.fromJson(jsonDecode(line));
+    if (pairing != null) {
+      final store = TomDesktopSecretStore(service: tomSecretsKeychainService);
+      final code = await tomSecretsRunPairingMode(
+        pairing,
+        lines: lines,
+        answer: (m) => stdout.writeln(jsonEncode(m)),
+        keychain: await store.isAvailable() ? store : null,
+      );
+      await stdout.flush();
+      exit(code);
+    }
     handover = TomSecretsHandover.parse(line);
     bootstrap = await TomSecretsBootstrap.read(handover.bootstrap);
   } on Object catch (e) {

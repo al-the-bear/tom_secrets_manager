@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.1
+
+- The pairing mode (`tsm pair`, part-sharing): started with a
+  `TomSecretsPairingHandover`, the executable receives a pairing, reports
+  it, sets the machine up with the master password tsm sends
+  (`TomSecretsFirstRun.runPaired`) and ends (`tomSecretsRunPairingMode`).
+- `pair.record` records through `TomSecretsTrust.recordPeer`.
+
 ## 0.11.0
 
 - Pairing (manager app only, protocol.md 6.3, 9.8):

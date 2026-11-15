@@ -1383,35 +1383,16 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     final trust = _trust;
     final primary = _vaults.primary;
     if (trust == null || primary == null) throw StateError('locked');
-    if (device == trust.device) {
-      throw ArgumentError.value(device, 'device', 'this device itself');
-    }
     final at = now;
-    trust.approvers.removeWhere((a) => a.device == device);
-    trust.hosts.removeWhere((h) => h.host == device);
-    if (approverKey != null) {
-      trust.approvers.add(
-        TomSecretsRecordedApprover(
-          device: device,
-          approverKey: approverKey,
-          linkKey: approverLinkKey,
-          tokenKey: tokenKey,
-          approverKeySince: at,
-          linkKeySince: approverLinkKey == null ? null : at,
-        ),
-      );
-    }
-    if (hostLinkKey != null) {
-      trust.hosts.add(
-        TomSecretsRecordedHost(
-          host: device,
-          linkKey: hostLinkKey,
-          tokenKey: tokenKey,
-          address: hostAddress,
-          linkKeySince: at,
-        ),
-      );
-    }
+    trust.recordPeer(
+      device: device,
+      tokenKey: tokenKey,
+      at: at,
+      approverKey: approverKey,
+      approverLinkKey: approverLinkKey,
+      hostLinkKey: hostLinkKey,
+      hostAddress: hostAddress,
+    );
     await writeTrust();
     if (record != null) {
       TomSecretsDeviceRecords(primary.file).put(

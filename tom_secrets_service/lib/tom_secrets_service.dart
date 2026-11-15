@@ -22,6 +22,7 @@ export 'src/link_client.dart';
 export 'src/link_server.dart';
 export 'src/lock_policy.dart';
 export 'src/log.dart';
+export 'src/pairing_mode.dart';
 export 'src/peer_identity.dart';
 export 'src/secret_frame.dart';
 export 'src/service.dart';
