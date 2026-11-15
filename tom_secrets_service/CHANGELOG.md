@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0
+
+- `vault.move` (manager app only, protocol.md 6.4): a store's outer
+  encryption added or removed, which moves it to its locator with
+  `.kdbx.tsmx` or `.kdbx`. The opener's new `move` writes the new file and
+  then removes the old one (a `file:` store), or does both in one commit
+  put on the branch without force (a `github:` store); a stale copy, a file
+  at the new place or a branch that moved refuses it and the old file
+  stays. A further vault's entry in the primary takes the new locator and
+  keys; for the primary, the bootstrap file's `primary:` and the keychain's
+  key file and repository key under the new locator's handles follow.
+- `tomSecretsBootstrapWithPrimary`: a bootstrap file with another primary,
+  every other line kept.
+
 ## 0.8.0
 
 - `keys.rotate {approver?, link?}` (manager app only, protocol.md 6.3): this

@@ -26,6 +26,21 @@ import 'package:yaml/yaml.dart';
 
 import 'log.dart';
 
+/// [yaml] (a `bootstrap.yaml`) with its `primary:` set to [primary]; every
+/// other line, comments included, stays as it is. Throws [FormatException]
+/// when [yaml] names no primary.
+String tomSecretsBootstrapWithPrimary(String yaml, String primary) {
+  final line = RegExp(r'^primary:[^\n]*$', multiLine: true);
+  if (!line.hasMatch(yaml)) {
+    throw const FormatException('bootstrap.yaml names no primary file');
+  }
+  final comment = RegExp(
+    r'^primary:\s*\S+(\s+#.*)$',
+    multiLine: true,
+  ).firstMatch(yaml)?.group(1);
+  return yaml.replaceFirst(line, 'primary: $primary${comment ?? ''}');
+}
+
 /// The bootstrap file.
 final class TomSecretsBootstrap {
   /// A bootstrap of [primary] with the given places; [dataDirectory] is where

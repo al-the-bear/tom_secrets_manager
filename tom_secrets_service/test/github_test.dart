@@ -815,6 +815,68 @@ void main() {
       expect(stores(service)['team']!['state'], 'current');
     });
 
+    test('vault.move: the outer encryption added in one commit that adds '
+        'the new file and removes the old; a stale copy is refused', () async {
+      final service = await start();
+      final held = onGitHub('team.kdbx');
+      final key = TomSecretsRepositoryKey.generate().toBase64();
+      const outer = '$_team$tomSecretsOuterSuffix';
+      final file = await openTeam(held);
+      Future<Object?> move(Uint8List base) async =>
+          admin.request('vault.move', {
+            'store': 'team',
+            'location': outer,
+            'bytes': base64.encode(
+              await tomSecretsEncodeStored(outer, file, outerKey: key),
+            ),
+            'baseRevision': tomSecretsBlobId(base),
+            'keys': {'password': teamPassword, 'outerKey': key},
+          });
+
+      // Another device saved meanwhile: the held copy is stale.
+      final moved = await openTeam(held);
+      moved.body.rootGroup.addEntry(
+        KdbxEntry.create(moved, moved.body.rootGroup)
+          ..setString(KdbxKeyCommon.TITLE, PlainValue('meanwhile')),
+      );
+      await put(_team, moved);
+      final stale = await refused(move(held));
+      expect(stale.details['reason'], 'stale_base');
+      expect(server.bytesAt(_repo, 'team.kdbx.tsmx'), isNull);
+
+      await service.refresh(force: true);
+      final current = onGitHub('team.kdbx');
+      final before = commits().length;
+      await move(current);
+      // One commit moves the vault; the primary's entry is the next
+      // commit (the primary is in the same repository here).
+      final all = commits();
+      expect(all, hasLength(before + 2));
+      expect(all[1].message, 'tsm: team.kdbx to team.kdbx.tsmx from demo-host');
+      expect(all[1].committer?['email'], 'demo-host@tsm.invalid');
+      expect(all[0].message, 'tsm: primary.kdbx from demo-host');
+      expect(server.bytesAt(_repo, 'team.kdbx'), isNull);
+      final stored = server.bytesAt(_repo, 'team.kdbx.tsmx')!;
+      await tomSecretsDecodeStored(
+        outer,
+        stored,
+        tomSecretsVaultCredentials(password: teamPassword),
+        outerKey: key,
+      );
+      expect(service.vaults.statusOf('team')!.locator, outer);
+      expect(await get('team/Api/Token'), 'token-1');
+      final primary = await KdbxFormat().read(
+        onGitHub('primary.kdbx'),
+        _pw(primaryPassword),
+      );
+      final entry = TomSecretsPrimaryVaults(primary).byName('team')!;
+      expect(entry.locator, outer);
+      expect(entry.outerKey, key);
+      // Served from the new place across a refresh.
+      await service.refresh(force: true);
+      expect(stores(service)['team']!['state'], 'current');
+    });
+
     test('a save is one commit on the branch by this device, written as the '
         'app saved it, kept in the offline cache and announced', () async {
       final service = await start();

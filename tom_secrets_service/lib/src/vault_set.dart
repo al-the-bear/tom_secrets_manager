@@ -174,6 +174,24 @@ abstract interface class TomSecretsVaultOpener {
     String? outerKey,
   });
 
+  /// Moves the store at [from] to [to] (part-stores: adding or removing the
+  /// outer encryption renames `.kdbx` <-> `.kdbx.tsmx`): [stored], [file] as
+  /// [to] keeps it (opened with [credentials] and [outerKey]), is written at
+  /// [to] and [from] is removed; a `github:` store in one commit. Refused
+  /// (`denied`, `stale_base`) when [from] has moved since [base] (the file
+  /// as the service holds it), and (`denied`, `target_exists`) when [to]
+  /// exists; nothing is changed then. Answers the store opened at [to].
+  /// Throws the storage's failure when the remote cannot be reached.
+  Future<TomSecretsOpenedVault> move(
+    String from,
+    String to,
+    KdbxFile file, {
+    required Uint8List base,
+    required Uint8List stored,
+    required Credentials credentials,
+    String? outerKey,
+  });
+
   /// The head of a rewritten branch (a force push without a compaction) a
   /// refused [commit] of [locator] met, awaiting the user's answer; null when
   /// there is none (and always for a `file:` vault).
@@ -290,6 +308,25 @@ final class TomSecretsLocatorOpener implements TomSecretsVaultOpener {
   }) => _for(
     locator,
   ).rekey(locator, file, base: base, stored: stored, outerKey: outerKey);
+
+  @override
+  Future<TomSecretsOpenedVault> move(
+    String from,
+    String to,
+    KdbxFile file, {
+    required Uint8List base,
+    required Uint8List stored,
+    required Credentials credentials,
+    String? outerKey,
+  }) => _for(from).move(
+    from,
+    to,
+    file,
+    base: base,
+    stored: stored,
+    credentials: credentials,
+    outerKey: outerKey,
+  );
 
   @override
   String? rewrittenHeadOf(String locator) =>
@@ -441,6 +478,43 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
         stored: stored,
         fetchedAt: (await File(_path(locator)).lastModified()).toUtc(),
       ),
+    );
+  }
+
+  @override
+  Future<TomSecretsOpenedVault> move(
+    String from,
+    String to,
+    KdbxFile file, {
+    required Uint8List base,
+    required Uint8List stored,
+    required Credentials credentials,
+    String? outerKey,
+  }) async {
+    final current = await read(from);
+    if (tomSecretsBlobId(current) != tomSecretsBlobId(base)) {
+      throw TomSecretsSaveException(
+        'denied',
+        'the file has moved since the copy that is moved',
+        reason: 'stale_base',
+      );
+    }
+    final target = File(_path(to));
+    if (target.existsSync()) {
+      throw TomSecretsSaveException(
+        'denied',
+        'a file is at ${target.path} already',
+        reason: 'target_exists',
+      );
+    }
+    await _write(to, stored);
+    // The new file is in place: only now is the old one removed.
+    await File(_path(from)).delete();
+    return TomSecretsOpenedVault(
+      locator: to,
+      file: file,
+      stored: stored,
+      fetchedAt: (await target.lastModified()).toUtc(),
     );
   }
 
@@ -1456,6 +1530,154 @@ final class TomSecretsVaultSet {
     _setStatus(name, locator, TomSecretsStoreState.current, from: written);
     _rebuildOpened(machine);
     return TomSecretsSaveResult(revision: revision, rekeyed: true);
+  }
+
+  /// Moves the open store [name] to [location] (`vault.move`, protocol.md
+  /// 6.4): its outer encryption added (`.kdbx` -> `.kdbx.tsmx`) or removed,
+  /// so [location] is its locator with the suffix added or taken off and
+  /// nothing else changed (`malformed`, `location` otherwise). [stored] is
+  /// the file as [location] keeps it and must open with [newKeys] (its
+  /// `outerKey` for a `.tsmx` location); [baseRevision], when given, must be
+  /// the held copy (`denied`, `stale_base`). The file is written there and
+  /// the old one removed through the opener's [TomSecretsVaultOpener.move];
+  /// a refused or failed move leaves the old file in place. Then a further
+  /// vault's entry in the primary gets the new locator and keys (the primary
+  /// written), or the primary's own keys are [newKeys]; the store is served
+  /// from the new place. Answers the new revision. The set holds [newKeys]
+  /// from then on (disposed on a refusal).
+  Future<String> move(
+    String name,
+    String location,
+    Uint8List stored, {
+    String? baseRevision,
+    required TomSecretsHeldKeys newKeys,
+  }) async {
+    final opened = _opened[name];
+    final machine = _machine;
+    Never refuse(String kind, String message, [String? reason]) {
+      newKeys.dispose();
+      throw TomSecretsSaveException(kind, message, reason: reason);
+    }
+
+    if (opened == null || machine == null) {
+      refuse('not_found', 'no open store $name');
+    }
+    final state = _status[name]?.state;
+    if (state == TomSecretsStoreState.offline ||
+        state == TomSecretsStoreState.tokenExpired) {
+      refuse(
+        state!.wireName,
+        state == TomSecretsStoreState.offline
+            ? 'the store cannot be reached'
+            : 'the store\'s token was refused',
+      );
+    }
+    final from = opened.locator;
+    final expected = from.endsWith(tomSecretsOuterSuffix)
+        ? from.substring(0, from.length - tomSecretsOuterSuffix.length)
+        : '$from$tomSecretsOuterSuffix';
+    if (location != expected) {
+      refuse(
+        'malformed',
+        'a store moves only to its locator with $tomSecretsOuterSuffix added '
+            'or removed: $expected',
+        'location',
+      );
+    }
+    final outer = location.endsWith(tomSecretsOuterSuffix);
+    if (outer != (newKeys.outerKeyText != null)) {
+      refuse(
+        'malformed',
+        outer
+            ? 'an outer-encrypted file needs its repository key'
+            : 'a file without outer encryption takes no repository key',
+        'keys',
+      );
+    }
+    if (baseRevision != null && baseRevision != _revisionOf(opened)) {
+      refuse(
+        'denied',
+        'the store has moved past the revision the app read',
+        'stale_base',
+      );
+    }
+    final KdbxFile file;
+    try {
+      file = await opener.decode(
+        location,
+        stored,
+        newKeys.credentials,
+        outerKey: newKeys.outerKeyText,
+      );
+    } on Object {
+      refuse(
+        'malformed',
+        'the file does not open with the keys at the new location',
+        'bytes',
+      );
+    }
+    final TomSecretsOpenedVault moved;
+    try {
+      moved = await opener.move(
+        from,
+        location,
+        file,
+        base: opened.stored,
+        stored: stored,
+        credentials: newKeys.credentials,
+        outerKey: newKeys.outerKeyText,
+      );
+    } on TomSecretsSaveException {
+      newKeys.dispose();
+      rethrow;
+    } on Object catch (e) {
+      newKeys.dispose();
+      final failure = tomSecretsFetchFailureOf(e);
+      if (failure == null) rethrow;
+      final now = TomSecretsStoreState.offlineFor(failure);
+      throw TomSecretsSaveException(
+        now.wireName,
+        now == TomSecretsStoreState.offline
+            ? 'the store cannot be reached'
+            : 'the store\'s token was refused',
+      );
+    }
+    _opened[name] = moved;
+    if (name == _primaryName) {
+      _primaryKeys?.dispose();
+      _primaryKeys = newKeys;
+      _primary = moved;
+      _ownWrites.clear();
+    } else {
+      final list = TomSecretsPrimaryVaults(_primary!.file);
+      final old = list.byName(name);
+      list.put(
+        TomSecretsVaultKeys(
+          name: name,
+          locator: location,
+          password: newKeys.password?.reveal(),
+          keyFile: newKeys.keyFile?.withRevealed(Uint8List.fromList),
+          outerKey: newKeys.outerKeyText,
+          githubToken: old?.githubToken,
+          githubTokenExpires: old?.githubTokenExpires,
+          expires: old?.expires,
+        ),
+      );
+      _held.remove(name)?.dispose();
+      _held[name] = newKeys;
+      _keys[name] = list.byName(name)!;
+      try {
+        await writePrimary();
+      } on Object catch (e) {
+        // Not delivered: the entry waits in the held copy and the next
+        // refresh writes it (primaryWritePending).
+        if (tomSecretsFetchFailureOf(e) == null) rethrow;
+      }
+    }
+    _fetched(name, null);
+    _setStatus(name, location, TomSecretsStoreState.current, from: moved);
+    _rebuildOpened(machine);
+    return _revisionOf(moved);
   }
 
   /// The stores whose branch was rewritten and that wait for the user's

@@ -40,7 +40,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.8.0';
+const String tomSecretsServiceVersion = '0.9.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -262,6 +262,10 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   );
   TomSecretsDeviceContainer? _device;
   TomSecretsTrust? _trust;
+
+  /// The primary's locator: the bootstrap's, until a move of the primary
+  /// (`vault.move`) changes it (and the bootstrap file with it).
+  late String _primaryLocator = config.bootstrap.primary;
   TomSecretsApprovals? _approvals;
   TomSecretsAuditLog? _audit;
   TomSecretsLinkServer? _linkServer;
@@ -350,7 +354,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   /// [KdbxInvalidKeyException] for a wrong password; [keys] are disposed
   /// when the unlock fails.
   Future<void> unlock(TomSecretsHeldKeys given) async {
-    final primaryLocator = config.bootstrap.primary;
+    final primaryLocator = _primaryLocator;
     final TomSecretsOpenedVault primary;
     final keys = await _withKeychainKeys(primaryLocator, given);
     try {
@@ -1247,6 +1251,99 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     return (delivered: delivered, pending: pending);
   }
 
+  /// Moves [store] to [location] (`vault.move`, protocol.md 6.4): its outer
+  /// encryption added or removed ([TomSecretsVaultSet.move]). For the
+  /// primary, the bootstrap file's `primary:` takes the new locator (the
+  /// next start opens it there), and the device keychain the keys under the
+  /// new locator's handles: its key file (`tsm.key-file.<id>` of the new
+  /// path; the old handle removed) and, for a `.tsmx` primary, its
+  /// repository key. Answers the new revision; tells the subscribers.
+  Future<String> moveVault(
+    String store,
+    String location,
+    Uint8List stored, {
+    String? baseRevision,
+    required TomSecretsHeldKeys newKeys,
+  }) async {
+    final isPrimary = store == _vaults.primaryName;
+    final from = _vaults.statusOf(store)?.locator;
+    final revision = await _serial(
+      () => _tellingStates(
+        () => _vaults.move(
+          store,
+          location,
+          stored,
+          baseRevision: baseRevision,
+          newKeys: newKeys,
+        ),
+      ),
+    );
+    log.info('vault_moved', {
+      'store': store,
+      'outer': location.endsWith(tomSecretsOuterSuffix),
+    });
+    if (isPrimary) {
+      _primaryLocator = location;
+      await _rewriteBootstrap(location);
+      if (from != null) await _keepMovedPrimaryKeys(from, location, newKeys);
+      await _approvals?.reload();
+    }
+    _emit({'op': 'store_changed', 'store': store, 'revision': revision});
+    return revision;
+  }
+
+  /// Writes [primary] into the bootstrap file (`bootstrap.yaml` in the data
+  /// directory), when there is one; a failure is logged (this run already
+  /// serves the moved primary, the next start would not find it).
+  Future<void> _rewriteBootstrap(String primary) async {
+    final file = File(
+      '${config.bootstrap.dataDirectory}${Platform.pathSeparator}bootstrap.yaml',
+    );
+    try {
+      if (!file.existsSync()) return;
+      final text = await file.readAsString();
+      final temp = File('${file.path}.tmp');
+      await temp.writeAsString(tomSecretsBootstrapWithPrimary(text, primary));
+      await temp.rename(file.path);
+      log.info('bootstrap_primary_written', {});
+    } on Object catch (e) {
+      log.error('bootstrap_write_failed', e);
+    }
+  }
+
+  /// Keeps the moved primary's keys in the device keychain under the
+  /// handles of its new locator [to] (the key file's handle names the
+  /// vault's path), removing the key file under [from]'s.
+  Future<void> _keepMovedPrimaryKeys(
+    String from,
+    String to,
+    TomSecretsHeldKeys keys,
+  ) async {
+    final keychain = config.keychain;
+    if (keychain == null) return;
+    try {
+      final old = TomSecretsVaultLocator.parse(from);
+      final vault = TomSecretsVaultLocator.parse(to);
+      final keyFile = keys.keyFile;
+      if (keyFile != null) {
+        await keychain.write(
+          vault.keyFileHandle,
+          keyFile.withRevealed(base64.encode),
+        );
+      }
+      if (old.keyFileHandle != vault.keyFileHandle) {
+        await keychain.delete(old.keyFileHandle);
+      }
+      final outerKey = keys.outerKeyText;
+      if (outerKey != null) {
+        await keychain.write(vault.repositoryKeyHandle, outerKey);
+      }
+      log.info('keychain_keys_moved', {'store': vault.fileName});
+    } on TomSecretStoreException catch (e) {
+      log.error('keychain_failed', e);
+    }
+  }
+
   /// Writes the service's own edits of the primary (grants, revocations,
   /// approval records, their last use). When the remote cannot be reached
   /// or refuses the token, the edits stay in the held copy, in effect on
@@ -2051,7 +2148,7 @@ final class _AdminSession {
       ok =
           keys != null &&
           await service.vaults.checkPrimary(
-            service.config.bootstrap.primary,
+            service._primaryLocator,
             keys.credentials,
           );
     } finally {
@@ -2661,6 +2758,78 @@ final class _AdminSession {
             'conflicts': result.conflicts,
           });
         } on TomSecretsSaveException catch (e) {
+          connection.sendError(id, e.kind, e.message, {
+            if (e.kind == 'offline' || e.kind == 'token_expired')
+              'stores': [store],
+            'reason': ?e.reason,
+          });
+        }
+      case 'vault.move':
+        final store = m['store'];
+        final location = m['location'];
+        final bytes = m['bytes'];
+        final base = m['baseRevision'];
+        final wireKeys = m['keys'];
+        if (store is! String ||
+            location is! String ||
+            bytes is! String ||
+            (base != null && base is! String) ||
+            wireKeys is! Map) {
+          connection.sendError(
+            id,
+            'malformed',
+            'vault.move carries store, location, bytes and keys',
+            {'reason': 'move'},
+          );
+          return;
+        }
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        final newKeys = _newKeysOf(wireKeys.cast<String, Object?>());
+        final Uint8List stored;
+        try {
+          stored = base64.decode(bytes);
+        } on FormatException {
+          newKeys?.dispose();
+          connection.sendError(id, 'malformed', 'bytes is not base64', {
+            'reason': 'bytes',
+          });
+          return;
+        }
+        if (newKeys == null) {
+          connection.sendError(id, 'malformed', 'keys cannot be read', {
+            'reason': 'keys',
+          });
+          return;
+        }
+        try {
+          final revision = await service.moveVault(
+            store,
+            location,
+            stored,
+            baseRevision: base as String?,
+            newKeys: newKeys,
+          );
+          connection.send({
+            'op': 'ok',
+            'id': id,
+            'location': location,
+            'revision': revision,
+          });
+        } on TomSecretsSaveException catch (e) {
+          service.log.info('move_refused', {
+            'store': store,
+            'kind': e.kind,
+            'reason': e.reason,
+          });
           connection.sendError(id, e.kind, e.message, {
             if (e.kind == 'offline' || e.kind == 'token_expired')
               'stores': [store],

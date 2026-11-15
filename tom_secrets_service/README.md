@@ -109,7 +109,11 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   what the old approver key signed signed again, the key-change statement
   written into the vault for every host it approves for, both sent over
   the approval link at once, the previous link key kept for 14 days for the
-  hosts not reached and the approvers that connect here) and
+  hosts not reached and the approvers that connect here), `vault.move` (a
+  store's outer encryption added or removed: the vault moved to its locator
+  with `.kdbx.tsmx` or `.kdbx`, the new file written before the old one is
+  removed, a `github:` vault in one commit; the primary's entry, or for the
+  primary its bootstrap file and keychain handles, follow) and
   `shutdown`.
 - **The editing path** (DP-13, protocol.md 6.4): `vaultKeys` hands the app the
   keys of the open vaults (`password`, `keyFile`, `outerKey`) and their

@@ -440,4 +440,210 @@ void main() {
     );
     expect((await read('team')).keys['password'], _newTeamPassword);
   });
+
+  group('vault.move: the outer encryption added or removed', () {
+    Future<Map<String, Object?>> move(
+      String store,
+      ({Map<String, Object?> keys, Map<String, Object?> file, KdbxFile opened})
+      vault, {
+      required String location,
+      String? outerKey,
+      Map<String, Object?>? keys,
+    }) async {
+      final keyFile = vault.keys['keyFile'] as String?;
+      return admin.request('vault.move', {
+        'store': store,
+        'location': location,
+        'bytes': base64.encode(
+          await tomSecretsEncodeStored(
+            location,
+            vault.opened,
+            outerKey: outerKey,
+          ),
+        ),
+        'baseRevision': vault.file['revision'],
+        'keys':
+            keys ??
+            {
+              'password': vault.keys['password'],
+              'keyFile': ?keyFile,
+              'outerKey': ?outerKey,
+            },
+      });
+    }
+
+    test('a further vault: moved to .kdbx.tsmx and back; the primary\'s '
+        'entry follows, the store is served from the new place, after the '
+        'lock too', () async {
+      final service = await start();
+      final key = TomSecretsRepositoryKey.generate().toBase64();
+      final outer = 'file:${demo.teamPath}$tomSecretsOuterSuffix';
+      final answer = await move(
+        'team',
+        await read('team'),
+        location: outer,
+        outerKey: key,
+      );
+      expect(answer['location'], outer);
+      expect(File(demo.teamPath).existsSync(), isFalse);
+      final stored = File(
+        '${demo.teamPath}$tomSecretsOuterSuffix',
+      ).readAsBytesSync();
+      await tomSecretsDecodeStored(
+        outer,
+        stored,
+        tomSecretsVaultCredentials(password: teamPassword),
+        outerKey: key,
+      );
+      expect(service.vaults.statusOf('team')!.locator, outer);
+      expect(await get('team/Api/Token'), 'demo-api-token');
+      final entry = TomSecretsPrimaryVaults(
+        (await read('primary')).opened,
+      ).byName('team')!;
+      expect(entry.locator, outer);
+      expect(entry.outerKey, key);
+      await admin.request('lock');
+      await admin.unlock(primaryPassword);
+      expect(await get('team/Api/Token'), 'demo-api-token');
+
+      // And back.
+      await move('team', await read('team'), location: 'file:${demo.teamPath}');
+      expect(
+        File('${demo.teamPath}$tomSecretsOuterSuffix').existsSync(),
+        isFalse,
+      );
+      await KdbxFormat().read(
+        File(demo.teamPath).readAsBytesSync(),
+        Credentials(ProtectedValue.fromString(teamPassword)),
+      );
+      final back = TomSecretsPrimaryVaults(
+        (await read('primary')).opened,
+      ).byName('team')!;
+      expect(back.locator, 'file:${demo.teamPath}');
+      expect(back.outerKey, isNull);
+      expect(await get('team/Api/Token'), 'demo-api-token');
+    });
+
+    test('the primary: moved with its key file and a repository key; the '
+        'bootstrap file and the keychain follow, the next unlock opens it '
+        'there', () async {
+      // A primary with a key file kept in the keychain, as the first run
+      // leaves it, and the bootstrap file in the data directory.
+      final keyFile = TomSecretsKeyFile.generate();
+      final primary = await KdbxFormat().read(
+        File(demo.primaryPath).readAsBytesSync(),
+        Credentials(ProtectedValue.fromString(primaryPassword)),
+      );
+      primary.credentials = keyFile.credentials(primaryPassword);
+      File(demo.primaryPath).writeAsBytesSync(await primary.save());
+      final locator = TomSecretsVaultLocator.parse('file:${demo.primaryPath}');
+      await keychain.write(
+        locator.keyFileHandle,
+        base64.encode(keyFile.toBytes()),
+      );
+      Directory('${demo.dir}/data').createSync(recursive: true);
+      final bootstrap = File('${demo.dir}/data/bootstrap.yaml')
+        ..writeAsStringSync(
+          '# the demo machine\n'
+          'primary: file:${demo.primaryPath}   # created by the first run\n'
+          'device_key: keyfile\n',
+        );
+      final service = await start();
+      final key = TomSecretsRepositoryKey.generate().toBase64();
+      final to = 'file:${demo.primaryPath}$tomSecretsOuterSuffix';
+      await move('primary', await read('primary'), location: to, outerKey: key);
+      expect(File(demo.primaryPath).existsSync(), isFalse);
+      expect(
+        bootstrap.readAsStringSync(),
+        '# the demo machine\n'
+        'primary: $to   # created by the first run\n'
+        'device_key: keyfile\n',
+      );
+      final moved = TomSecretsVaultLocator.parse(to);
+      expect(
+        base64.decode((await keychain.read(moved.keyFileHandle))!),
+        keyFile.toBytes(),
+      );
+      expect(await keychain.read(locator.keyFileHandle), isNull);
+      expect(await keychain.read(moved.repositoryKeyHandle), key);
+      expect(service.vaults.primary!.locator, to);
+      // The next unlock: the password alone, the keys from the keychain at
+      // the moved primary's handles.
+      await admin.request('lock');
+      await admin.unlock(primaryPassword);
+      expect(await get('team/Api/Token'), 'demo-api-token');
+      expect(service.vaults.primary!.locator, to);
+
+      // And back to a plain file.
+      await move(
+        'primary',
+        await read('primary'),
+        location: 'file:${demo.primaryPath}',
+      );
+      expect(
+        File('${demo.primaryPath}$tomSecretsOuterSuffix').existsSync(),
+        isFalse,
+      );
+      expect(
+        bootstrap.readAsStringSync(),
+        contains('primary: file:${demo.primaryPath}   #'),
+      );
+      expect(
+        base64.decode((await keychain.read(locator.keyFileHandle))!),
+        keyFile.toBytes(),
+      );
+      await admin.request('lock');
+      await admin.unlock(primaryPassword);
+      expect(service.vaults.primary!.locator, 'file:${demo.primaryPath}');
+      expect(await get('team/Api/Token'), 'demo-api-token');
+    });
+
+    test('refused: another place, a stale base, a missing repository key, '
+        'a file already at the new place; nothing moved', () async {
+      await start();
+      final team = await read('team');
+      final key = TomSecretsRepositoryKey.generate().toBase64();
+      final elsewhere = await _refused(
+        move(
+          'team',
+          team,
+          location: 'file:${demo.dir}/moved/team.kdbx.tsmx',
+          outerKey: key,
+        ),
+      );
+      expect(elsewhere.details['reason'], 'location');
+      final outer = 'file:${demo.teamPath}$tomSecretsOuterSuffix';
+      final noKey = await _refused(
+        admin.request('vault.move', {
+          'store': 'team',
+          'location': outer,
+          'bytes': base64.encode(
+            await tomSecretsEncodeStored(outer, team.opened, outerKey: key),
+          ),
+          'keys': {'password': teamPassword},
+        }),
+      );
+      expect(noKey.details['reason'], 'keys');
+      File('${demo.teamPath}$tomSecretsOuterSuffix').writeAsStringSync('x');
+      final exists = await _refused(
+        move('team', team, location: outer, outerKey: key),
+      );
+      expect(exists.details['reason'], 'target_exists');
+      File('${demo.teamPath}$tomSecretsOuterSuffix').deleteSync();
+      final stale = await _refused(
+        admin.request('vault.move', {
+          'store': 'team',
+          'location': outer,
+          'bytes': base64.encode(
+            await tomSecretsEncodeStored(outer, team.opened, outerKey: key),
+          ),
+          'baseRevision': 'not-a-revision',
+          'keys': {'password': teamPassword, 'outerKey': key},
+        }),
+      );
+      expect(stale.details['reason'], 'stale_base');
+      expect(File(demo.teamPath).existsSync(), isTrue);
+      expect(await get('team/Api/Token'), 'demo-api-token');
+    });
+  });
 }

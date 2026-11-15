@@ -298,6 +298,124 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
     );
   }
 
+  /// Moves the vault at [from] to [to] in one commit on the branch (part-
+  /// stores, the outer encryption added or removed): the tree of the
+  /// branch's head with [stored] at [to]'s path and [from]'s path removed,
+  /// committed by this device and moved onto the branch without force, so a
+  /// branch that moved meanwhile refuses it (`denied`, `branch_moving`).
+  /// [from]'s file at the head must be [base] (`stale_base` otherwise) and
+  /// [to]'s path free (`target_exists`). Then [to] is opened (its unit
+  /// kept) and [from]'s unit dropped.
+  @override
+  Future<TomSecretsOpenedVault> move(
+    String from,
+    String to,
+    KdbxFile file, {
+    required Uint8List base,
+    required Uint8List stored,
+    required Credentials credentials,
+    String? outerKey,
+  }) async {
+    final old = _parse(from);
+    final target = _parse(to);
+    if (old.repositorySlug != target.repositorySlug ||
+        old.branch != target.branch) {
+      throw ArgumentError.value(to, 'to', 'not in the repository of $from');
+    }
+    final repository = _repository(old);
+    final token = await tokens(old);
+    if (token == null) {
+      throw const TomTokenRequiredException(TomGitHubStorage.host);
+    }
+    final git = repository._client(token).git;
+    final owner = old.owner;
+    final repo = old.repository;
+    final branch = old.branch ?? await repository.defaultBranch();
+    try {
+      final head = await git.getRef(
+        owner: owner,
+        repo: repo,
+        ref: 'heads/$branch',
+      );
+      final commit = await git.getCommit(
+        owner: owner,
+        repo: repo,
+        sha: head.sha,
+      );
+      final tree = await git.getTree(
+        owner: owner,
+        repo: repo,
+        sha: commit.treeSha,
+        recursive: true,
+      );
+      String? blobAt(String path) =>
+          tree.entries.where((e) => e.path == path).firstOrNull?.sha;
+      if (blobAt(old.path) != tomSecretsBlobId(base)) {
+        throw TomSecretsSaveException(
+          'denied',
+          'the file has moved since the copy that is moved',
+          reason: 'stale_base',
+        );
+      }
+      if (blobAt(target.path) != null) {
+        throw TomSecretsSaveException(
+          'denied',
+          'a file is at ${target.path} already',
+          reason: 'target_exists',
+        );
+      }
+      final blob = await git.createBlob(
+        owner: owner,
+        repo: repo,
+        bytes: stored,
+      );
+      final moved = await git.createTree(
+        owner: owner,
+        repo: repo,
+        baseTreeSha: commit.treeSha,
+        entries: [
+          GitHubTreeEntry(path: target.path, sha: blob),
+          GitHubTreeEntry.deletion(old.path),
+        ],
+      );
+      final identity = tomSecretsDeviceCommitter(device);
+      final made = await git.createCommit(
+        owner: owner,
+        repo: repo,
+        message: 'tsm: ${old.fileName} to ${target.fileName} from $device',
+        treeSha: moved.sha,
+        parentShas: [head.sha],
+        author: identity,
+        committer: identity,
+      );
+      try {
+        await git.updateRef(
+          owner: owner,
+          repo: repo,
+          ref: 'heads/$branch',
+          sha: made.sha,
+        );
+      } on GitHubException catch (e) {
+        if (e.statusCode == 422 || e.statusCode == 409) {
+          throw TomSecretsSaveException(
+            'denied',
+            'the branch moved meanwhile; move again',
+            reason: 'branch_moving',
+          );
+        }
+        rethrow;
+      }
+    } on GitHubAuthException {
+      throw const TomTokenRejectedException(
+        'github',
+        TomGitHubStorage.host,
+        'GitHub refused the token',
+      );
+    }
+    await _units.remove(from)?.dispose();
+    return open(to, credentials, outerKey: outerKey);
+  }
+
   @override
   String? rewrittenHeadOf(String locator) => _units[locator]?.rewrittenHead;
 
