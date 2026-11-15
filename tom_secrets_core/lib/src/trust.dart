@@ -112,6 +112,7 @@ final class TomSecretsRecordedHost {
     required this.tokenKey,
     this.address,
     this.linkKeySince,
+    this.linkKeyDelivered = true,
   });
 
   /// The host's name.
@@ -129,6 +130,11 @@ final class TomSecretsRecordedHost {
   /// When [linkKey] was recorded (at pairing, or a new link key).
   DateTime? linkKeySince;
 
+  /// Whether this device's current approval-link key reached the host
+  /// (`linkKey` over the link, part-key-rotation): until then this device
+  /// connects to it with its previous link key, during the migration period.
+  bool linkKeyDelivered;
+
   /// The stored JSON.
   Map<String, Object?> toJson() => {
     'host': host,
@@ -136,6 +142,7 @@ final class TomSecretsRecordedHost {
     'tokenKey': base64.encode(tokenKey),
     'address': ?address,
     'linkKeySince': ?_iso(linkKeySince),
+    if (!linkKeyDelivered) 'linkKeyDelivered': false,
   };
 
   /// From [toJson].
@@ -148,8 +155,13 @@ final class TomSecretsRecordedHost {
         tokenKey: _b64(json['tokenKey']),
         address: json['address'] as String?,
         linkKeySince: _time(json['linkKeySince']),
+        linkKeyDelivered: json['linkKeyDelivered'] != false,
       );
 }
+
+/// How long a device's previous approval-link key stays in use for the
+/// hosts its new key has not reached yet (part-key-rotation).
+const Duration tomSecretsLinkKeyMigration = Duration(days: 14);
 
 /// A device's trust material.
 final class TomSecretsTrust {
@@ -163,12 +175,15 @@ final class TomSecretsTrust {
     required this.cliApprovals,
     this.approverKeySince,
     this.linkKeySince,
+    Uint8List? previousLinkSeeds,
+    this.previousLinkUntil,
     Map<String, String>? pins,
     Map<String, TomSecretsClientTokenRecord>? clientTokens,
   }) : pins = pins ?? {},
        clientTokens = clientTokens ?? {},
        _approverSeeds = approverSeeds,
-       _linkSeeds = linkSeeds;
+       _linkSeeds = linkSeeds,
+       _previousLinkSeeds = previousLinkSeeds;
 
   /// New trust material for [device]: fresh key pairs (created [now],
   /// default the current time) and audit-log key, no approver or host
@@ -206,6 +221,10 @@ final class TomSecretsTrust {
         cliApprovals: json['cliApprovals'] == true,
         approverKeySince: _time(json['approverKeySince']),
         linkKeySince: _time(json['linkKeySince']),
+        previousLinkSeeds: json['previousLinkSeeds'] == null
+            ? null
+            : _b64(json['previousLinkSeeds']),
+        previousLinkUntil: _time(json['previousLinkUntil']),
         pins: ((json['pins'] as Map?) ?? const {}).cast<String, String>(),
         clientTokens: {
           for (final MapEntry(:key, :value)
@@ -220,10 +239,17 @@ final class TomSecretsTrust {
   final String device;
 
   /// Ed25519 seed (32) || ML-DSA-65 seed (32).
-  final Uint8List _approverSeeds;
+  Uint8List _approverSeeds;
 
   /// X25519 seed (32) || ML-KEM-768 seed (64).
-  final Uint8List _linkSeeds;
+  Uint8List _linkSeeds;
+
+  /// The previous link key's seeds after a rotation, while a recorded host
+  /// has not received the new key and the migration period lasts.
+  Uint8List? _previousLinkSeeds;
+
+  /// Until when the previous link key is used ([rotateLinkKey]).
+  DateTime? previousLinkUntil;
 
   /// The audit-log key (32 bytes, XChaCha20-Poly1305).
   final Uint8List auditKey;
@@ -301,6 +327,150 @@ final class TomSecretsTrust {
     _linkSeeds.sublist(32),
   );
 
+  /// Rotates this device's approver key pair (part-key-rotation): a new
+  /// hybrid pair (Ed25519 + ML-DSA-65) replaces it from [now] on, and the
+  /// key-change statement (9.4, `tsm-keychange-v1`) is answered, signed by
+  /// the old and the new pair with both algorithms (four signatures). A host
+  /// that recorded the old key accepts the new one from it
+  /// (`tomSecretsAcceptKeyChange`). The caller writes the trust back, and
+  /// re-signs what the old key signed.
+  Future<Map<String, Object?>> rotateApproverKey({DateTime? now}) async {
+    final at = (now ?? DateTime.now()).toUtc();
+    final old = await approverKey();
+    final seeds = _random(64);
+    final fresh = await TomSecretsApproverKey.fromSeeds(
+      seeds.sublist(0, 32),
+      seeds.sublist(32),
+    );
+    final statement = {
+      'device': device,
+      'oldKeyId': old.keyId,
+      'newKeyId': fresh.keyId,
+      'newEd25519': base64.encode(fresh.publicKey.ed25519),
+      'newMlDsa65': base64.encode(fresh.publicKey.mlDsa65),
+      'time': at.toIso8601String(),
+    };
+    final bytes = tomSecretsSignedBytes(
+      TomSecretsSignedLabels.keyChange,
+      statement,
+    );
+    final signatures = [
+      ...await old.sign(TomSecretsSignedLabels.keyChange, bytes),
+      ...await fresh.sign(TomSecretsSignedLabels.keyChange, bytes),
+    ];
+    _approverSeeds.fillRange(0, _approverSeeds.length, 0);
+    _approverSeeds = seeds;
+    approverKeySince = at;
+    return {...statement, 'signatures': signatures};
+  }
+
+  /// Rotates this device's approval-link key pair (part-key-rotation): a
+  /// new pair from [now] on; the previous one stays in use for every
+  /// recorded host until the new key reached it ([markLinkKeyDelivered]) or
+  /// [migration] is over. A pending earlier rotation's previous key is
+  /// dropped (the hosts that did not get that one keep the oldest key and
+  /// are paired again). The caller writes the trust back.
+  void rotateLinkKey({
+    DateTime? now,
+    Duration migration = tomSecretsLinkKeyMigration,
+  }) {
+    final at = (now ?? DateTime.now()).toUtc();
+    _previousLinkSeeds?.fillRange(0, _previousLinkSeeds!.length, 0);
+    _previousLinkSeeds = _linkSeeds;
+    _linkSeeds = _random(96);
+    linkKeySince = at;
+    previousLinkUntil = at.add(migration);
+    for (final h in hosts) {
+      h.linkKeyDelivered = false;
+    }
+  }
+
+  /// The hosts the current link key has not reached yet while the previous
+  /// one is in use.
+  List<TomSecretsRecordedHost> get linkKeyPending => [
+    if (_previousLinkSeeds != null)
+      for (final h in hosts)
+        if (!h.linkKeyDelivered) h,
+  ];
+
+  /// The link key pair this device connects to [host] with at [now]: the
+  /// current one, or the previous one while the new one has not reached
+  /// that host and the migration period lasts.
+  Future<TomSecretsLinkKey> linkKeyFor(String host, {DateTime? now}) {
+    final recorded = this.host(host);
+    final previous = _previousLinkSeeds;
+    final until = previousLinkUntil;
+    final at = (now ?? DateTime.now()).toUtc();
+    if (recorded != null &&
+        !recorded.linkKeyDelivered &&
+        previous != null &&
+        until != null &&
+        at.isBefore(until)) {
+      return TomSecretsLinkKey.fromSeeds(
+        previous.sublist(0, 32),
+        previous.sublist(32),
+      );
+    }
+    return linkKey();
+  }
+
+  /// The previous link key pair while the migration period lasts at [now]
+  /// (an approver that still holds it is answered under it), else null.
+  Future<TomSecretsLinkKey?> previousLinkKey({DateTime? now}) async {
+    final previous = _previousLinkSeeds;
+    final until = previousLinkUntil;
+    if (previous == null ||
+        until == null ||
+        !(now ?? DateTime.now()).toUtc().isBefore(until)) {
+      return null;
+    }
+    return TomSecretsLinkKey.fromSeeds(
+      previous.sublist(0, 32),
+      previous.sublist(32),
+    );
+  }
+
+  /// Records that the current link key reached [host]; once every host has
+  /// it, and no approver connects to this device, the previous key is
+  /// dropped.
+  void markLinkKeyDelivered(String host) {
+    this.host(host)?.linkKeyDelivered = true;
+    _dropPreviousWhenDone();
+  }
+
+  /// Drops the previous link key when every host has the new one or the
+  /// migration period is over at [now]; whether it dropped it.
+  bool expirePreviousLinkKey(DateTime now) {
+    final until = previousLinkUntil;
+    if (_previousLinkSeeds == null) return false;
+    if (until != null && !now.toUtc().isBefore(until)) {
+      _clearPrevious();
+      return true;
+    }
+    return _dropPreviousWhenDone();
+  }
+
+  bool _dropPreviousWhenDone() {
+    // The approvers that connect to this device hold its link key too: with
+    // any recorded, the previous key stays to the end of the period.
+    if (_previousLinkSeeds == null ||
+        approvers.isNotEmpty ||
+        hosts.any((h) => !h.linkKeyDelivered)) {
+      return false;
+    }
+    _clearPrevious();
+    return true;
+  }
+
+  void _clearPrevious() {
+    _previousLinkSeeds?.fillRange(0, _previousLinkSeeds!.length, 0);
+    _previousLinkSeeds = null;
+    previousLinkUntil = null;
+    for (final h in hosts) {
+      h.linkKeyDelivered = true;
+    }
+  }
+
   /// The approver keys a grant on this host may be signed by: every
   /// recorded approver's, and this device's own (the attached app approves
   /// through this service, which signs).
@@ -328,6 +498,10 @@ final class TomSecretsTrust {
     'cliApprovals': cliApprovals,
     'approverKeySince': ?_iso(approverKeySince),
     'linkKeySince': ?_iso(linkKeySince),
+    'previousLinkSeeds': ?(_previousLinkSeeds == null
+        ? null
+        : base64.encode(_previousLinkSeeds!)),
+    'previousLinkUntil': ?_iso(previousLinkUntil),
     'pins': pins,
     'clientTokens': {
       for (final e in clientTokens.entries) e.key: e.value.toJson(),

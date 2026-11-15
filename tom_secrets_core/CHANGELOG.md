@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.5
+
+- A device rotates its own key pairs (part-key-rotation):
+  `TomSecretsTrust.rotateApproverKey` makes a new hybrid approver pair and
+  answers the key-change statement signed by the old and the new pair;
+  `rotateLinkKey` makes a new approval-link pair and keeps the previous one
+  for the hosts the new key has not reached (`linkKeyFor`,
+  `markLinkKeyDelivered`, `linkKeyPending`) during the migration period
+  (`tomSecretsLinkKeyMigration`, 14 days; `expirePreviousLinkKey`;
+  `previousLinkKey`, kept to the end of the period while approvers are
+  recorded).
+- `TomSecretsLinkSession.respond(previousMe:)` also answers an approver that
+  still holds the host's previous link key.
+
 ## 0.1.4
 
 - `TomSecretsVaultUnit.rekey`: commits a re-keyed file as it is in one commit

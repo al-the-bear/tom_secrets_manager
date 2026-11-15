@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.0
+
+- `keys.rotate {approver?, link?}` (manager app only, protocol.md 6.3): this
+  device rotates its own key pairs. A new approver pair: every grant and
+  revocation it signed is signed again, and its key-change statement is
+  written into the group of every host it approves for. A new link pair:
+  the previous one stays in use for 14 days, for the hosts the new key has
+  not reached and the approvers that connect here (the link server answers
+  under it). Both go to every recorded host over the approval link at once
+  (`tomSecretsDeliverOverLink`, the approver's side of the link); hosts not
+  reached get the new link key at a later refresh.
+- A host takes key-change statements from its group of the vault at every
+  allow-list read (a host the link did not reach), and answers a statement
+  it took already `ok` over the link.
+- `keyList.keys[].own` marks this device's own key pairs.
+
 ## 0.7.0
 
 - `token.set {repository, token}` (manager app only, protocol.md 6.3):

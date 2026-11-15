@@ -104,7 +104,12 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   it sees the repository, a short-lived `tsm-token-check-…` branch is
   created and deleted to prove it may write, the expiry GitHub reports —
   then kept where the old one was, the keychain with its expiry or the
-  primary's vault entries, and every store fetched again) and
+  primary's vault entries, and every store fetched again), `keys.rotate`
+  (this device's approver and link key pairs rotated, manager app only:
+  what the old approver key signed signed again, the key-change statement
+  written into the vault for every host it approves for, both sent over
+  the approval link at once, the previous link key kept for 14 days for the
+  hosts not reached and the approvers that connect here) and
   `shutdown`.
 - **The editing path** (DP-13, protocol.md 6.4): `vaultKeys` hands the app the
   keys of the open vaults (`password`, `keyFile`, `outerKey`) and their

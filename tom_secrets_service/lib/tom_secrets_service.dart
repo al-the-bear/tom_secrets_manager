@@ -18,6 +18,7 @@ export 'src/github_opener.dart';
 export 'src/hardening.dart';
 export 'src/identity.dart';
 export 'src/key_expiry.dart';
+export 'src/link_client.dart';
 export 'src/link_server.dart';
 export 'src/lock_policy.dart';
 export 'src/log.dart';

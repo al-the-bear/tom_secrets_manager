@@ -110,7 +110,10 @@ service parse references with one implementation.
   recorded with their approval-token keys, recorded pin hashes, and since
   when each key pair is in use, the start of its rotation age:
   `stampKeyDates` dates the keys of trust material written before the dates
-  were kept). Tested
+  were kept; `rotateApproverKey` makes a new approver pair and its
+  key-change statement, signed by the old and the new pair, and
+  `rotateLinkKey` a new link pair, the previous one used for the hosts the
+  new key has not reached for 14 days, `linkKeyFor`). Tested
   byte for byte against `signatures.json`, `approval_codes.json` and
   `link_handshake.json`.
 - **The outer encryption** (`tomSecretsOuterEncrypt` / `Decrypt`,

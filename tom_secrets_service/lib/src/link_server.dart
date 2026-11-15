@@ -48,8 +48,11 @@ final class TomSecretsLinkServer {
       );
     }
     final server = await ServerSocket.bind(name, port);
-    final me = await trust.linkKey();
     server.listen((socket) async {
+      // Read at each connection: a rotation of this device's link key takes
+      // effect at once, its previous key answered during the migration.
+      final me = await trust.linkKey();
+      final previousMe = await trust.previousLinkKey();
       final approvers = [
         for (final a in trust.approvers) ...[
           if (a.linkKey != null) (device: a.device, key: a.linkKey!),
@@ -61,6 +64,7 @@ final class TomSecretsLinkServer {
         final session = await TomSecretsLinkSession.respond(
           TomSecretsSocketChannel(socket),
           me: me,
+          previousMe: previousMe,
           approvers: approvers,
           host: host,
         );

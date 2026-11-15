@@ -776,6 +776,7 @@ final class TomSecretsLinkSession {
     required TomSecretsLinkKey me,
     required List<({String device, TomSecretsLinkPublicKey key})> approvers,
     required String host,
+    TomSecretsLinkKey? previousMe,
     TomSecretsLinkRandom random = const TomSecretsSystemLinkRandom(),
     Duration timeout = const Duration(seconds: 15),
   }) async {
@@ -786,9 +787,16 @@ final class TomSecretsLinkSession {
         throw TomSecretsLinkException('the approver closed the link');
       }
       // KK: the responder knows the initiator's key; with several paired
-      // approvers, only the one whose key it is decrypts message 1.
-      for (final (:device, :key) in approvers) {
-        final responder = TomSecretsLinkResponder(me, key, random: random);
+      // approvers, only the one whose key it is decrypts message 1. After a
+      // rotation of this host's own link key, an approver that still holds
+      // its previous key ([previousMe]) is answered under that one.
+      for (final (:device, :key, :mine) in [
+        for (final a in approvers) (device: a.device, key: a.key, mine: me),
+        if (previousMe != null)
+          for (final a in approvers)
+            (device: a.device, key: a.key, mine: previousMe),
+      ]) {
+        final responder = TomSecretsLinkResponder(mine, key, random: random);
         final Uint8List payload;
         try {
           payload = await responder.readMessage1(message1);

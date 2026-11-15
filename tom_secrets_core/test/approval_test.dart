@@ -357,6 +357,57 @@ void main() {
       );
     });
 
+    test('after a rotation of the host\'s link key, an approver that '
+        'still holds the previous one is answered under it', () async {
+      final approver = await keyOf('approver');
+      final previous = await keyOf('host');
+      final current = await TomSecretsLinkKey.fromSeeds(
+        Uint8List(32)..[2] = 4,
+        Uint8List(64)..[2] = 4,
+      );
+      for (final (hostKey, expected) in [
+        (previous.publicKey, 'previous'),
+        (current.publicKey, 'current'),
+      ]) {
+        final (a, h) = _Pipe.pair();
+        final hostSide = TomSecretsLinkSession.respond(
+          h,
+          me: current,
+          previousMe: previous,
+          approvers: [(device: 'mbp', key: approver.publicKey)],
+          host: 'bigbeast',
+        );
+        final approverSession = await TomSecretsLinkSession.initiate(
+          a,
+          me: approver,
+          hostKey: hostKey,
+          device: 'mbp',
+        );
+        final hostSession = await hostSide;
+        expect(hostSession.peerDevice, 'mbp', reason: expected);
+        await approverSession.close();
+        await hostSession.close();
+      }
+      // Without previousMe the previous key is no longer answered.
+      final (a, h) = _Pipe.pair();
+      final refused = TomSecretsLinkSession.respond(
+        h,
+        me: current,
+        approvers: [(device: 'mbp', key: approver.publicKey)],
+        host: 'bigbeast',
+      );
+      unawaited(
+        TomSecretsLinkSession.initiate(
+          a,
+          me: approver,
+          hostKey: previous.publicKey,
+          device: 'mbp',
+          timeout: const Duration(seconds: 2),
+        ).then((_) {}, onError: (Object _) {}),
+      );
+      await expectLater(refused, throwsA(isA<TomSecretsLinkException>()));
+    });
+
     test('a session over a channel: ready, messages both ways, rekey; an '
         'unknown approver and a wrong device id are closed', () async {
       final approver = await keyOf('approver');

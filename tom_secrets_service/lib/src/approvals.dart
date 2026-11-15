@@ -222,6 +222,10 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
     final primary = service.primary;
     if (primary == null) return;
     final group = TomSecretsGrantsGroup(primary);
+    // A key change written into this host's group (part-key-rotation): an
+    // approver that rotated while this host was not connected; taken
+    // before the grants, which its new key signed again.
+    if (await _takeKeyChanges(group)) await service.writeTrust();
     final keys = await service.trust.grantKeys();
     _revoked.clear();
     for (final r in group.read(service.host, TomSecretsSignedKind.revocation)) {
@@ -250,6 +254,46 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
     );
     await _takeApprovalRecords(group, keys);
     await _pruneTokens();
+  }
+
+  /// Takes the key-change statements in this host's group of the vault
+  /// whose old key is a recorded approver's current key (`tsm-keychange-v1`,
+  /// signed by the old and the new key): the approver's key becomes the new
+  /// one, dated now; a chain of changes is followed. Whether a key changed.
+  Future<bool> _takeKeyChanges(TomSecretsGrantsGroup group) async {
+    final statements = group.read(service.host, TomSecretsSignedKind.keyChange);
+    if (statements.isEmpty) return false;
+    var changed = false;
+    var progress = true;
+    while (progress) {
+      progress = false;
+      for (final statement in statements) {
+        final recorded = service.trust.approver(
+          (statement['device'] as String?) ?? '',
+        );
+        if (recorded == null ||
+            statement['oldKeyId'] != recorded.approverKey.keyId) {
+          continue;
+        }
+        final newKey = await tomSecretsAcceptKeyChange(
+          statement,
+          recorded.approverKey,
+        );
+        if (newKey == null) {
+          service.log.info('keychange_ignored', {'device': recorded.device});
+          continue;
+        }
+        recorded
+          ..approverKey = newKey
+          ..approverKeySince = service.now;
+        service.log.info('keychange_taken', {
+          'device': recorded.device,
+          'keyId': newKey.keyId,
+        });
+        changed = progress = true;
+      }
+    }
+    return changed;
   }
 
   Future<void> _takeApprovalRecords(
@@ -813,6 +857,44 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
     return grant;
   }
 
+  /// After this device rotated its approver key (part-key-rotation): signs
+  /// again with the new key every grant and revocation this device signed,
+  /// in every host's group (its pre-approvals for other hosts included), and
+  /// writes the key-change [statement] into the group of every host it
+  /// approves for, where a host not connected finds it at its next refresh;
+  /// then reads this host's allow list again. Answers how many objects it
+  /// signed again. The caller saves the primary.
+  Future<int> resignAfterRotation(Map<String, Object?> statement) async {
+    final primary = service.primary;
+    if (primary == null) throw StateError('locked');
+    final key = await service.trust.approverKey();
+    final device = service.trust.device;
+    final group = TomSecretsGrantsGroup(primary);
+    var count = 0;
+    for (final host in group.hosts) {
+      for (final kind in [
+        TomSecretsSignedKind.grant,
+        TomSecretsSignedKind.revocation,
+      ]) {
+        for (final object in group.read(host, kind)) {
+          if (object['approver'] != device) continue;
+          group.write(
+            host,
+            kind,
+            await key.signObject(kind.label, {...object}..remove('signatures')),
+          );
+          count++;
+        }
+      }
+    }
+    for (final host in service.trust.hosts) {
+      group.write(host.host, TomSecretsSignedKind.keyChange, statement);
+    }
+    await reload();
+    service.log.info('resigned', {'objects': count});
+    return count;
+  }
+
   /// The grants used since the last write, by id (written by
   /// [flushLastUsed]).
   Map<String, DateTime> get unwrittenLastUse => Map.unmodifiable(_lastUsed);
@@ -1094,6 +1176,14 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
           final recorded = service.trust.approver(
             (statement['device'] as String?) ?? '',
           );
+          // Taken already (from the vault at a refresh): answered ok, so
+          // what follows in the session (the new link key) is taken too.
+          if (recorded != null &&
+              recorded.device == session.peerDevice &&
+              statement['newKeyId'] == recorded.approverKey.keyId) {
+            await ok();
+            return;
+          }
           final newKey = recorded == null
               ? null
               : await tomSecretsAcceptKeyChange(

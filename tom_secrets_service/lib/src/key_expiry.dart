@@ -134,7 +134,12 @@ final class TomSecretsKeyDate {
     required this.expiresAt,
     required this.firstDays,
     this.vault,
+    this.own = false,
   });
+
+  /// Whether it is one of this device's own key pairs (rotated here,
+  /// `keys.rotate`).
+  final bool own;
 
   /// As [TomSecretsExpiringKey.kind].
   final String kind;
@@ -172,6 +177,7 @@ final class TomSecretsKeyDate {
       'expiresAt': at.toIso8601String(),
       'daysLeft': (at.difference(now.toUtc()).inMinutes / (24 * 60)).floor(),
       'reminding': dueAt(now) != null,
+      if (own) 'own': true,
     };
   }
 }

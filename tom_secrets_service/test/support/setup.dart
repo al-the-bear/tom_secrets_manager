@@ -160,6 +160,7 @@ final class Demo {
     Duration refreshTick = const Duration(minutes: 1),
     TomSecretsGitRemoteFor? githubRemoteFor,
     TomSecretsCommitReaderFor? githubReaderFor,
+    String host = 'demo-host',
   }) async {
     final service = await TomSecretsService.launch(
       TomSecretsServiceConfig(
@@ -169,7 +170,7 @@ final class Demo {
         idleSource: idle,
         keychain: keychain,
         policy: policy,
-        host: 'demo-host',
+        host: host,
         lockCheckInterval: const Duration(milliseconds: 20),
         authDelay: authDelay ?? (n) => Duration(milliseconds: 10 * n),
         peerMeasurer:

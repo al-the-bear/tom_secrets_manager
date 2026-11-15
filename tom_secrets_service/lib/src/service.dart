@@ -30,6 +30,7 @@ import 'connection.dart';
 import 'github_opener.dart';
 import 'identity.dart';
 import 'key_expiry.dart';
+import 'link_client.dart';
 import 'link_server.dart';
 import 'lock_policy.dart';
 import 'log.dart';
@@ -39,7 +40,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.7.0';
+const String tomSecretsServiceVersion = '0.8.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -483,6 +484,11 @@ final class TomSecretsService implements TomSecretsApprovalHost {
         await _readTokenExpiries();
         _remindKeys();
         return report;
+      }).then((report) async {
+        // Outside the refresh's turn: a host that did not answer must not
+        // hold up the saves.
+        if (!isLocked) await deliverToHosts();
+        return report;
       });
 
   /// Answers `compact {repository}` (part-stores, `tsm compact`): the cut
@@ -754,6 +760,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
       String key,
       DateTime? expiresAt, {
       String? vault,
+      bool own = false,
     }) => expiresAt == null
         ? null
         : TomSecretsKeyDate(
@@ -762,14 +769,21 @@ final class TomSecretsService implements TomSecretsApprovalHost {
             vault: vault,
             expiresAt: expiresAt,
             firstDays: settings.otherKeyWarningDays,
+            own: own,
           );
-    TomSecretsKeyDate? pair(String kind, String key, DateTime? since) => other(
+    TomSecretsKeyDate? pair(
+      String kind,
+      String key,
+      DateTime? since, {
+      bool own = false,
+    }) => other(
       kind,
       key,
       TomSecretsExpiringKey.keyPairDue(
         since,
         months: settings.keyPairAgeMonths,
       ),
+      own: own,
     );
     return [
       for (final MapEntry(key: slug, value: at) in tokens.entries)
@@ -798,8 +812,14 @@ final class TomSecretsService implements TomSecretsApprovalHost {
           'approver_key',
           'approver-key:${trust.device}',
           trust.approverKeySince,
+          own: true,
         ),
-        ?pair('link_key', 'link-key:${trust.device}', trust.linkKeySince),
+        ?pair(
+          'link_key',
+          'link-key:${trust.device}',
+          trust.linkKeySince,
+          own: true,
+        ),
         for (final a in trust.approvers) ...[
           ?pair('approver_key', 'approver-key:${a.device}', a.approverKeySince),
           if (a.linkKey != null)
@@ -915,6 +935,9 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     _linkServer = null;
     _audit = null;
     _trust = null;
+    _pendingStatement = null;
+    _statementDelivered.clear();
+    _lastDelivery = null;
   }
 
   /// The approvals and grants, while unlocked.
@@ -1093,6 +1116,135 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     log.info('token_set', {'repository': repository, 'where': where});
     await refresh(force: true);
     return (where: where, expiresAt: expiresAt);
+  }
+
+  /// Rotates this device's key pairs by hand (`keys.rotate`,
+  /// part-key-rotation §4): with [approver] a new approver pair, every grant
+  /// and revocation this device signed signed again with it, and the
+  /// key-change statement written into the group of every host it approves
+  /// for (the primary saved); with [link] a new approval-link pair, the
+  /// previous one kept for the hosts the new one has not reached and the
+  /// approvers that connect here, for the migration period (14 days). Then
+  /// both go to every recorded host with a link address at once
+  /// ([deliverToHosts]). An approver device puts both into one rotation.
+  Future<TomSecretsPairsRotated> rotateKeyPairs({
+    bool approver = true,
+    bool link = true,
+  }) async {
+    final trust = _trust;
+    final approvals = _approvals;
+    if (trust == null || approvals == null) throw StateError('locked');
+    if (!approver && !link) {
+      throw ArgumentError('nothing to rotate');
+    }
+    Map<String, Object?>? statement;
+    var resigned = 0;
+    if (approver) {
+      statement = await trust.rotateApproverKey(now: now);
+      resigned = await approvals.resignAfterRotation(statement);
+      _pendingStatement = statement;
+    }
+    if (link) trust.rotateLinkKey(now: now);
+    await writeTrust();
+    if (approver) await savePrimary();
+    log.info('pairs_rotated', {
+      'approver': approver,
+      'link': link,
+      'resigned': resigned,
+    });
+    final delivery = await deliverToHosts(force: true);
+    _remindKeys();
+    return TomSecretsPairsRotated(
+      approverKeyId: approver ? (await trust.approverKey()).keyId : null,
+      resigned: resigned,
+      delivered: delivery.delivered,
+      pending: delivery.pending,
+    );
+  }
+
+  /// The key-change statement of this device's last approver rotation,
+  /// sent to the hosts the link reaches; a host not reached finds it in the
+  /// vault. Kept until the lock.
+  Map<String, Object?>? _pendingStatement;
+
+  /// The hosts the statement reached over the link since the rotation.
+  final Set<String> _statementDelivered = {};
+
+  DateTime? _lastDelivery;
+
+  /// Sends this device's new link key (and the key-change statement of a
+  /// rotation in this unlock) to every recorded host with a link address
+  /// that has not received it, over a link session under the key that host
+  /// knows; a host that answers `ok` is marked delivered. Without [force],
+  /// at most every 15 minutes (the refresh calls it). Drops the previous
+  /// link key once the migration period is over.
+  Future<({List<String> delivered, List<String> pending})> deliverToHosts({
+    bool force = false,
+  }) async {
+    final trust = _trust;
+    if (trust == null) return (delivered: <String>[], pending: <String>[]);
+    if (trust.expirePreviousLinkKey(now)) await writeTrust();
+    final statement = _pendingStatement;
+    final due = [
+      for (final h in trust.hosts)
+        if (!h.linkKeyDelivered ||
+            (statement != null && !_statementDelivered.contains(h.host)))
+          h,
+    ];
+    if (due.isEmpty) return (delivered: <String>[], pending: <String>[]);
+    final last = _lastDelivery;
+    if (!force &&
+        last != null &&
+        now.difference(last) < const Duration(minutes: 15)) {
+      return (delivered: <String>[], pending: [for (final h in due) h.host]);
+    }
+    _lastDelivery = now;
+    final link = (await trust.linkKey()).publicKey;
+    final delivered = <String>[];
+    final pending = <String>[];
+    var changed = false;
+    for (final host in due) {
+      final address = host.address;
+      if (address == null) {
+        pending.add(host.host);
+        continue;
+      }
+      final sendStatement =
+          statement != null && !_statementDelivered.contains(host.host);
+      try {
+        await tomSecretsDeliverOverLink(
+          address: address,
+          me: await trust.linkKeyFor(host.host, now: now),
+          hostKey: host.linkKey,
+          device: trust.device,
+          messages: [
+            if (sendStatement) {'op': 'keychange', 'statement': statement},
+            if (!host.linkKeyDelivered)
+              {
+                'op': 'linkKey',
+                'device': trust.device,
+                'x25519': base64.encode(link.x25519),
+                'mlKem768': base64.encode(link.mlKem768),
+              },
+          ],
+        );
+        if (sendStatement) _statementDelivered.add(host.host);
+        if (!host.linkKeyDelivered) {
+          trust.markLinkKeyDelivered(host.host);
+          changed = true;
+        }
+        delivered.add(host.host);
+      } on TomSecretsLinkDeliveryException catch (e) {
+        log.info('link_delivery_failed', {'host': host.host, 'kind': e.kind});
+        pending.add(host.host);
+      }
+    }
+    if (changed) await writeTrust();
+    log.info('link_delivery', {
+      'delivered': delivered.length,
+      'pending': pending.length,
+    });
+    return (delivered: delivered, pending: pending);
   }
 
   /// Writes the service's own edits of the primary (grants, revocations,
@@ -2515,6 +2667,40 @@ final class _AdminSession {
             'reason': ?e.reason,
           });
         }
+      case 'keys.rotate':
+        final approver = m['approver'] ?? true;
+        final link = m['link'] ?? true;
+        if (approver is! bool || link is! bool || (!approver && !link)) {
+          connection.sendError(
+            id,
+            'malformed',
+            'keys.rotate takes approver and link, at least one true',
+            {'reason': 'keys'},
+          );
+          return;
+        }
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        final rotated = await service.rotateKeyPairs(
+          approver: approver,
+          link: link,
+        );
+        connection.send({
+          'op': 'keysRotated',
+          'id': id,
+          'approverKeyId': ?rotated.approverKeyId,
+          'resigned': rotated.resigned,
+          'delivered': rotated.delivered,
+          'pending': rotated.pending,
+        });
       case 'token.set':
         final repository = m['repository'];
         final token = m['token'];
@@ -2621,4 +2807,28 @@ final class _AdminSession {
         connection.sendError(id, 'unsupported', 'unknown op $op', {'op': op});
     }
   }
+}
+
+/// What `keys.rotate` did.
+final class TomSecretsPairsRotated {
+  /// The result.
+  const TomSecretsPairsRotated({
+    required this.approverKeyId,
+    required this.resigned,
+    required this.delivered,
+    required this.pending,
+  });
+
+  /// The new approver key's id, or null when it was not rotated.
+  final String? approverKeyId;
+
+  /// The grants and revocations signed again.
+  final int resigned;
+
+  /// The hosts the new keys reached over the link.
+  final List<String> delivered;
+
+  /// The hosts not reached: they find the key change in the vault at their
+  /// next refresh, and the new link key is sent again at the refresh.
+  final List<String> pending;
 }
