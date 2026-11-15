@@ -260,6 +260,53 @@ final class TomSecretsTrust {
   /// The hosts this device approves for.
   final List<TomSecretsRecordedHost> hosts;
 
+  /// Records what a pairing with the peer [device] gave (part-sharing): it
+  /// approves for this host with [approverKey] (reached over the approval
+  /// link with [approverLinkKey]), and this device approves for it as a
+  /// host with [hostLinkKey] at [hostAddress]; [tokenKey] is the
+  /// approval-token key both sides derived. Every key is dated [at]; what
+  /// was recorded of [device] before is replaced. Throws [ArgumentError]
+  /// for this device itself.
+  void recordPeer({
+    required String device,
+    required Uint8List tokenKey,
+    required DateTime at,
+    TomSecretsApproverPublicKey? approverKey,
+    TomSecretsLinkPublicKey? approverLinkKey,
+    TomSecretsLinkPublicKey? hostLinkKey,
+    String? hostAddress,
+  }) {
+    if (device == this.device) {
+      throw ArgumentError.value(device, 'device', 'this device itself');
+    }
+    final when = at.toUtc();
+    approvers.removeWhere((a) => a.device == device);
+    hosts.removeWhere((h) => h.host == device);
+    if (approverKey != null) {
+      approvers.add(
+        TomSecretsRecordedApprover(
+          device: device,
+          approverKey: approverKey,
+          linkKey: approverLinkKey,
+          tokenKey: tokenKey,
+          approverKeySince: when,
+          linkKeySince: approverLinkKey == null ? null : when,
+        ),
+      );
+    }
+    if (hostLinkKey != null) {
+      hosts.add(
+        TomSecretsRecordedHost(
+          host: device,
+          linkKey: hostLinkKey,
+          tokenKey: tokenKey,
+          address: hostAddress,
+          linkKeySince: when,
+        ),
+      );
+    }
+  }
+
   /// Whether `tsm` on this device may pre-approve and issue tokens (DP-19);
   /// switched only from the manager app.
   bool cliApprovals;

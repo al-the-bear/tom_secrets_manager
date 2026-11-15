@@ -1,0 +1,121 @@
+// Copyright (c) 2026 Peter Nicolai Alexis Kyaw
+// SPDX-License-Identifier: BSD-3-Clause
+
+/// The receiving side of a pairing on a machine being set up (part-sharing,
+/// 1. Pairing): a new desktop's First run and `tsm pair` on a headless
+/// machine (through the service's pairing mode). The machine makes fresh
+/// trust material for the pairing, checks that it can be set up from the
+/// bundle (the primary is in it, a `github:` primary with its token) and
+/// refuses it otherwise, and keeps everything in memory: nothing is stored
+/// until `TomSecretsFirstRun.runPaired` sets the machine up with the master
+/// password.
+library;
+
+import 'dart:io';
+
+import 'locator.dart';
+import 'pairing.dart';
+import 'trust.dart';
+
+/// A pairing received by a machine being set up, held in memory until the
+/// setup: the bundle, the approval-token key, and this machine's fresh
+/// trust material (whose public keys the giving side recorded).
+final class TomSecretsPairingReceipt {
+  TomSecretsPairingReceipt._(this.received, this.trust);
+
+  /// What the pairing gave.
+  final TomSecretsPairingReceived received;
+
+  /// This machine's trust material, made for the pairing.
+  final TomSecretsTrust trust;
+
+  /// The giving device's name.
+  String get giver => received.giver;
+
+  /// The bundle.
+  TomSecretsPairingBundle get bundle => received.bundle;
+
+  /// The primary vault of the bundle.
+  TomSecretsPairingVault get primary =>
+      bundle.vaults.firstWhere((v) => v.primary);
+
+  /// The token pasted for [repository] (`owner/name`), or null.
+  TomSecretsPairingToken? tokenFor(String repository) =>
+      bundle.tokens.where((t) => t.repository == repository).firstOrNull;
+}
+
+/// Why a bundle cannot set a machine up, or null when it can: the primary
+/// must be in it, with its token when it is in a GitHub repository.
+String? tomSecretsPairingSetupProblem(TomSecretsPairingBundle bundle) {
+  final primary = bundle.vaults.where((v) => v.primary).firstOrNull;
+  if (primary == null) {
+    return 'a new machine is set up from the primary vault, and the bundle '
+        'does not carry it: pair again with the primary ticked';
+  }
+  final TomSecretsVaultLocator locator;
+  try {
+    locator = TomSecretsVaultLocator.parse(primary.locator);
+  } on TomSecretsLocatorException catch (e) {
+    return 'the primary\'s location cannot be read: ${e.message}';
+  }
+  if (locator case TomSecretsGitHubLocator(
+    :final repositorySlug,
+  ) when !bundle.tokens.any((t) => t.repository == repositorySlug)) {
+    return 'the primary is in $repositorySlug, and the bundle '
+        'carries no GitHub token for this machine: paste one when pairing '
+        'again';
+  }
+  return null;
+}
+
+/// Receives a pairing for a machine being set up as [device]: connects to
+/// the giving machine's window at [address]:[port] with [code], answers with
+/// the public keys of fresh trust material (made [now]), and refuses a
+/// bundle it cannot be set up from ([tomSecretsPairingSetupProblem]).
+/// Stores nothing. Throws [TomSecretsPairingException].
+Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({
+  required String address,
+  required int port,
+  required TomSecretsPairingCode code,
+  required String device,
+  DateTime? now,
+  Duration connectTimeout = const Duration(seconds: 10),
+}) async {
+  final trust = TomSecretsTrust.create(device, now: now);
+  final received = await tomSecretsReceivePairingAt(
+    address,
+    port,
+    code: code,
+    device: device,
+    connectTimeout: connectTimeout,
+    keysFor: (_, bundle) async {
+      final problem = tomSecretsPairingSetupProblem(bundle);
+      if (problem != null) throw TomSecretsPairingRefusal(problem);
+      return TomSecretsPairingPeerKeys(
+        linkKey: (await trust.linkKey()).publicKey,
+        approverKey: (await trust.approverKey()).publicKey,
+      );
+    },
+  );
+  return TomSecretsPairingReceipt._(received, trust);
+}
+
+/// Splits `host:port` (an IPv6 address in brackets: `[fd00::1]:47900`) as
+/// the giving machine's Pairing screen shows it. Throws [FormatException].
+(String host, int port) tomSecretsParsePairingAddress(String text) {
+  final t = text.trim();
+  final at = t.lastIndexOf(':');
+  final port = at < 0 ? null : int.tryParse(t.substring(at + 1));
+  if (at <= 0 || port == null || port < 1 || port > 65535) {
+    throw FormatException('not an address and port (host:port): $text');
+  }
+  var host = t.substring(0, at);
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.substring(1, host.length - 1);
+  }
+  if (InternetAddress.tryParse(host) == null &&
+      !RegExp(r'^[A-Za-z0-9.-]+$').hasMatch(host)) {
+    throw FormatException('not a host name or address: $host');
+  }
+  return (host, port);
+}

@@ -28,6 +28,7 @@ export 'src/new_vault.dart';
 export 'src/offline_cache.dart';
 export 'src/outer.dart';
 export 'src/pairing.dart';
+export 'src/pairing_setup.dart';
 export 'src/pairing_words.dart';
 export 'src/passkey.dart';
 export 'src/password_generator.dart';

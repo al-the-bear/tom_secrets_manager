@@ -16,6 +16,11 @@
 ///    and `bootstrap.yaml`, written last: its presence means the machine is
 ///    set up.
 ///
+/// A machine set up by pairing (`runPaired`, part-sharing) opens the primary
+/// the bundle carries with its keys, keeps every further vault's keys and
+/// the tokens pasted for it, and writes the trust material made for the
+/// pairing with the giving device recorded.
+///
 /// The service is not running during the first run, so the first run writes
 /// the primary itself; afterwards the service is its one writer (DP-13).
 library;
@@ -38,7 +43,10 @@ import 'locator.dart';
 import 'metadata.dart';
 import 'new_vault.dart';
 import 'outer.dart';
+import 'pairing.dart';
+import 'pairing_setup.dart';
 import 'stored_vault.dart';
+import 'trust.dart';
 import 'vault_sync.dart';
 
 /// The host name the service goes by when `bootstrap.yaml` names none: the
@@ -325,7 +333,81 @@ final class TomSecretsFirstRun {
   /// order. Throws [TomSecretsFirstRunException]; nothing is written to the
   /// keychain, the container or the bootstrap before the primary opened (or
   /// was written), and the bootstrap only when everything else succeeded.
-  Future<TomSecretsFirstRunResult> run(TomSecretsFirstRunSetup setup) async {
+  Future<TomSecretsFirstRunResult> run(TomSecretsFirstRunSetup setup) =>
+      _run(setup);
+
+  /// Sets the machine up from a pairing [receipt] (part-sharing): the
+  /// bundle's primary opened with [masterPassword] and its keys and token
+  /// from the bundle, [settings] and [deviceKey] as for [run]; then the
+  /// keys of every further vault of the bundle and its tokens kept in the
+  /// keychain, and this machine's trust material written into the device
+  /// settings container with the giving device recorded: it approves for
+  /// this machine, and this machine approves for it (its link key and
+  /// address, the approval-token key the pairing derived). Throws
+  /// [TomSecretsFirstRunException]; nothing is stored before the primary
+  /// opened.
+  Future<TomSecretsFirstRunResult> runPaired(
+    TomSecretsPairingReceipt receipt, {
+    required String masterPassword,
+    TomSecretsDeviceSettings settings = const TomSecretsDeviceSettings(),
+    TomSecretsDeviceKeyMode deviceKey = TomSecretsDeviceKeyMode.auto,
+  }) {
+    final problem = tomSecretsPairingSetupProblem(receipt.bundle);
+    if (problem != null) {
+      throw TomSecretsFirstRunException(
+        TomSecretsFirstRunProblem.inconsistent,
+        problem,
+      );
+    }
+    final primary = receipt.primary;
+    final locator = TomSecretsVaultLocator.parse(primary.locator);
+    final token = locator is TomSecretsGitHubLocator
+        ? receipt.tokenFor(locator.repositorySlug)
+        : null;
+    final trust = receipt.trust;
+    final giver = receipt.bundle.giverKeys;
+    trust.recordPeer(
+      device: receipt.giver,
+      tokenKey: receipt.received.tokenKey,
+      at: _clock(),
+      approverKey: giver.approverKey,
+      approverLinkKey: giver.approverKey == null ? null : giver.linkKey,
+      hostLinkKey: giver.linkKey,
+      hostAddress: giver.linkAddress,
+    );
+    return _run(
+      TomSecretsFirstRunSetup(
+        primary: locator,
+        create: false,
+        masterPassword: masterPassword,
+        keyFile: primary.keyFile,
+        repositoryKey: primary.repositoryKey == null
+            ? null
+            : TomSecretsRepositoryKey.fromBase64(primary.repositoryKey!),
+        githubToken: token?.token,
+        githubTokenExpires: token?.expires,
+        settings: settings,
+        deviceKey: deviceKey,
+        host: trust.device == tomSecretsDefaultHost() ? null : trust.device,
+      ),
+      trust: trust,
+      further: [
+        for (final v in receipt.bundle.vaults)
+          if (!v.primary) v,
+      ],
+      tokens: [
+        for (final t in receipt.bundle.tokens)
+          if (token == null || t.repository != token.repository) t,
+      ],
+    );
+  }
+
+  Future<TomSecretsFirstRunResult> _run(
+    TomSecretsFirstRunSetup setup, {
+    TomSecretsTrust? trust,
+    List<TomSecretsPairingVault> further = const [],
+    List<TomSecretsPairingToken> tokens = const [],
+  }) async {
     if (File(bootstrapPath).existsSync()) {
       throw TomSecretsFirstRunException(
         TomSecretsFirstRunProblem.alreadySetUp,
@@ -355,6 +437,8 @@ final class TomSecretsFirstRun {
     }
     final store = keychain;
     final keysToKeep =
+        further.any((v) => v.keyFile != null || v.repositoryKey != null) ||
+        tokens.isNotEmpty ||
         setup.keyFile != null ||
         setup.repositoryKey != null ||
         locator is TomSecretsGitHubLocator;
@@ -448,12 +532,32 @@ final class TomSecretsFirstRun {
       if (outerKey != null) {
         await store!.write(locator.repositoryKeyHandle, outerKey);
       }
+      for (final v in further) {
+        final at = TomSecretsVaultLocator.parse(v.locator);
+        if (v.keyFile != null) {
+          await store!.write(at.keyFileHandle, base64.encode(v.keyFile!));
+        }
+        if (v.repositoryKey != null) {
+          await store!.write(at.repositoryKeyHandle, v.repositoryKey!);
+        }
+      }
+      for (final t in tokens) {
+        final [owner, name] = t.repository.split('/');
+        await store!.write(tomSecretsGitHubTokenHandle(owner, name), t.token);
+        if (t.expires != null) {
+          await store.write(
+            tomSecretsGitHubTokenExpiryHandle(owner, name),
+            t.expires!.toUtc().toIso8601String(),
+          );
+        }
+      }
 
       final container = await TomSecretsDeviceContainer.open(
         deviceContainerPath,
         containerKey,
       );
       await container.write(setup.settings);
+      if (trust != null) await container.writeTrust(trust);
 
       await _writeBootstrap(
         primary: locator.text,

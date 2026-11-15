@@ -125,7 +125,12 @@ service parse references with one implementation.
   transcript, the bundle and the receiving side's keys under it, the
   approval-token key), the giving side's window on the LAN and VPN
   addresses (`TomSecretsPairingWindow`), and the device records of the
-  primary (`TomSecretsDeviceRecords`).
+  primary (`TomSecretsDeviceRecords`). A machine being set up receives with
+  `tomSecretsReceivePairingForSetup` (fresh trust material, a bundle it
+  cannot be set up from refused on both sides, nothing stored) and is set up
+  by `TomSecretsFirstRun.runPaired` (the bundle's primary opened with the
+  master password, every vault's keys and the tokens in the keychain, the
+  trust material with the giving device recorded).
 - **The outer encryption** (`tomSecretsOuterEncrypt` / `Decrypt`,
   `TomSecretsOuterCodec`, DP-80, DP-84): a vault stored as
   `<vault>.kdbx.tsmx`, encrypted once under a fresh random file key that is

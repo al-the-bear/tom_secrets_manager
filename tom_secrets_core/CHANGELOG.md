@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.1
+
+- Setting a machine up by pairing (part-sharing):
+  `tomSecretsReceivePairingForSetup` receives with fresh trust material and
+  refuses a bundle a new machine cannot be set up from
+  (`tomSecretsPairingSetupProblem`: the primary missing, a `github:`
+  primary without its token); `TomSecretsFirstRun.runPaired` sets the
+  machine up from the receipt; `tomSecretsParsePairingAddress` reads the
+  `host:port` the giving side shows.
+- The pairing: a receiving side may refuse the bundle
+  (`TomSecretsPairingRefusal`, `{"op":"refused","reason"}`), which ends it
+  with `TomSecretsPairingFailure.refused` on both sides.
+- `TomSecretsTrust.recordPeer`: what a pairing gave, recorded in the trust
+  material.
+
 ## 0.2.0
 
 - Pairing (part-sharing, DP-60–DP-64, DP-177):

@@ -530,6 +530,25 @@ enum TomSecretsPairingFailure {
 
   /// The channel ended or a step timed out.
   closed,
+
+  /// The receiving device refused the bundle (it cannot be set up from it,
+  /// [TomSecretsPairingRefusal]); nothing was stored there.
+  refused,
+}
+
+/// Thrown by a receiving side's `keysFor` that cannot take the bundle (a
+/// new machine needs the primary, a `github:` primary its token): the
+/// giving side is told [reason] and the pairing ends with
+/// [TomSecretsPairingFailure.refused] on both sides.
+final class TomSecretsPairingRefusal implements Exception {
+  /// A refusal for [reason].
+  const TomSecretsPairingRefusal(this.reason);
+
+  /// Why, for the user on both sides.
+  final String reason;
+
+  @override
+  String toString() => 'TomSecretsPairingRefusal: $reason';
 }
 
 /// A pairing that ended without a result.
@@ -667,7 +686,19 @@ Future<TomSecretsPairingGiven> tomSecretsGivePairing(
       );
     }
     await io.seal(session, 'B', {'op': 'bundle', 'bundle': bundle.toJson()});
-    final done = await io.sealed(session, 'done', 'A');
+    final done = await io.sealedAny(session, 'A');
+    if (done['op'] == 'refused') {
+      throw TomSecretsPairingException(
+        TomSecretsPairingFailure.refused,
+        'the other device refused the bundle: ${done['reason']}',
+      );
+    }
+    if (done['op'] != 'done') {
+      throw TomSecretsPairingException(
+        TomSecretsPairingFailure.protocol,
+        'expected done, got ${done['op']}',
+      );
+    }
     final receiverKeys = TomSecretsPairingPeerKeys.fromJson(
       (done['keys']! as Map).cast(),
     );
@@ -787,7 +818,16 @@ Future<TomSecretsPairingReceived> tomSecretsReceivePairing(
       final bundle = TomSecretsPairingBundle.fromJson(
         (m['bundle']! as Map).cast(),
       );
-      final mine = await keysFor(giver, bundle);
+      final TomSecretsPairingPeerKeys mine;
+      try {
+        mine = await keysFor(giver, bundle);
+      } on TomSecretsPairingRefusal catch (e) {
+        await io.seal(session, 'A', {'op': 'refused', 'reason': e.reason});
+        throw TomSecretsPairingException(
+          TomSecretsPairingFailure.refused,
+          e.reason,
+        );
+      }
       await io.seal(session, 'A', {'op': 'done', 'keys': mine.toJson()});
       return TomSecretsPairingReceived._(
         giver,
