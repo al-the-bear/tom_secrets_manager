@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4
+
+- `TomSecretsVaultUnit.rekey`: commits a re-keyed file as it is in one commit
+  on top of the base's head (never merged; a moved branch is refused with
+  `TomCasConflictException`), after which the unit reads and writes with the
+  new credentials and outer layer.
+
 ## 0.1.3
 
 - `TomSecretsVaultUnit.mergeOverRemote` merges a working copy handed in

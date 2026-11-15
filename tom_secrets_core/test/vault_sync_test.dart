@@ -61,6 +61,62 @@ void main() {
       return (a, b);
     }
 
+    test('rekey writes the re-keyed file as it is; the unit and other '
+        'devices then use the new keys; a moved branch is refused', () async {
+      final (a, b) = await twoDevices();
+      final newCredentials = Credentials(
+        ProtectedValue.fromString('demo-key-2'),
+      );
+      final key = TomSecretsRepositoryKey.generate();
+      final codec = TomSecretsOuterCodec(path: 'fleet.kdbx.tsmx', keys: [key]);
+      final file = a.working..credentials = newCredentials;
+      final stored = await codec.encode(await file.save());
+      await a.rekey(file, stored: stored, codec: codec);
+      expect(a.credentials, same(newCredentials));
+      expect(a.codec, same(codec));
+      expect(a.baseBytes, stored);
+      expect(await storageB.readBytes(locator), stored);
+
+      // b's copy is the old one: a re-key of it over the moved branch is
+      // refused and nothing changes.
+      final oldHead = b.head;
+      final bFile = b.working
+        ..credentials = Credentials(ProtectedValue.fromString('demo-key-3'));
+      await expectLater(
+        b.rekey(
+          bFile,
+          stored: await const TomSecretsPlainCodec().encode(await bFile.save()),
+          codec: const TomSecretsPlainCodec(),
+        ),
+        throwsA(isA<TomCasConflictException>()),
+      );
+      expect(b.head, oldHead);
+      expect(b.credentials, demoCredentials);
+
+      // A later edit through a goes out under the new keys.
+      byTitle(a.working, 'Box').setString(notes, PlainValue('after rekey'));
+      a.markEdited();
+      await a.push();
+      final c = await TomSecretsVaultUnit.open(
+        locator: locator,
+        storage: TomMemoryStorage(remote),
+        credentials: newCredentials,
+        codec: TomSecretsOuterCodec(path: 'fleet.kdbx.tsmx', keys: [key]),
+        device: 'bomber',
+      );
+      expect(text(byTitle(c.working, 'Box'), notes), 'after rekey');
+      await expectLater(
+        TomSecretsVaultUnit.open(
+          locator: locator,
+          storage: TomMemoryStorage(remote),
+          credentials: newCredentials,
+          device: 'bomber',
+        ),
+        throwsA(anything),
+        reason: 'the file is outer-encrypted now',
+      );
+    });
+
     test('create, open on another device, push, pull: one commit per save, '
         'messages naming the vault and the device', () async {
       final (a, b) = await twoDevices();

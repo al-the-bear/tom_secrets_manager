@@ -728,6 +728,69 @@ void main() {
           'baseRevision': tomSecretsBlobId(base),
         });
 
+    test('a re-keyed save (part-key-rotation): one commit of the file as it '
+        'is, taken with the keys the primary lists; a branch that moved is '
+        'refused', () async {
+      final service = await start();
+      // The app lists the new keys in the primary first.
+      final primaryFile = await admin.request('vaultFile', {
+        'store': 'primary',
+      });
+      final primary = await KdbxFormat().read(
+        base64.decode(primaryFile['bytes'] as String),
+        _pw(primaryPassword),
+      );
+      final vaults = TomSecretsPrimaryVaults(primary);
+      final old = vaults.byName('team')!;
+      vaults.put(
+        TomSecretsVaultKeys(
+          name: old.name,
+          locator: old.locator,
+          password: 'team-demo-pw-2',
+          expires: now.add(const Duration(days: 365)),
+        ),
+      );
+      await admin.request('save', {
+        'store': 'primary',
+        'bytes': base64.encode(await primary.save()),
+        'baseRevision': primaryFile['revision'],
+      });
+      await service.refresh(force: true);
+      expect(stores(service)['team']!['state'], 'current');
+
+      final held = onGitHub('team.kdbx');
+      final team = await openTeam(held)
+        ..credentials = _pw('team-demo-pw-2');
+      final rekeyed = await team.save();
+
+      // Another device saved meanwhile under the old keys: refused.
+      final moved = await openTeam(held);
+      moved.body.rootGroup.addEntry(
+        KdbxEntry.create(moved, moved.body.rootGroup)
+          ..setString(KdbxKeyCommon.TITLE, PlainValue('meanwhile')),
+      );
+      await put(_team, moved);
+      final stale = await refused(save(rekeyed, held));
+      expect(stale.details['reason'], 'stale_base');
+
+      // Read again (the refresh takes the moved file), re-keyed again: taken.
+      await service.refresh(force: true);
+      final again = await openTeam(onGitHub('team.kdbx'))
+        ..credentials = _pw('team-demo-pw-2');
+      final bytes = await again.save();
+      final before = commits().length;
+      await save(bytes, onGitHub('team.kdbx'));
+      expect(onGitHub('team.kdbx'), bytes);
+      expect(commits(), hasLength(before + 1));
+      expect(commits().first.message, 'tsm: team.kdbx from demo-host');
+      expect(await get('team/Api/Token'), 'token-1');
+      // The unit reads and writes with the new keys from then on.
+      await put(_team, again);
+      final report = await service.refresh(force: true);
+      expect(report.reopened, contains('team'));
+      expect(stores(service)['team']!['state'], 'current');
+    });
+
     test('a save is one commit on the branch by this device, written as the '
         'app saved it, kept in the offline cache and announced', () async {
       final service = await start();
@@ -1037,6 +1100,51 @@ void main() {
       );
     });
 
+    test('compact with retentionDays (0 after a key change) overrides the '
+        'repository\'s retention', () async {
+      final git = GitMemoryServer();
+      final seconds = now.millisecondsSinceEpoch ~/ 1000;
+      Future<void> commit(String text, int daysAgo) async {
+        final repo = git.repository;
+        final parent = await repo.refs.read('refs/heads/main');
+        final tree = await repo.editTree(
+          parent == null ? null : (await repo.readCommit(parent)).tree,
+          writes: {'primary.kdbx': utf8.encode(text)},
+        );
+        final id = await repo.commit(
+          tree: tree,
+          parents: [?parent],
+          message: 'tsm: primary.kdbx from mbp',
+          author: GitPerson(
+            name: 'mbp',
+            email: 'mbp@tsm.invalid',
+            seconds: seconds - daysAgo * 86400,
+          ),
+        );
+        await repo.refs.write('refs/heads/main', id);
+      }
+
+      await commit('v1', 20);
+      await commit('v2', 10);
+      await commit('v3', 0);
+      // No .tsm/compaction.yaml: the default keeps 90 days, so both older
+      // commits would stay.
+      await start(
+        remoteFor: (vault, token) => GitHttpRemote(git.url, client: git.client),
+        readerFor: (vault) => TomSecretsGitCommitReader(git.repository),
+      );
+      final answer = await admin.request('compact', {
+        'repository': _repo,
+        'retentionDays': 0,
+      });
+      expect(answer['compacted'], isTrue);
+      expect(answer['kept'], 0);
+      final root = await git.repository.readCommit(
+        (await git.repository.refs.read('refs/heads/main'))!,
+      );
+      expect(root.parents, isEmpty);
+    });
+
     test('compact cuts the repository\'s history with its own retention, '
         'by this device; an unknown repository is not found', () async {
       final git = GitMemoryServer();
@@ -1085,6 +1193,11 @@ void main() {
       );
       expect(root.parents, isEmpty);
       expect(root.author.email, 'demo-host@tsm.invalid');
+
+      final negative = await refused(
+        admin.request('compact', {'repository': _repo, 'retentionDays': -1}),
+      );
+      expect(negative.details['reason'], 'retentionDays');
 
       final e = await refused(
         admin.request('compact', {'repository': 'al-the-bear/nothing'}),

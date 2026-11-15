@@ -98,7 +98,8 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   rest named for the next unlock), `approvals.list` (the requests waiting on this host, as
   `approval_needed` reads them), `keys` (every key with its due date),
   `compact` (the history of a `github:` vault repository cut now, with its
-  own `.tsm/compaction.yaml` retention, pushed over git by this device) and
+  own `.tsm/compaction.yaml` retention or `retentionDays` instead, 0 after a
+  key change, pushed over git by this device) and
   `shutdown`.
 - **The editing path** (DP-13, protocol.md 6.4): `vaultKeys` hands the app the
   keys of the open vaults (`password`, `keyFile`, `outerKey`) and their
@@ -124,6 +125,17 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   token and holds the copy for editing until the lock; `save` writes it as
   above. It is never resolved, served to clients, refreshed or listed in
   `status`.
+  **A re-keyed file** (part-key-rotation): the app writes a vault's new keys
+  into the primary first and then saves the vault re-keyed. A further
+  vault's file that opens only with the keys the primary lists for it now is
+  taken as re-keyed; the primary's own carries its new keys in the save's
+  `keys`, which then replace its key file and repository key in the device
+  keychain. A re-keyed file is written as it is through the opener's
+  `rekey` (never merged; a file that moved since the held copy is refused
+  `stale_base`), and the store's keys are the new ones from then on. Until
+  the re-keyed file arrives, the vault stays served with the keys held (and
+  a vault not served keeps its copy while its file has not moved), so a
+  failed re-keyed save can be made again.
   `store_changed` names the new revision. A store on its offline copy, or
   whose remote fails during the save, refuses with `offline` /
   `token_expired`. The service's own writes of the primary (grants, their

@@ -114,9 +114,9 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
   TomSecretsVaultUnit._({
     required this.locator,
     required this.storage,
-    required this.credentials,
+    required Credentials credentials,
     required this.device,
-    required this.codec,
+    required TomSecretsVaultCodec codec,
     required this.maxPushAttempts,
     required this.head,
     required this.cache,
@@ -124,7 +124,9 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
     required DateTime Function() clock,
     required KdbxFile working,
     required Uint8List baseBytes,
-  }) : _clock = clock,
+  }) : _credentials = credentials,
+       _codec = codec,
+       _clock = clock,
        _working = working,
        _baseBytes = baseBytes;
 
@@ -261,14 +263,16 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
   @override
   final TomStorage storage;
 
-  /// The vault's credentials.
-  final Credentials credentials;
+  /// The vault's credentials (new ones after a [rekey]).
+  Credentials get credentials => _credentials;
+  Credentials _credentials;
 
   /// This device's name.
   final String device;
 
-  /// The outer layer.
-  final TomSecretsVaultCodec codec;
+  /// The outer layer (a new one after a [rekey]).
+  TomSecretsVaultCodec get codec => _codec;
+  TomSecretsVaultCodec _codec;
 
   /// How many commits a save attempts before its work waits in the journal.
   final int maxPushAttempts;
@@ -522,6 +526,50 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
       }
     }
     return conflicts;
+  }
+
+  /// Commits [file] re-keyed (part-key-rotation): [stored] is [file] as the
+  /// store keeps it under its new keys ([file]'s credentials, and [codec]'s
+  /// outer layer), written as it is in one commit on top of the base's head.
+  /// A re-keyed file is never merged: a branch that moved since the base is
+  /// refused with [TomCasConflictException] and nothing changes, so the
+  /// caller reads the vault again and re-keys that. From then on the unit
+  /// reads and writes with the new keys. Throws [TomCommitFailedException]
+  /// (its cause the storage's failure) when the remote cannot be reached or
+  /// refuses the token.
+  Future<void> rekey(
+    KdbxFile file, {
+    required Uint8List stored,
+    required TomSecretsVaultCodec codec,
+  }) async {
+    final String written;
+    try {
+      written = await storage.commit(
+        locator,
+        TomChangeset.singleFile(stored),
+        expectedHead: head,
+        message: commitMessage,
+      );
+    } on TomCasConflictException {
+      rethrow;
+    } on TomStorageException catch (cause) {
+      throw TomCommitFailedException(
+        locator,
+        changeset: TomChangeset.singleFile(stored),
+        baseHead: head,
+        version: 0,
+        commitMessage: commitMessage,
+        cause: cause,
+      );
+    }
+    head = written;
+    _credentials = file.credentials;
+    _codec = codec;
+    _working = file;
+    _baseBytes = stored;
+    _replacedStored = null;
+    _dirty = false;
+    await _retrieved(stored, written);
   }
 
   /// Takes the remote as it is, dropping local work: the answer to a

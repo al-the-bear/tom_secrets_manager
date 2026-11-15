@@ -256,6 +256,48 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
     );
   }
 
+  /// Commits [stored], [file] re-keyed, through the unit [open] kept
+  /// (`TomSecretsVaultUnit.rekey`): one commit on top of the head the
+  /// service holds, never merged; a branch that moved since is refused
+  /// (`denied`, `stale_base`). The unit reads and writes with the new keys
+  /// from then on.
+  @override
+  Future<TomSecretsCommitted> rekey(
+    String locator,
+    KdbxFile file, {
+    required Uint8List base,
+    required Uint8List stored,
+    String? outerKey,
+  }) async {
+    final unit = _units[locator];
+    if (unit == null) throw StateError('$locator is not open');
+    try {
+      await unit.rekey(
+        file,
+        stored: stored,
+        codec: _codec(_parse(locator), outerKey),
+      );
+    } on TomCasConflictException {
+      throw TomSecretsSaveException(
+        'denied',
+        'the branch moved since the copy that was re-keyed',
+        reason: 'stale_base',
+      );
+    } on TomCommitFailedException catch (e) {
+      throw e.cause ?? e;
+    }
+    return TomSecretsCommitted(
+      opened: TomSecretsOpenedVault(
+        locator: locator,
+        file: unit.working,
+        stored: unit.baseBytes,
+        revision: unit.head,
+        source: 'github',
+        fetchedAt: unit.fetchedAt,
+      ),
+    );
+  }
+
   @override
   String? rewrittenHeadOf(String locator) => _units[locator]?.rewrittenHead;
 
@@ -320,11 +362,16 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
   /// request (part-stores, `tsm compact`): the cut `tomSecretsCompact` makes,
   /// keeping the repository's own retention (its `.tsm/compaction.yaml`,
   /// else the defaults), pushed over git by this device; then the open
-  /// units of that repository follow the new head. Throws [StateError] when
+  /// units of that repository follow the new head. [retentionDays] replaces
+  /// the repository's retention (0 after a key change, part-key-rotation:
+  /// no commit keeps a file under the old keys). Throws [StateError] when
   /// no open vault is in [repositorySlug], the storage's failure when GitHub
   /// cannot be reached or refuses the token, and
   /// [TomSecretsCompactionException] when the cut is refused.
-  Future<TomSecretsCompactionResult> compact(String repositorySlug) async {
+  Future<TomSecretsCompactionResult> compact(
+    String repositorySlug, {
+    int? retentionDays,
+  }) async {
     final locators = [
       for (final locator in _units.keys)
         if (_parse(locator).repositorySlug == repositorySlug) locator,
@@ -354,7 +401,7 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
       reader: reader,
       branch: branch,
       device: device,
-      retentionDays: settings.retentionDays,
+      retentionDays: retentionDays ?? settings.retentionDays,
       now: _clock(),
     );
     for (final locator in locators) {

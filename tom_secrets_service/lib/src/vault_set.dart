@@ -158,6 +158,22 @@ abstract interface class TomSecretsVaultOpener {
     Uint8List? stored,
   });
 
+  /// Writes [stored], [file] re-keyed (part-key-rotation: as the store
+  /// keeps it under new keys, [outerKey] the new repository key of a `.tsmx`
+  /// file), to [locator] as it is, over [base] (the file as the service
+  /// holds it). A re-keyed file is never merged: when the file there has
+  /// moved since [base], the write is refused (`denied`, `stale_base`) and
+  /// nothing changes. From then on the opener reads and writes [locator]
+  /// with the new keys. Throws the storage's failure when the remote cannot
+  /// be reached or refuses the token.
+  Future<TomSecretsCommitted> rekey(
+    String locator,
+    KdbxFile file, {
+    required Uint8List base,
+    required Uint8List stored,
+    String? outerKey,
+  });
+
   /// The head of a rewritten branch (a force push without a compaction) a
   /// refused [commit] of [locator] met, awaiting the user's answer; null when
   /// there is none (and always for a `file:` vault).
@@ -263,6 +279,17 @@ final class TomSecretsLocatorOpener implements TomSecretsVaultOpener {
     outerKey: outerKey,
     stored: stored,
   );
+
+  @override
+  Future<TomSecretsCommitted> rekey(
+    String locator,
+    KdbxFile file, {
+    required Uint8List base,
+    required Uint8List stored,
+    String? outerKey,
+  }) => _for(
+    locator,
+  ).rekey(locator, file, base: base, stored: stored, outerKey: outerKey);
 
   @override
   String? rewrittenHeadOf(String locator) =>
@@ -391,6 +418,33 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
   }
 
   @override
+  Future<TomSecretsCommitted> rekey(
+    String locator,
+    KdbxFile file, {
+    required Uint8List base,
+    required Uint8List stored,
+    String? outerKey,
+  }) async {
+    final current = await read(locator);
+    if (tomSecretsBlobId(current) != tomSecretsBlobId(base)) {
+      throw TomSecretsSaveException(
+        'denied',
+        'the file has moved since the copy that was re-keyed',
+        reason: 'stale_base',
+      );
+    }
+    await _write(locator, stored);
+    return TomSecretsCommitted(
+      opened: TomSecretsOpenedVault(
+        locator: locator,
+        file: file,
+        stored: stored,
+        fetchedAt: (await File(_path(locator)).lastModified()).toUtc(),
+      ),
+    );
+  }
+
+  @override
   String? rewrittenHeadOf(String locator) => null;
 
   @override
@@ -512,7 +566,12 @@ final class TomSecretsSaveResult {
     required this.revision,
     this.merged = false,
     this.conflicts = 0,
+    this.rekeyed = false,
   });
+
+  /// Whether the file was written re-keyed (part-key-rotation): the store's
+  /// keys are the new ones from then on.
+  final bool rekeyed;
 
   /// The revision of the file written.
   final String revision;
@@ -600,6 +659,15 @@ final class TomSecretsRefreshReport {
 }
 
 enum _Outcome { unchanged, reopened, dropped }
+
+/// A save's file opened ([TomSecretsVaultSet._opening]): with the keys held
+/// ([newKeys] null), or re-keyed with [newKeys] ([listed]: the primary's
+/// entry they come from, for a further vault).
+typedef _Opening = ({
+  KdbxFile file,
+  TomSecretsHeldKeys? newKeys,
+  TomSecretsVaultKeys? listed,
+});
 
 /// When a store is fetched next, and how often a fetch failed in a row.
 final class _Next {
@@ -713,9 +781,13 @@ final class TomSecretsVaultSet {
   TomSecretsHeldKeys _editKeys(String name) {
     final listed = unserved.where((k) => k.name == name).firstOrNull;
     if (listed == null) throw StateError(name);
+    // A copy held keeps its keys while the location stays: a rotation in
+    // progress (the primary lists the new keys first), or another device's,
+    // whose file the app then cannot save over (refresh drops the copy only
+    // when the location changes).
     final old = _editListed[name];
-    if (old != null && !_sameKeys(old, listed)) _dropEditOnly(name);
-    _editListed[name] = listed;
+    if (old != null && old.locator != listed.locator) _dropEditOnly(name);
+    if (!_editHeld.containsKey(name)) _editListed[name] = listed;
     return _editHeld[name] ??= TomSecretsHeldKeys.fromVaultKeys(listed);
   }
 
@@ -1070,11 +1142,31 @@ final class TomSecretsVaultSet {
   /// any other is refused (`denied`, `stale_base`). A store on its offline
   /// copy, or whose remote fails during the save, refuses with `offline` /
   /// `token_expired`. The written file is the store's from then on.
+  ///
+  /// **A re-keyed file** (part-key-rotation): a further vault's [stored]
+  /// that does not open with the keys held but opens with the keys the
+  /// primary lists for it now (the app wrote the new keys into the primary
+  /// first) is taken as re-keyed; the primary's own re-keyed file carries its
+  /// new keys in [newKeys] (the set holds them from then on; a further
+  /// vault's save naming [newKeys] is refused `malformed`, reason `keys`).
+  /// A re-keyed file is written as it is, never merged: [baseRevision] must
+  /// be the held copy (or none) and the file must not have moved since,
+  /// otherwise `denied`, `stale_base`. The store's keys are the new ones
+  /// from then on.
   Future<TomSecretsSaveResult> save(
     String name,
     Uint8List stored, {
     String? baseRevision,
+    TomSecretsHeldKeys? newKeys,
   }) async {
+    if (newKeys != null && name != _primaryName) {
+      newKeys.dispose();
+      throw TomSecretsSaveException(
+        'malformed',
+        'only the primary\'s save carries its new keys',
+        reason: 'keys',
+      );
+    }
     // A vault not served, opened for editing by vaultFile.
     final editOnly =
         !_opened.containsKey(name) &&
@@ -1086,6 +1178,7 @@ final class TomSecretsVaultSet {
         : (_held[name] ?? (editOnly ? _editHeld[name] : null));
     final machine = _machine;
     if (opened == null || keys == null || machine == null) {
+      newKeys?.dispose();
       final state = _status[name]?.state;
       if (state == TomSecretsStoreState.needsUnlock) {
         throw TomSecretsSaveException(
@@ -1105,6 +1198,7 @@ final class TomSecretsVaultSet {
     final state = _status[name]?.state;
     if (state == TomSecretsStoreState.offline ||
         state == TomSecretsStoreState.tokenExpired) {
+      newKeys?.dispose();
       throw TomSecretsSaveException(
         state!.wireName,
         state == TomSecretsStoreState.offline
@@ -1114,22 +1208,27 @@ final class TomSecretsVaultSet {
     }
     final locator = opened.locator;
     final outerKey = keys.outerKeyText;
-    final KdbxFile edited;
-    try {
-      edited = await opener.decode(
-        locator,
+    final held = _revisionOf(opened);
+    final opens = await _opening(
+      name,
+      opened,
+      stored,
+      keys,
+      newKeys: newKeys,
+      editOnly: editOnly,
+    );
+    if (opens.newKeys != null) {
+      return _saveRekeyed(
+        name,
+        opened,
         stored,
-        keys.credentials,
-        outerKey: outerKey,
-      );
-    } on Object {
-      throw TomSecretsSaveException(
-        'malformed',
-        'the file does not open with the store\'s keys',
-        reason: 'bytes',
+        opens,
+        baseRevision: baseRevision,
+        editOnly: editOnly,
+        machine: machine,
       );
     }
-    final held = _revisionOf(opened);
+    final edited = opens.file;
     var base = opened.stored;
     var merged = false;
     var conflicts = 0;
@@ -1231,6 +1330,132 @@ final class TomSecretsVaultSet {
       merged: merged || committed.merged,
       conflicts: conflicts + committed.conflicts,
     );
+  }
+
+  /// [stored] of a save of [name] opened, with the keys it opens with: the
+  /// keys [held] (`newKeys` null), else for a re-keyed file (part-key-
+  /// rotation) the primary's [newKeys] when given, or for a further vault the
+  /// keys the primary lists for it now ([listed]). Throws `malformed`
+  /// (`bytes`) when [stored] opens with none of them.
+  Future<_Opening> _opening(
+    String name,
+    TomSecretsOpenedVault opened,
+    Uint8List stored,
+    TomSecretsHeldKeys held, {
+    TomSecretsHeldKeys? newKeys,
+    required bool editOnly,
+  }) async {
+    Future<KdbxFile?> open(TomSecretsHeldKeys keys) async {
+      try {
+        return await opener.decode(
+          opened.locator,
+          stored,
+          keys.credentials,
+          outerKey: keys.outerKeyText,
+        );
+      } on Object {
+        return null;
+      }
+    }
+
+    Never unreadable() => throw TomSecretsSaveException(
+      'malformed',
+      'the file does not open with the store\'s keys',
+      reason: 'bytes',
+    );
+
+    if (newKeys != null) {
+      final file = await open(newKeys);
+      if (file == null) {
+        newKeys.dispose();
+        unreadable();
+      }
+      return (file: file, newKeys: newKeys, listed: null);
+    }
+    final file = await open(held);
+    if (file != null) return (file: file, newKeys: null, listed: null);
+    if (name == _primaryName) unreadable();
+    final listed = editOnly
+        ? unserved.where((k) => k.name == name).firstOrNull
+        : TomSecretsPrimaryVaults(_primary!.file).byName(name);
+    if (listed == null || listed.locator != opened.locator) unreadable();
+    final keys = TomSecretsHeldKeys.fromVaultKeys(listed);
+    final rekeyed = await open(keys);
+    if (rekeyed == null) {
+      keys.dispose();
+      unreadable();
+    }
+    return (file: rekeyed, newKeys: keys, listed: listed);
+  }
+
+  /// Writes the re-keyed file of [name] ([_rekeyed]) as it is and makes its
+  /// new keys the store's.
+  Future<TomSecretsSaveResult> _saveRekeyed(
+    String name,
+    TomSecretsOpenedVault opened,
+    Uint8List stored,
+    _Opening rekey, {
+    required String? baseRevision,
+    required bool editOnly,
+    required TomSecretsMachine machine,
+  }) async {
+    final locator = opened.locator;
+    final TomSecretsCommitted committed;
+    try {
+      if (baseRevision != null && baseRevision != _revisionOf(opened)) {
+        throw TomSecretsSaveException(
+          'denied',
+          'a re-keyed file is written over the copy the service holds only',
+          reason: 'stale_base',
+        );
+      }
+      committed = await opener.rekey(
+        locator,
+        rekey.file,
+        base: opened.stored,
+        stored: stored,
+        outerKey: rekey.newKeys!.outerKeyText,
+      );
+    } on TomSecretsSaveException {
+      rekey.newKeys!.dispose();
+      rethrow;
+    } on Object catch (e) {
+      rekey.newKeys!.dispose();
+      final failure = tomSecretsFetchFailureOf(e);
+      if (failure == null) rethrow;
+      final now = TomSecretsStoreState.offlineFor(failure);
+      throw TomSecretsSaveException(
+        now.wireName,
+        now == TomSecretsStoreState.offline
+            ? 'the store cannot be reached'
+            : 'the store\'s token was refused',
+      );
+    }
+    final written = committed.opened;
+    final revision = _revisionOf(written);
+    if (editOnly) {
+      _editOnly[name] = written;
+      _editHeld.remove(name)?.dispose();
+      _editHeld[name] = rekey.newKeys!;
+      _editListed[name] = rekey.listed!;
+      return TomSecretsSaveResult(revision: revision, rekeyed: true);
+    }
+    if (name == _primaryName) {
+      _primaryKeys?.dispose();
+      _primaryKeys = rekey.newKeys!;
+      _primary = written;
+      // Copies under the old keys are no merge base any more.
+      _ownWrites.clear();
+    } else {
+      _held.remove(name)?.dispose();
+      _held[name] = rekey.newKeys!;
+      _keys[name] = rekey.listed!;
+    }
+    _opened[name] = written;
+    _fetched(name, null);
+    _setStatus(name, locator, TomSecretsStoreState.current, from: written);
+    _rebuildOpened(machine);
+    return TomSecretsSaveResult(revision: revision, rekeyed: true);
   }
 
   /// The stores whose branch was rewritten and that wait for the user's
@@ -1349,12 +1574,23 @@ final class TomSecretsVaultSet {
     };
     // A vault opened for editing whose listing went or changed is dropped;
     // the app reads it again.
+    // Keys that changed while the file did not move keep the copy and the
+    // keys held: a rotation in progress, whose re-keyed save takes the new
+    // keys. A file that moved is read again by the app.
     for (final name in [..._editOnly.keys]) {
       final now = unserved.where((k) => k.name == name).firstOrNull;
       final old = _editListed[name];
-      if (now == null || old == null || !_sameKeys(old, now)) {
-        _dropEditOnly(name);
+      final copy = _editOnly[name]!;
+      var drop = now == null || old == null || old.locator != now.locator;
+      if (!drop && !_sameKeys(old, now)) {
+        try {
+          drop = await opener.revision(now.locator) != _revisionOf(copy);
+        } on Object {
+          drop = true;
+        }
+        if (epoch != _epoch) return const TomSecretsRefreshReport();
       }
+      if (drop) _dropEditOnly(name);
     }
     for (final name in [..._status.keys]) {
       if (name == primaryName || listed.containsKey(name)) continue;
@@ -1374,10 +1610,12 @@ final class TomSecretsVaultSet {
         continue;
       }
       _keys[name] = keys;
-      var use = changed ? null : _held[name];
+      final heldBefore = _held[name];
+      final wasOpen = _opened.containsKey(name);
+      var use = changed ? null : heldBefore;
       TomSecretsHeldKeys? fresh;
       use ??= fresh = TomSecretsHeldKeys.fromVaultKeys(keys);
-      final outcome = await _refreshStore(
+      var outcome = await _refreshStore(
         name,
         keys.locator,
         use.credentials,
@@ -1387,6 +1625,32 @@ final class TomSecretsVaultSet {
       if (epoch != _epoch) {
         fresh?.dispose();
         return const TomSecretsRefreshReport();
+      }
+      if (fresh != null &&
+          wasOpen &&
+          heldBefore != null &&
+          old?.locator == keys.locator &&
+          _status[name]?.state == TomSecretsStoreState.needsUnlock) {
+        // A rotation in progress (part-key-rotation): the primary lists the
+        // new keys, the re-keyed file is still to be saved. While the keys
+        // held still open the file it stays served with them; the re-keyed
+        // save makes the listed keys the store's.
+        final kept = await _refreshStore(
+          name,
+          keys.locator,
+          heldBefore.credentials,
+          heldBefore.outerKeyText,
+          reopen: true,
+        );
+        if (epoch != _epoch) {
+          fresh.dispose();
+          return const TomSecretsRefreshReport();
+        }
+        if (_opened.containsKey(name)) {
+          fresh.dispose();
+          fresh = null;
+          outcome = kept;
+        }
       }
       if (fresh != null) {
         if (_opened.containsKey(name)) {

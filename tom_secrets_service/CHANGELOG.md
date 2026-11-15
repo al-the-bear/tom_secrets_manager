@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0
+
+- Re-keyed saves (part-key-rotation, protocol.md 6.4): a further vault's
+  file that opens only with the keys the primary lists for it now is taken
+  as re-keyed; the primary's carries its new keys in `save`'s `keys`, which
+  then replace its key file and repository key in the device keychain. A
+  re-keyed file is written as it is through the opener's new `rekey` (never
+  merged; `stale_base` when the file moved), and the store's keys are the
+  new ones from then on. A vault whose listed keys do not open it yet stays
+  served with the keys held, and a vault not served keeps its copy while
+  its file has not moved.
+- `compact` takes `retentionDays`, replacing the repository's retention
+  (0 after a key change).
+
 ## 0.5.0
 
 - A `github:` store whose branch was rewritten without a compaction:

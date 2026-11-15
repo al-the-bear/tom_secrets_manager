@@ -65,7 +65,10 @@ service parse references with one implementation.
   device is their author and committer when the storage is built with
   `TomGitHubStorage(committer: tomSecretsDeviceCommitter(device))`
   (`<device>@tsm.invalid`). The outer
-  encryption plugs in as a `TomSecretsVaultCodec`. `TomSyncEngine` drives it
+  encryption plugs in as a `TomSecretsVaultCodec`. `rekey` commits a
+  re-keyed file as it is on top of the base's head (never merged; a moved
+  branch is refused) and switches the unit to the new credentials and outer
+  layer (part-key-rotation). `TomSyncEngine` drives it
   (pull, merge, push, retries, journal, status).
 - **The merge** (`tomSecretsMergeVaults`, DP-7): entries and groups are
   records keyed by UUID (`tomMergeKeyed`); a field only one side changed takes

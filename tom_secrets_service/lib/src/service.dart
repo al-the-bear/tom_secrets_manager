@@ -38,7 +38,7 @@ import 'secret_frame.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.5.0';
+const String tomSecretsServiceVersion = '0.6.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -490,8 +490,9 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   Future<void> _compact(
     int id,
     String repository,
-    TomSecretsConnection connection,
-  ) async {
+    TomSecretsConnection connection, {
+    int? retentionDays,
+  }) async {
     final github = _github;
     if (github == null || !github.repositories.contains(repository)) {
       connection.sendError(id, 'not_found', 'no open vault in $repository', {
@@ -500,7 +501,9 @@ final class TomSecretsService implements TomSecretsApprovalHost {
       return;
     }
     try {
-      final result = await _serial(() => github.compact(repository));
+      final result = await _serial(
+        () => github.compact(repository, retentionDays: retentionDays),
+      );
       log.info('compact', {
         'repository': repository,
         'compacted': result.compacted,
@@ -544,6 +547,35 @@ final class TomSecretsService implements TomSecretsApprovalHost {
           ],
         },
       );
+    }
+  }
+
+  /// Keeps the primary's re-keyed [keys] in the device keychain, where the
+  /// unlock takes them (part-stores): its key file (`tsm.key-file.<id>`,
+  /// removed when the primary has none any more) and for a `.tsmx` primary
+  /// its repository key (`tsm.repository-key.<id>`). A keychain that fails
+  /// is logged; the keys are still held until the lock.
+  Future<void> _keepPrimaryKeys(String locator, TomSecretsHeldKeys keys) async {
+    final keychain = config.keychain;
+    if (keychain == null) return;
+    try {
+      final vault = TomSecretsVaultLocator.parse(locator);
+      final keyFile = keys.keyFile;
+      if (keyFile == null) {
+        await keychain.delete(vault.keyFileHandle);
+      } else {
+        await keychain.write(
+          vault.keyFileHandle,
+          keyFile.withRevealed(base64.encode),
+        );
+      }
+      final outerKey = keys.outerKeyText;
+      if (vault.fileName.endsWith(tomSecretsOuterSuffix) && outerKey != null) {
+        await keychain.write(vault.repositoryKeyHandle, outerKey);
+      }
+      log.info('keychain_keys_replaced', {'store': vault.fileName});
+    } on TomSecretStoreException catch (e) {
+      log.error('keychain_failed', e);
     }
   }
 
@@ -1046,21 +1078,38 @@ final class TomSecretsService implements TomSecretsApprovalHost {
 
   /// Takes the app's edited file of [store] (protocol.md 6.4), tells the
   /// subscribers (`store_changed`) and logs it.
+  ///
+  /// A re-keyed file (part-key-rotation) is taken as [TomSecretsVaultSet.save]
+  /// says: a further vault's with the keys the primary lists for it now, the
+  /// primary's with [newKeys]; the primary's new key file and repository
+  /// key then replace the old ones in the device keychain, where the unlock
+  /// takes them.
   Future<TomSecretsSaveResult> save(
     String store,
     Uint8List stored, {
     String? baseRevision,
+    TomSecretsHeldKeys? newKeys,
   }) async {
+    final primaryLocator = _vaults.primary?.locator;
     final result = await _serial(
       () => _tellingStates(
-        () => _vaults.save(store, stored, baseRevision: baseRevision),
+        () => _vaults.save(
+          store,
+          stored,
+          baseRevision: baseRevision,
+          newKeys: newKeys,
+        ),
       ),
     );
     log.info('save', {
       'store': store,
       'merged': result.merged,
       'conflicts': result.conflicts,
+      if (result.rekeyed) 'rekeyed': true,
     });
+    if (result.rekeyed && newKeys != null && primaryLocator != null) {
+      await _keepPrimaryKeys(primaryLocator, newKeys);
+    }
     _emit({'op': 'store_changed', 'store': store, 'revision': result.revision});
     // The primary holds the grants and the approval records.
     if (store == _vaults.primaryName) await _approvals?.reload();
@@ -1141,6 +1190,27 @@ TomSecretsHeldKeys? _keysOf(Map<String, Object?> m) {
   } on FormatException {
     return null;
   }
+}
+
+/// The primary's new keys a re-keyed `save` carries (`keys`, protocol.md
+/// 6.4): `password`, `keyFile` (base64) and `outerKey` (a repository key,
+/// base64); null when they cannot be read.
+TomSecretsHeldKeys? _newKeysOf(Map<String, Object?> m) {
+  final keys = _keysOf(m);
+  final outerKey = m['outerKey'];
+  if (keys == null) return null;
+  if (outerKey == null) return keys;
+  if (outerKey is! String) {
+    keys.dispose();
+    return null;
+  }
+  try {
+    TomSecretsRepositoryKey.fromBase64(outerKey);
+  } on Object {
+    keys.dispose();
+    return null;
+  }
+  return keys.withOuterKey(TomProtectedValue.of(outerKey));
 }
 
 const int _maxId = 9007199254740991; // 2^53 - 1
@@ -2148,8 +2218,26 @@ final class _AdminSession {
           });
           return;
         }
+        final wireKeys = m['keys'];
+        final newKeys = wireKeys is Map
+            ? _newKeysOf(wireKeys.cast<String, Object?>())
+            : null;
+        if (wireKeys != null && newKeys == null) {
+          connection.sendError(
+            id,
+            'malformed',
+            'keys carries the primary\'s password, keyFile? and outerKey?',
+            {'reason': 'keys'},
+          );
+          return;
+        }
         try {
-          await service.save(store, stored, baseRevision: base as String?);
+          await service.save(
+            store,
+            stored,
+            baseRevision: base as String?,
+            newKeys: newKeys,
+          );
           connection.send({'op': 'ok', 'id': id});
         } on TomSecretsSaveException catch (e) {
           service.log.info('save_refused', {
@@ -2232,11 +2320,26 @@ final class _AdminSession {
           });
           return;
         }
+        final retention = m['retentionDays'];
+        if (retention != null && (retention is! int || retention < 0)) {
+          connection.sendError(
+            id,
+            'malformed',
+            'retentionDays is a whole number of at least 0',
+            {'reason': 'retentionDays'},
+          );
+          return;
+        }
         if (service.isLocked) {
           connection.sendError(id, 'locked', 'unlock the service first');
           return;
         }
-        await service._compact(id, repository, connection);
+        await service._compact(
+          id,
+          repository,
+          connection,
+          retentionDays: retention as int?,
+        );
       case 'lock':
         await service.lock();
         connection.send({'op': 'ok', 'id': id});
