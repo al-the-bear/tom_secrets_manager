@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- A `github:` store whose branch was rewritten without a compaction:
+  after the refused save it reports the state (`rewritten: {head}` in
+  `statusReport.stores[]` and `store_state`), holds the refused edit and is
+  not refreshed until the manager app answers with `history.resolve`
+  (`take: remote` follows the rewritten branch, `take: merge` merges the
+  held copy over it and commits on top; protocol.md 6.3, 6.4).
+
 ## 0.4.0
 
 - The key reminders take the rotation age of the key pairs and the reminder

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- `TomSecretsVaultUnit.mergeOverRemote` merges a working copy handed in
+  with `replaceWorking(stored:)` over the rewritten remote instead of
+  pushing the bytes it was given, and `takeRemote` drops those bytes.
+
 ## 0.1.2
 
 - The device settings carry the rotation ages and the reminder start of

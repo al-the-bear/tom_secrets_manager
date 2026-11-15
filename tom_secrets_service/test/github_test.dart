@@ -815,6 +815,94 @@ void main() {
       expect(e.details['reason'], 'stale_base');
     });
 
+    /// Another device writes a note to the team file, then the branch is
+    /// force-pushed to a new root commit with that file (a rewrite without
+    /// a compaction): answers the rewritten head.
+    Future<String> forcePushed() async {
+      final theirs = await openTeam(onGitHub('team.kdbx'));
+      final note = KdbxEntry.create(theirs, theirs.body.rootGroup)
+        ..setString(KdbxKeyCommon.TITLE, PlainValue('Rewritten meanwhile'));
+      theirs.body.rootGroup.addEntry(note);
+      await put(_team, theirs);
+      final repo = server.repos[_repo]!;
+      final tree = server.commits[repo.refs['heads/main']!]!.treeSha;
+      const root = 'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0';
+      server.commits[root] = FakeCommit(tree, const [], 'rewritten');
+      repo.refs['heads/main'] = root;
+      return root;
+    }
+
+    test('a branch rewritten without a compaction: the save refused, the '
+        'store reports it and is not refreshed; merged over the remote on '
+        'request', () async {
+      final service = await start();
+      final held = onGitHub('team.kdbx');
+      final root = await forcePushed();
+      events.clear();
+      final e = await refused(save(await editedToken(held, 'token-2'), held));
+      expect(e.kind, 'denied');
+      expect(e.details['reason'], 'history_rewritten');
+      expect(stores(service)['team']!['rewritten'], {'head': root});
+      await settle();
+      expect(ofOp('store_state').last['rewritten'], {
+        'head': root,
+      }, reason: 'the app hears of it');
+      final report = await service.refresh(force: true);
+      expect(report.reopened, isNot(contains('team')), reason: 'it waits');
+      expect(stores(service)['team']!['rewritten'], {'head': root});
+
+      final malformed = await refused(
+        admin.request('history.resolve', {'store': 'team', 'take': 'both'}),
+      );
+      expect(malformed.kind, 'malformed');
+      final answer = await admin.request('history.resolve', {
+        'store': 'team',
+        'take': 'merge',
+      });
+      expect(answer['op'], 'ok');
+      final now = await openTeam(onGitHub('team.kdbx'));
+      expect(token(now), 'token-2', reason: 'the held edit');
+      expect(
+        now.body.rootGroup.getAllEntries().map((e) => e.label),
+        contains('Rewritten meanwhile'),
+        reason: 'the remote\'s',
+      );
+      expect(commits()[1].message, 'rewritten', reason: 'on top of it');
+      expect(stores(service)['team']!.containsKey('rewritten'), isFalse);
+      expect(await get('team/Api/Token'), 'token-2');
+      expect(
+        (await refused(
+          admin.request('history.resolve', {'store': 'team', 'take': 'merge'}),
+        )).kind,
+        'not_found',
+        reason: 'nothing waits any more',
+      );
+    });
+
+    test('taking the remote drops the refused edit and serves the rewritten '
+        'file', () async {
+      final service = await start();
+      final held = onGitHub('team.kdbx');
+      final root = await forcePushed();
+      await refused(save(await editedToken(held, 'token-lost'), held));
+      final before = commits().length;
+      await admin.request('history.resolve', {
+        'store': 'team',
+        'take': 'remote',
+      });
+      expect(commits(), hasLength(before), reason: 'nothing written');
+      expect(server.repos[_repo]!.refs['heads/main'], root);
+      expect(await get('team/Api/Token'), 'token-1');
+      final file = await admin.request('vaultFile', {'store': 'team'});
+      final served = await openTeam(base64.decode(file['bytes']! as String));
+      expect(
+        served.body.rootGroup.getAllEntries().map((e) => e.label),
+        contains('Rewritten meanwhile'),
+      );
+      expect(file['revision'], isNot(tomSecretsBlobId(held)));
+      expect(stores(service)['team']!.containsKey('rewritten'), isFalse);
+    });
+
     test('GitHub unreachable or refusing the token during a save: refused '
         'with offline / token_expired, the store on its copy', () async {
       final service = await start();

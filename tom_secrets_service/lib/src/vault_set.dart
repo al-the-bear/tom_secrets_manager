@@ -158,6 +158,23 @@ abstract interface class TomSecretsVaultOpener {
     Uint8List? stored,
   });
 
+  /// The head of a rewritten branch (a force push without a compaction) a
+  /// refused [commit] of [locator] met, awaiting the user's answer; null when
+  /// there is none (and always for a `file:` vault).
+  String? rewrittenHeadOf(String locator);
+
+  /// Answers a rewritten branch of [locator] ([rewrittenHeadOf]): with
+  /// [takeRemote] the remote file is taken as it is and the refused edit is
+  /// dropped; otherwise the held copy is merged over the remote (nothing
+  /// taken as deleted) and committed on top of it. Answers the store as it
+  /// is then; throws [StateError] when no answer is awaited, the storage's
+  /// failure when the remote cannot be reached, and
+  /// [TomSecretsSaveException] when the branch moved again.
+  Future<TomSecretsCommitted> resolveRewritten(
+    String locator, {
+    required bool takeRemote,
+  });
+
   /// Drops whatever the opener keeps of the vaults it opened (on lock).
   void drop();
 }
@@ -246,6 +263,16 @@ final class TomSecretsLocatorOpener implements TomSecretsVaultOpener {
     outerKey: outerKey,
     stored: stored,
   );
+
+  @override
+  String? rewrittenHeadOf(String locator) =>
+      _for(locator).rewrittenHeadOf(locator);
+
+  @override
+  Future<TomSecretsCommitted> resolveRewritten(
+    String locator, {
+    required bool takeRemote,
+  }) => _for(locator).resolveRewritten(locator, takeRemote: takeRemote);
 
   @override
   void drop() {
@@ -362,6 +389,15 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
       conflicts: conflicts,
     );
   }
+
+  @override
+  String? rewrittenHeadOf(String locator) => null;
+
+  @override
+  Future<TomSecretsCommitted> resolveRewritten(
+    String locator, {
+    required bool takeRemote,
+  }) => throw StateError('a file: vault has no branch to answer for');
 
   @override
   void drop() {}
@@ -499,10 +535,15 @@ final class TomSecretsStoreStatus {
     this.fetchedAt,
     this.revision,
     this.notPushed = 0,
+    this.rewrittenHead,
   });
 
   /// The store's name.
   final String name;
+
+  /// The head of its rewritten branch awaiting the user's answer
+  /// (`history.resolve`), or null.
+  final String? rewrittenHead;
 
   /// Its state.
   final TomSecretsStoreState state;
@@ -537,6 +578,7 @@ final class TomSecretsStoreStatus {
     'source': wireSource,
     'fetchedAt': ?fetchedAt?.toUtc().toIso8601String(),
     'notPushed': notPushed,
+    if (rewrittenHead != null) 'rewritten': {'head': rewrittenHead},
   };
 }
 
@@ -609,6 +651,11 @@ final class TomSecretsVaultSet {
   // refreshed; dropped on the lock.
   final Map<String, TomSecretsOpenedVault> _editOnly = {};
   final Map<String, TomSecretsVaultKeys> _editListed = {};
+
+  // The stores whose branch was rewritten without a compaction, by the
+  // rewritten head, until the user answers (`history.resolve`); not
+  // refreshed meanwhile, so the question stays.
+  final Map<String, String> _rewritten = {};
   final Map<String, TomSecretsHeldKeys> _editHeld = {};
 
   /// Whether the primary is open.
@@ -1130,7 +1177,19 @@ final class TomSecretsVaultSet {
         // Unmerged, the app's file is written as it saved it.
         stored: merged ? null : stored,
       );
-    } on TomSecretsSaveException {
+    } on TomSecretsSaveException catch (e) {
+      final head = e.reason == 'history_rewritten' && !editOnly
+          ? opener.rewrittenHeadOf(locator)
+          : null;
+      if (head != null) {
+        _rewritten[name] = head;
+        _setStatus(
+          name,
+          locator,
+          _status[name]?.state ?? TomSecretsStoreState.current,
+          from: opened,
+        );
+      }
       rethrow;
     } on Object catch (e) {
       final failure = tomSecretsFetchFailureOf(e);
@@ -1171,6 +1230,64 @@ final class TomSecretsVaultSet {
       revision: _revisionOf(written),
       merged: merged || committed.merged,
       conflicts: conflicts + committed.conflicts,
+    );
+  }
+
+  /// The stores whose branch was rewritten and that wait for the user's
+  /// answer, by the rewritten head.
+  Map<String, String> get rewritten => Map.unmodifiable(_rewritten);
+
+  /// Answers the rewritten branch of store [name] (`history.resolve`,
+  /// protocol.md 6.3): [takeRemote] takes the remote file as it is (the
+  /// refused edit is dropped), otherwise the held copy is merged over the
+  /// remote and committed on top of it. The store is served from what the
+  /// answer leaves. Throws [TomSecretsSaveException] (`not_found` when no
+  /// answer is awaited, `offline` / `token_expired` when the remote cannot
+  /// be reached, `denied` when the branch was rewritten again).
+  Future<TomSecretsSaveResult> resolveRewritten(
+    String name, {
+    required bool takeRemote,
+  }) async {
+    final opened = _opened[name];
+    final machine = _machine;
+    if (!_rewritten.containsKey(name) || opened == null || machine == null) {
+      throw TomSecretsSaveException(
+        'not_found',
+        'no rewritten branch waits for an answer on $name',
+      );
+    }
+    final locator = opened.locator;
+    final TomSecretsCommitted committed;
+    try {
+      committed = await opener.resolveRewritten(
+        locator,
+        takeRemote: takeRemote,
+      );
+    } on TomSecretsSaveException {
+      _rewritten[name] = opener.rewrittenHeadOf(locator) ?? _rewritten[name]!;
+      rethrow;
+    } on Object catch (e) {
+      final failure = tomSecretsFetchFailureOf(e);
+      if (failure == null) rethrow;
+      final now = TomSecretsStoreState.offlineFor(failure);
+      throw TomSecretsSaveException(
+        now.wireName,
+        now == TomSecretsStoreState.offline
+            ? 'the store cannot be reached'
+            : 'the store\'s token was refused',
+      );
+    }
+    _rewritten.remove(name);
+    final written = committed.opened;
+    _opened[name] = written;
+    if (name == _primaryName) _primary = written;
+    _fetched(name, null);
+    _setStatus(name, locator, TomSecretsStoreState.current, from: written);
+    _rebuildOpened(machine);
+    return TomSecretsSaveResult(
+      revision: _revisionOf(written),
+      merged: committed.merged,
+      conflicts: committed.conflicts,
     );
   }
 
@@ -1324,6 +1441,7 @@ final class TomSecretsVaultSet {
     source: source ?? from?.source,
     fetchedAt: from?.fetchedAt,
     revision: from == null ? null : _revisionOf(from),
+    rewrittenHead: _rewritten[name],
   );
 
   /// Fetches store [name] at [locator] and reopens it when its file moved
@@ -1337,6 +1455,9 @@ final class TomSecretsVaultSet {
     bool isPrimary = false,
   }) async {
     final held = _opened[name];
+    // A rewritten branch waits for the user's answer: a reopen would take
+    // the remote without asking.
+    if (_rewritten.containsKey(name)) return _Outcome.unchanged;
     try {
       if (!reopen &&
           held != null &&
@@ -1459,6 +1580,7 @@ final class TomSecretsVaultSet {
     _opened.clear();
     _status.clear();
     _keys.clear();
+    _rewritten.clear();
     _disposeHeld();
     _machine = null;
     _resolver = null;

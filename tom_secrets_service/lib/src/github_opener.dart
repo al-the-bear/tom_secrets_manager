@@ -256,6 +256,61 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
     );
   }
 
+  @override
+  String? rewrittenHeadOf(String locator) => _units[locator]?.rewrittenHead;
+
+  /// Answers the rewritten branch of [locator] through its unit:
+  /// [TomSecretsVaultUnit.takeRemote] or
+  /// [TomSecretsVaultUnit.mergeOverRemote] (which commits the merge on top of
+  /// the remote's head).
+  @override
+  Future<TomSecretsCommitted> resolveRewritten(
+    String locator, {
+    required bool takeRemote,
+  }) async {
+    final unit = _units[locator];
+    if (unit == null || unit.rewrittenHead == null) {
+      throw StateError('no rewritten branch of $locator waits for an answer');
+    }
+    var conflicts = 0;
+    if (takeRemote) {
+      await unit.takeRemote();
+    } else {
+      final List<TomSyncConflict> found;
+      try {
+        found = await unit.mergeOverRemote();
+      } on TomCasExhaustedException {
+        throw TomSecretsSaveException(
+          'denied',
+          'the branch moved during every attempt; answer again',
+          reason: 'branch_moving',
+        );
+      } on TomCommitFailedException catch (e) {
+        throw e.cause ?? e;
+      }
+      if (found.any((c) => c is TomSecretsHistoryRewritten)) {
+        throw TomSecretsSaveException(
+          'denied',
+          'the branch was rewritten again',
+          reason: 'history_rewritten',
+        );
+      }
+      conflicts = found.whereType<TomSecretsVaultConflict>().length;
+    }
+    return TomSecretsCommitted(
+      opened: TomSecretsOpenedVault(
+        locator: locator,
+        file: unit.working,
+        stored: unit.baseBytes,
+        revision: unit.head,
+        source: 'github',
+        fetchedAt: unit.fetchedAt,
+      ),
+      merged: !takeRemote,
+      conflicts: conflicts,
+    );
+  }
+
   /// The repositories (`owner/repository`) of the vaults open.
   Set<String> get repositories => {
     for (final locator in _units.keys) _parse(locator).repositorySlug,

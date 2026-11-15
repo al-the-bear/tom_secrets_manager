@@ -112,6 +112,11 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   merged three-way when another device pushed meanwhile, then kept in the
   offline cache (`denied` with `history_rewritten` for a branch rewritten
   without a compaction, `branch_moving` when it moved on every attempt).
+  After a refusal for a rewritten branch the store reports
+  `rewritten: {head}` (status and `store_state`), keeps the refused edit and
+  is not refreshed until the manager app answers with `history.resolve`:
+  `take: remote` follows the rewritten branch, `take: merge` merges the held
+  copy over it and commits on top.
   **A vault this machine does not serve** (BP-15) goes the same way: the
   primary lists it with its keys, `vaultKeySet.unserved` names it,
   `vaultKeys` naming it answers its keys (`served` false), and `vaultFile`

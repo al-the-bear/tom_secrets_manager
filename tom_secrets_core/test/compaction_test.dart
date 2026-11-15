@@ -370,6 +370,61 @@ void main() {
       ));
       expect(head.parentShas, [forced], reason: 'committed on top');
     });
+
+    test('a working copy handed in as bytes (replaceWorking, as the service '
+        'does) is merged over the remote too, not pushed as it was given; '
+        'taking the remote drops those bytes', () async {
+      final a = await TomSecretsVaultUnit.create(
+        locator: locator,
+        storage: device('mbp'),
+        file: demoVault(),
+        device: 'mbp',
+      );
+      final b = await open('bigbeast');
+      // The app's edit of the copy b holds, before the remote moves on.
+      final edited = await open('app');
+      byTitle(edited.working, 'Main').setString(notes, PlainValue('local'));
+      final stored = await edited.codec.encode(await edited.working.save());
+      byTitle(a.working, 'Main').setString(user, PlainValue('remote user'));
+      a.markEdited();
+      await a.push();
+      final forced = await rewrite('force push');
+
+      expect((await b.pull(forced)).single, isA<TomSecretsHistoryRewritten>());
+      b.replaceWorking(edited.working, stored: stored);
+
+      await b.mergeOverRemote();
+      final check = await open('bomber');
+      expect(noteOf(check.working, 'Main'), 'local');
+      expect(
+        byTitle(check.working, 'Main').getString(user)?.getText(),
+        'remote user',
+        reason: 'the remote is in the merge, not just the bytes given',
+      );
+
+      final c = await open('bigbeast');
+      byTitle(check.working, 'Main').setString(notes, PlainValue('remote 2'));
+      check.markEdited();
+      await check.push();
+      final forced2 = await rewrite('force push again');
+      expect((await c.pull(forced2)).single, isA<TomSecretsHistoryRewritten>());
+      c.replaceWorking(edited.working, stored: stored);
+      await c.takeRemote();
+      byTitle(c.working, 'Box').setString(notes, PlainValue('after take'));
+      c.markEdited();
+      await c.push();
+      final after = await open('bomber');
+      expect(noteOf(after.working, 'Box'), 'after take');
+      expect(
+        noteOf(after.working, 'Main'),
+        'remote 2',
+        reason: 'the remote taken, the bytes given dropped',
+      );
+      expect(
+        byTitle(after.working, 'Main').getString(user)?.getText(),
+        'remote user',
+      );
+    });
   });
 
   group('the app compacts with tom_git', () {

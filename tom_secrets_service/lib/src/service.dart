@@ -38,7 +38,7 @@ import 'secret_frame.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.4.0';
+const String tomSecretsServiceVersion = '0.5.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -914,7 +914,9 @@ final class TomSecretsService implements TomSecretsApprovalHost {
       for (final s in _vaults.status) {
         final was = before[s.name];
         if (was != null &&
-            (was.state != s.state || was.wireSource != s.wireSource)) {
+            (was.state != s.state ||
+                was.wireSource != s.wireSource ||
+                was.rewrittenHead != s.rewrittenHead)) {
           _emitState(s);
         }
       }
@@ -928,7 +930,31 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     'source': status.wireSource,
     'fetchedAt': ?status.fetchedAt?.toUtc().toIso8601String(),
     'notPushed': status.notPushed,
+    if (status.rewrittenHead != null)
+      'rewritten': {'head': status.rewrittenHead},
   });
+
+  /// Answers the rewritten branch of [store] (`history.resolve`, protocol.md
+  /// 6.3), tells the subscribers (`store_state`, `store_changed`) and logs
+  /// it.
+  Future<TomSecretsSaveResult> resolveRewritten(
+    String store, {
+    required bool takeRemote,
+  }) async {
+    final result = await _serial(
+      () => _tellingStates(
+        () => _vaults.resolveRewritten(store, takeRemote: takeRemote),
+      ),
+    );
+    log.info('history_resolved', {
+      'store': store,
+      'take': takeRemote ? 'remote' : 'merge',
+      'conflicts': result.conflicts,
+    });
+    _emit({'op': 'store_changed', 'store': store, 'revision': result.revision});
+    if (store == _vaults.primaryName) await _approvals?.reload();
+    return result;
+  }
 
   /// Writes the service's own edits of the primary (grants, revocations,
   /// approval records, their last use). When the remote cannot be reached
@@ -2238,6 +2264,46 @@ final class _AdminSession {
         for (final key in service.expiring) {
           service._reminded[key.key] = key.step;
           connection.send(key.toEvent());
+        }
+      case 'history.resolve':
+        final store = m['store'];
+        final take = m['take'];
+        if (store is! String || (take != 'remote' && take != 'merge')) {
+          connection.sendError(
+            id,
+            'malformed',
+            'history.resolve names a store and take: remote or merge',
+            {'reason': 'history'},
+          );
+          return;
+        }
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        try {
+          final result = await service.resolveRewritten(
+            store,
+            takeRemote: take == 'remote',
+          );
+          connection.send({
+            'op': 'ok',
+            'id': id,
+            'revision': result.revision,
+            'conflicts': result.conflicts,
+          });
+        } on TomSecretsSaveException catch (e) {
+          connection.sendError(id, e.kind, e.message, {
+            if (e.kind == 'offline' || e.kind == 'token_expired')
+              'stores': [store],
+            'reason': ?e.reason,
+          });
         }
       case 'settings.get':
         if (service.isLocked || service.deviceContainer == null) {

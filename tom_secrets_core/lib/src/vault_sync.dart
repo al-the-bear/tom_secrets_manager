@@ -531,6 +531,7 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
     head = remoteHead;
     _working = await _read(stored);
     _baseBytes = stored;
+    _replacedStored = null;
     _dirty = false;
     _rewrittenHead = null;
     await _retrieved(stored, remoteHead);
@@ -548,6 +549,8 @@ final class TomSecretsVaultUnit implements TomSyncUnit {
       theirs: await _read(stored),
       location: locator,
     );
+    // The working copy is the merge now, not the bytes it was given.
+    _replacedStored = null;
     _merges.add(result);
     _baseBytes = stored;
     head = remoteHead;
