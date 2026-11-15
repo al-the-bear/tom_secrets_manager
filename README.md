@@ -22,9 +22,9 @@ dart build cli --target bin/tom_secrets_service.dart -o build/service
 ```
 
 The release build of `tom_app_secrets_manager` (`tom_secrets_build/ci.sh
-:release`) builds it with `tsm` into the app's distribution. The packages
-still take `tom_secrets_client` by path from `tom_secrets_clients`, cloned
-beside this repository under its GitHub name.
+:release`) builds it with `tsm` into the app's distribution. Every dependency comes from
+pub.dev; the service takes the core by path inside this repository. Both
+packages are on pub.dev: `tom_secrets_core` and `tom_secrets_service`.
 
 ## Packages
 
