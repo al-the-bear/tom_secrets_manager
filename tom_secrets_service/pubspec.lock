@@ -493,10 +493,10 @@ packages:
     dependency: "direct main"
     description:
       name: tom_github_api
-      sha256: caee4d47c1974f3aacf939b983dd70ad09de7e193d8528505881531a57b316d0
+      sha256: "034e4309a376ea09aa40201218ee3d9c55d48c9f738e30f8d7dac55f7b496c0b"
       url: "https://pub.dev"
     source: hosted
-    version: "1.4.0"
+    version: "1.5.0"
   tom_kdbx_store:
     dependency: "direct dev"
     description:
