@@ -12,6 +12,7 @@
 @Timeout(Duration(minutes: 2))
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -300,7 +301,7 @@ void main() {
     final approverKey = await mbp.trust.linkKey();
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(server.close);
-    final answers = <Map<String, Object?>>[];
+    final answered = Completer<Map<String, Object?>>();
     server.listen((socket) async {
       final session = await TomSecretsLinkSession.respond(
         TomSecretsSocketChannel(socket),
@@ -312,7 +313,7 @@ void main() {
       // nothing for a late listener.
       session.messages.listen((m) async {
         if (m['id'] == 'host-link-key') {
-          answers.add(m);
+          if (!answered.isCompleted) answered.complete(m);
         } else if (m['id'] is int) {
           await session.send({'op': 'ok', 'id': m['id']});
         }
@@ -341,8 +342,9 @@ void main() {
       onHostLinkKey: (key) async => taken = key,
     );
     expect(taken, isNull);
-    await pumpEventQueue();
-    expect(answers.single['op'], 'error');
+    // The answer to the key may arrive after the delivery has ended.
+    final answer = await answered.future.timeout(const Duration(seconds: 5));
+    expect(answer['op'], 'error');
   });
 
   test('keys.rotate refuses nothing to rotate and a locked service', () async {
