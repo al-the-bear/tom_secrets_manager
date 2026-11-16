@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.4
+
+- The client endpoint's rate limits (protocol.md 11), per measured identity
+  (`TomSecretsRateLimits`, `TomSecretsServiceConfig.rateLimits`): a token
+  bucket of 20 `get`/`getMany` a second with bursts of 50 (`rate_limited`,
+  `reason` `requests`, `retryAfterMs`); a 10 s wait per request for ten
+  minutes after ten refusals in a minute; 16 open connections per identity
+  and 256 in all (a connection over them is answered `rate_limited`,
+  `reason` `connections`, at its `hello`).
+
 ## 0.11.3
 
 - The README rewritten: installing and starting, configuration (`bootstrap.yaml`, device settings, environment), what the service does, limits, key types.

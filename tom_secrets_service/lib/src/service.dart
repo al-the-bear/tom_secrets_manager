@@ -36,6 +36,7 @@ import 'link_server.dart';
 import 'lock_policy.dart';
 import 'log.dart';
 import 'peer_identity.dart';
+import 'rate_limits.dart';
 import 'secret_frame.dart';
 import 'token_check.dart';
 import 'vault_set.dart';
@@ -69,6 +70,8 @@ final class TomSecretsServiceConfig {
     this.adminExecutables,
     this.lastUsedInterval,
     this.approverLinkRetry = const Duration(seconds: 5),
+    this.rateLimits = const TomSecretsRateLimitSettings(),
+    this.rateLimitClock,
   }) : clock = clock ?? DateTime.now,
        peerMeasurer = peerMeasurer ?? TomSecretsSystemPeerMeasurer(),
        idleSource = idleSource ?? tomSecretsSystemIdleSource(),
@@ -155,6 +158,12 @@ final class TomSecretsServiceConfig {
   /// The first pause before a session to a paired host is opened again
   /// (doubling up to five minutes); tests make it short.
   final Duration approverLinkRetry;
+
+  /// The client endpoint's rate limits (protocol.md 11).
+  final TomSecretsRateLimitSettings rateLimits;
+
+  /// The clock the rate limits run on (tests); null: the system clock.
+  final DateTime Function()? rateLimitClock;
 }
 
 /// The executables that may administer a service started from
@@ -281,6 +290,12 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   ServerSocket? _adminServer;
   String _clientToken = '';
   final Set<_ClientSession> _clients = {};
+
+  /// The client endpoint's rate limits, per measured identity.
+  late final TomSecretsRateLimits _rateLimits = TomSecretsRateLimits(
+    settings: config.rateLimits,
+    now: config.rateLimitClock,
+  );
   final Set<_AdminSession> _admins = {};
   int _authFailures = 0;
   final Completer<void> _done = Completer<void>();
@@ -1721,10 +1736,20 @@ final class _ClientSession {
           unawaited(connection.close());
         }
       }),
-      onClosed: () => service._clients.remove(this),
+      onClosed: () {
+        service._clients.remove(this);
+        final key = _admitted;
+        if (key != null) service._rateLimits.release(key);
+      },
     );
     service._clients.add(this);
   }
+
+  /// The identity key this connection counts under, once admitted.
+  String? _admitted;
+
+  static String _keyOf(TomSecretsIdentity i) =>
+      '${i.kind}|${i.exe}|${i.script}';
 
   final TomSecretsService service;
   late final TomSecretsConnection connection;
@@ -1736,6 +1761,22 @@ final class _ClientSession {
     final measurement = await service.config.peerMeasurer.measure(socket);
     switch (measurement) {
       case TomSecretsPeerMeasured(:final identity):
+        final key = _keyOf(identity);
+        if (!service._rateLimits.admit(key)) {
+          service.log.info('client_refused', {'reason': 'connections'});
+          connection.sendError(
+            null,
+            'rate_limited',
+            'too many connections are open',
+            {'reason': 'connections', 'retryAfterMs': 1000},
+          );
+          Timer(
+            const Duration(seconds: 5),
+            () => unawaited(connection.close()),
+          );
+          return false;
+        }
+        _admitted = key;
         _identity = identity;
         service.log.debug('client_identity', {
           'kind': identity.kind,
@@ -1781,6 +1822,15 @@ final class _ClientSession {
       if (!_open.add(id as int)) {
         connection.sendError(id, 'malformed', 'the id is in use', {
           'reason': 'duplicate_id',
+        });
+        return;
+      }
+      final wait = service._rateLimits.take(_admitted!);
+      if (wait != null) {
+        _open.remove(id);
+        connection.sendError(id, 'rate_limited', 'too many requests', {
+          'reason': 'requests',
+          'retryAfterMs': wait.inMilliseconds < 1 ? 1 : wait.inMilliseconds,
         });
         return;
       }
@@ -1892,6 +1942,9 @@ final class _ClientSession {
       }
       items = [for (final r in refs) (r as Map).cast<String, Object?>()];
     }
+    // An identity slowed down by repeated refusals waits (protocol.md 11).
+    final delay = service._rateLimits.delayFor(_admitted!);
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
     if (service.isLocked) {
       final wait = m['wait'] != false;
       final timeoutMs = m['timeoutMs'];
@@ -1943,6 +1996,15 @@ final class _ClientSession {
         for (final (request, error) in resolved)
           error ?? _answer(request!, decisions[next++]),
       ];
+      service._rateLimits.refused(
+        _admitted!,
+        [
+          for (final r in results)
+            if (r['op'] == 'error' &&
+                tomSecretsRefusalKinds.contains(r['kind']))
+              r,
+        ].length,
+      );
       if (op == 'get') {
         connection.send({...results.single, 'id': id});
       } else {

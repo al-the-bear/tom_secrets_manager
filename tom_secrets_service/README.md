@@ -437,6 +437,19 @@ session) the service never locks itself, the maximum unlocked time included.
   explicit `lock` (or `shutdown`) locks the service.
 - Values are served only while unlocked; a locked service makes clients wait
   up to the approval timeout.
+- **Rate limits** (protocol.md 11), per measured identity, set by
+  `TomSecretsServiceConfig.rateLimits` (`TomSecretsRateLimitSettings`, the
+  protocol's values by default):
+  - `get` and `getMany`: a token bucket of 20 a second, bursts of 50; over
+    it a request is answered `rate_limited` (`reason` `requests`,
+    `retryAfterMs` until the next one may go);
+  - ten refusals (`denied`, `not_found`, `ambiguous`) within a minute make
+    each request of the identity wait 10 s for the next ten minutes;
+  - at most 16 open connections per identity and 256 in all; a connection
+    over either is answered `rate_limited` (`reason` `connections`) at its
+    `hello` and closed;
+  - the prompts' own limits (prompt flooding, above) and the admin
+    channel's growing delay after failed authentications.
 
 ## Key types
 
@@ -447,6 +460,7 @@ session) the service never locks itself, the maximum unlocked time included.
 | `TomSecretsBootstrap` | `bootstrap.yaml` |
 | `TomSecretsVaultSet` | the open stores, their state and source, the refresh, the editing path's writes |
 | `TomSecretsVaultOpener` | opening and committing one vault: `TomSecretsFileOpener`, `TomSecretsLocatorOpener`, `TomSecretsGitHubOpener` |
+| `TomSecretsRateLimits`, `TomSecretsRateLimitSettings` | the client endpoint's rate limits per identity (protocol.md 11) |
 | `TomSecretsAccessPolicy` | decides each resolved value: `TomSecretsApprovals`, `TomSecretsDenyAllPolicy` |
 | `TomSecretsAccessRequest`, `TomSecretsAccessBatch` | what the policy is asked |
 | `TomSecretsIdentity`, `TomSecretsPeerMeasurer` | the measured client: `TomSecretsSystemPeerMeasurer`, `TomSecretsInterpreters`, `TomSecretsFileHashes`, `TomSecretsPin` |
@@ -494,7 +508,7 @@ session) the service never locks itself, the maximum unlocked time included.
 
 ## Status
 
-Version 0.11.3. The suite runs with `testkit :test` from the package folder.
+Version 0.11.4. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real
