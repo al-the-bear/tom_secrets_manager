@@ -13,7 +13,7 @@
 /// host: bigbeast                                 # default the host name
 /// log_level: info                               # info|debug, default info
 /// admin_executables:                            # who may administer, besides
-///   - /Applications/Tom Secrets Manager.app/Contents/MacOS/tom_secrets_desktop
+///   - /Applications/Tom Secrets Manager.app/Contents/MacOS/tom_secrets_app
 ///                                                # tsm and the app beside the service
 /// ```
 library;

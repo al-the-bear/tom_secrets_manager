@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- The README rewritten as the package's manual; API summaries of every area in `doc/api/`.
+
 ## 0.2.1
 
 - Setting a machine up by pairing (part-sharing):

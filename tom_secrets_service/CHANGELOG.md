@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.3
+
+- The README rewritten: installing and starting, configuration (`bootstrap.yaml`, device settings, environment), what the service does, limits, key types.
+
 ## 0.11.2
 
 - The approver's links (`TomSecretsApproverLinks`): the service keeps a

@@ -1,251 +1,555 @@
-# Tom Secrets Core
+# tom_secrets_core
 
-The core of the Tom Secrets Manager: the pure-Dart library the service and the
-apps share. It reads KDBX files only through `tom_kdbx_store`, and takes the
-reference grammar from `tom_secrets_client`, so the clients, the core and the
-service parse references with one implementation.
+> Part of the **Tom Secrets Manager** by al-the-bear.
+> © 2026 Peter Nicolai Alexis Kyaw — BSD-3-Clause, see [LICENSE](LICENSE).
 
-## What it holds
+The core of the Tom Secrets Manager: secret stores over KDBX files, overlays,
+dimensions and the resolution of secret references, the GitHub vault cycle and
+the outer encryption.
 
-- **Stores** (`TomSecretsStore`): one KDBX file under its store name (the
-  machine's configuration, else the metadata's `tsm.store`, else the file
-  name), indexed for resolution. Each entry gets its logical path (the groups
-  below the root without the overlay groups, then the title), its bindings
-  (the file binding and its overlay groups) and its flat key (`tsm.key`). The
-  recycle bin, the metadata entry and the `tsm.grants` group are never
-  reached; an overlay that binds a dimension twice, an overlay group between
-  ordinary groups and a `tsm.key` that is not a key are skipped and named in
-  `warnings`.
-- **Overlays**: a group `@<dimension>:<value>` binds every entry below it,
-  at the file's root (`@host:bomber/Telegram/Bot`) or inside the entry's own
-  group (`Telegram/@host:bomber/Bot`), nestable.
-- **The metadata entry** `.tom-secrets` (`TomSecretsMetadata`): `tsm.format`,
-  `tsm.store`, `tsm.kind`, `tsm.purpose`, `tsm.dimensions` (the file binding)
-  and, in the primary vault, `tsm.config` and `tsm.keys-due` (when the
-  primary's own key file and repository key are due for rotation).
-- **The shared configuration** `tsm.config` (`TomSecretsConfig`): the
-  dimensions in priority order with an optional configured `default` and
-  `fallback_to_default` (off unless set), and the stores per environment
-  (a local path or a GitHub repository and path). Built-in dimensions the
-  list leaves out (`host`, `platform`, `env`) come first, in that order.
-- **Resolution** (`TomSecretsResolver`): the request's value per dimension (a
-  binding in the brackets, else beside the reference, else the machine's
-  value, else the configured default, else `default`); candidates (a path, a
-  `~uuid` with the overlays of its path, or a key with the overlays at each
-  keyed entry's path); the strict match with the per-dimension fallback; the
-  rank vectors (2 bound to the value, 1 kept by the fallback, 0 unbound);
-  ambiguity; the field (a string field, `attachment:<name>`, the virtual
-  `totp`; passkey fields are `denied`). Failures are
-  `TomSecretsResolveException`s with the protocol's kinds and details.
-  `explain` walks the same ranking without reading a field: the request's
-  values, every candidate kept with its rank vector or dropped by the binding
-  that drops it, and the outcome (resolved, ambiguous, not found), for an
-  editor that shows how a request resolves. The
-  value (`TomSecretsFieldValue`) is held as a `TomProtectedValue` of
-  `tom_crypto`: masked, read with `withBytes` (bytes zeroed after use; a
-  protected field never passes through a `String`), and zeroed by
-  `dispose`, which leaves the vault's own bytes alone.
-- **The KDBX mapping** (`TomSecretsEntryFields`, `TomSecretsEntryType`) and
-  **TOTP** (`TomSecretsTotp`, RFC 6238): the three conventions `otp`,
-  `OTPAuth` and `TimeOtp-*`, read in that order and written together.
+## Overview
 
-- **Vault locators** (`TomSecretsVaultLocator`): `file:<absolute path>`,
-  `github:<owner>/<repo>[@<branch>]/<path>`, and `git:` (recognised, not
-  advertised in phase A).
-- **The GitHub cycle** (`TomSecretsVaultUnit`, DP-81): a vault as one
-  `tom_core_sync` sync unit over a `tom_core_storage` backend —
-  `TomGitHubStorage` for `github:`, the REST API, no clone. Open reads the
-  head and the file at it (re-reading until the head is the same before and
-  after); save commits one file on top of the base and moves the branch
-  without force; a refused move reads the new head, merges three-way and
-  commits again, up to `maxPushAttempts`, then throws
-  `TomCasExhaustedException` (the work stays local); a transport failure
-  throws `TomCommitFailedException` for the engine's journal. Commit messages
-  name the vault and the device (`tsm: fleet.kdbx from bigbeast`), and the
-  device is their author and committer when the storage is built with
-  `TomGitHubStorage(committer: tomSecretsDeviceCommitter(device))`
-  (`<device>@tsm.invalid`). The outer
-  encryption plugs in as a `TomSecretsVaultCodec`. `rekey` commits a
-  re-keyed file as it is on top of the base's head (never merged; a moved
-  branch is refused) and switches the unit to the new credentials and outer
-  layer (part-key-rotation). `TomSyncEngine` drives it
-  (pull, merge, push, retries, journal, status).
-- **The merge** (`tomSecretsMergeVaults`, DP-7): entries and groups are
-  records keyed by UUID (`tomMergeKeyed`); a field only one side changed takes
-  that side; a real conflict keeps the newer value, puts the loser into the
-  entry's history (addressed by its modification time, never pruned while
-  open) and records a `TomSecretsEntryConflict` in the entry's custom data
-  `tsm.conflict` until `tomSecretsSettleConflicts`; a deletion against no
-  change deletes, an edit against a deletion stands and is reported; moves
-  (overlay groups included) are an attribute; history is the union of both
-  sides, pruned to the vault's limit; deletions and the recycle bin carry
-  over; meta custom data merges per key; another product format major
-  (`tsm.format`) or another vault is refused (`TomMergeRefusedException`).
-  A null base merges a force-pushed branch.
-- **New vaults** (`tomSecretsNewVault`, BP-36): KDBX 4.1, the key derived
-  through Argon2id; `tomSecretsDefaultArgon2` is 64 MiB, 3 iterations,
-  1 lane, which the app tunes at creation. The primary and every further
-  vault are created this way, and `TomSecretsVaultUnit.create` refuses a file
-  keyed otherwise.
-- **Key files** (`TomSecretsKeyFile`, BP-18): a KeePass 2.0 XML key file
-  (32 random bytes with their hash, written as KeePass 2.5x writes it), read
-  back with its hash checked; `credentials(password)` is the composite key
-  (`Credentials.composite` with the file's bytes, from which the key is
-  derived once, as KeePass derives it, so the same key file opens the vault in
-  KeePass and KeePassXC). It never goes to GitHub; the primary vault keeps
-  it as an attachment.
-- **Approvals' building blocks** (protocol.md 9; DP-160, TD-3): signed
-  objects (`TomSecretsApproverKey`, `tomSecretsSignedBytes`,
-  `tomSecretsAcceptedBy`, `tomSecretsAcceptKeyChange`: grants, revocations,
-  approval records, key-change statements, each signed with Ed25519 and
-  hedged ML-DSA-65 and accepted only when one recorded key signed with
-  both); the approval code and its token (`tomSecretsApprovalCode`,
-  `tomSecretsCodeToken`, `tomSecretsRedeemToken`); the approval link
-  (`TomSecretsLinkSession.initiate` / `respond`: Noise KK with ML-KEM-768
-  paired to every Diffie-Hellman, ChaCha20-Poly1305 transport with REKEY,
-  over a `TomSecretsApprovalChannel`); the grants group of the primary vault
-  (`TomSecretsGrantsGroup`, `tsm.grants/<host>`); and a device's trust
-  material in its device settings container (`TomSecretsTrust`: its
-  approver and link key pairs, the audit-log key, the approvers and hosts it
-  recorded with their approval-token keys, recorded pin hashes, and since
-  when each key pair is in use, the start of its rotation age:
-  `stampKeyDates` dates the keys of trust material written before the dates
-  were kept; `rotateApproverKey` makes a new approver pair and its
-  key-change statement, signed by the old and the new pair, and
-  `rotateLinkKey` a new link pair, the previous one used for the hosts the
-  new key has not reached for 14 days, `linkKeyFor`). Tested
-  byte for byte against `signatures.json`, `approval_codes.json` and
-  `link_handshake.json`.
-- **Pairing** (part-sharing, protocol.md 9.8; DP-60–DP-64, DP-177):
-  `TomSecretsSpake2` (RFC 9382, P256-SHA256-HKDF-HMAC, checked with the
-  RFC's vectors), the pairing code (`TomSecretsPairingCode`,
-  `<number>-<word>-<word>`), the pairing itself over a channel
-  (`tomSecretsGivePairing` / `tomSecretsReceivePairing`: SPAKE2, an
-  ML-KEM-768 exchange inside, the session key over both secrets and the
-  transcript, the bundle and the receiving side's keys under it, the
-  approval-token key), the giving side's window on the LAN and VPN
-  addresses (`TomSecretsPairingWindow`), and the device records of the
-  primary (`TomSecretsDeviceRecords`). A machine being set up receives with
-  `tomSecretsReceivePairingForSetup` (fresh trust material, a bundle it
-  cannot be set up from refused on both sides, nothing stored) and is set up
-  by `TomSecretsFirstRun.runPaired` (the bundle's primary opened with the
-  master password, every vault's keys and the tokens in the keychain, the
-  trust material with the giving device recorded).
-- **The outer encryption** (`tomSecretsOuterEncrypt` / `Decrypt`,
-  `TomSecretsOuterCodec`, DP-80, DP-84): a vault stored as
-  `<vault>.kdbx.tsmx`, encrypted once under a fresh random file key that is
-  wrapped under each repository key in a key slot (phase A writes one). The
-  layout (magic `TSMX`, version, cipher id, slots of key id, nonce and wrapped
-  key, content nonce, ciphertext) and the authenticated data (the header and
-  the file's path) are documented in `lib/src/outer.dart`. Cipher id 2,
-  XChaCha20-Poly1305 with a 192-bit nonce, is the default; cipher id 1,
-  AES-256-GCM with a 96-bit nonce, is selectable per repository; both from
-  `cryptography`. A file no held key has a slot for is a
-  `TomKeyRequiredException`, so the sync engine asks for a key; an altered or
-  moved file is a `TomSecretsOuterException`. The codec plugs into
-  `TomSecretsVaultUnit`. `TomSecretsRepositoryKey` (256 bits, key id = the
-  first 8 bytes of its SHA-256) moves as base64 (`tsm.outer-key` in the
-  primary vault). `test/fixtures/outer/` holds phase-A files every later
-  version must open.
-- **The offline cache** (`TomSecretsOfflineCache`, DP-75, desktop and
-  service only; the mobile app passes none): the last file retrieved of each
-  vault, stored as it came (`<vault>.kdbx` or `.kdbx.tsmx`, still encrypted)
-  under `<cache>/<owner>/<repository>/<path>`, with a record (locator, the
-  head it was read at, blob id, time fetched). `TomSecretsVaultUnit` keeps it
-  current on every read and write; when the remote cannot be reached or
-  refuses the token the vault opens from it (`source: cache`, `fetchedAt`,
-  `offlineReason`), with no age limit, and an offline edit is merged against
-  it on reconnecting. Removing a vault from the device calls `remove`.
-- **Compaction or force push** (`tomSecretsClassifyMove`, a
-  `TomSecretsCommitReader` over the GitHub REST API or a `tom_git`
-  repository): the remote history is walked from the branch head for the
-  commit whose file is the base's blob. Found: merged as usual. A compaction's
-  root (`Tsm-Compacted-From`, `Tsm-Retention`): followed silently. Neither: a
-  `TomSecretsHistoryRewritten` conflict, nothing merged, and the user chooses
-  `takeRemote` or `mergeOverRemote` (three-way against an empty base).
-- **History compaction** (DP-9, DP-82): `tomSecretsCompact` is the app's,
-  run after a key change (retention 0: one root commit holding the files as
-  they are) and for "Compact now" (the repository's retention), the root by
-  the device (`tomSecretsDeviceCommitter`), pushed with `tom_git` over the
-  git protocol (`tomSecretsGitHubRemote` for a `github:` vault) with the old
-  head as the expected value, retried when a save
-  lands in between; `followCompaction` moves the device's own base.
-  `tomSecretsCompactionFiles` are the files each vault repository carries:
-  `.github/workflows/compact.yml` (no actions, no vault key; the user commits
-  it), `.tsm/compact.sh` (the cut with git, `--force-with-lease`) and
-  `.tsm/compaction.yaml` (`retention_days` 90, `interval_days` 30).
-- **Imports** (`tomSecretsImport`, part-password-manager): an export read
-  into a `TomSecretsImportSource` is written the same way for every source.
-  Each source vault goes to a target (`TomSecretsImportTarget`, default
-  `<source>/<vault name>`, or a file of its own). Archived items are left out
-  unless `includeArchived` (then `Archive` with the tag `archived`, DP-34).
-  Logins, notes and API credentials get the product's types, every other
-  category a subgroup named after it with all fields as custom fields (DP-35).
-  A re-import matches `tsm.import.<source>.id`: unchanged items are skipped,
-  items changed only in the source are updated (old values into the history),
-  items changed on both sides become a conflict (`tsm.conflict`), entries no
-  longer exported are listed and kept, entries deleted in the vault are not
-  re-added. `dryRun` is the preview, which writes nothing. The report names
-  entries and counts (`summary` is the commit message), never values. Saving is
-  the caller's after the user confirms; cancelling means not saving.
-- **1Password** (`tomSecretsRead1Pux`, `tomSecretsRead1PasswordCsv`): 1PUX
-  read in memory from the ZIP (`export.data`, `files/`), with sections as
-  `<section> · <label>` fields (concealed ones protected), TOTP into the
-  TOTP fields, password history as history versions, attachments and
-  documents as binaries, SSH keys as notes with the key attached. CSV rows are
-  matched on re-import by a hash of title, URL and user name. The fixtures in
-  `test/fixtures/1password/` are synthetic.
-- **Enpass** (`tomSecretsReadEnpassJson`, `tomSecretsReadEnpassCsv`, one
-  vault per export): folders nest as subgroups of the target, an item in
-  several folders goes into the first with the others as tags, `section`
-  fields name the fields after them, `deleted` fields are dropped, and
-  trashed items are always left out. Passkeys that carry their private key are
-  written into KeePassXC's `KPEX_PASSKEY_*` fields of the site's login
-  (`TomSecretsPasskey`, DP-120); the key is converted to PKCS#8 PEM from PEM,
-  DER, a raw P-256 scalar or a JWK (`tomSecretsPasskeyPem`). The report names
-  them "passkey kept, not yet usable". `tomSecretsExportEnpassJson` writes a
-  vault, or one group, in Enpass's JSON export layout (DP-40); what it leaves
-  behind is in its `lost`. The fixtures in `test/fixtures/enpass/` are
-  synthetic.
-- **The device settings** (`TomSecretsDeviceSettings`,
-  `TomSecretsDeviceContainer`, DP-15): the machine's settings (the lock modes
-  of the service and the app as `TomSecretsLockPolicy`, DP-14; the default
-  environment, the stores served, the refresh interval, the offline cache, the
-  timeouts) in `tom_kdbx_store`'s settings container, namespace `tsm`. Its key
-  (`TomSecretsDeviceKeys`) is kept in the OS keychain, in the primary vault's
-  overlay entry `@host:<host>/.tom-secrets/device` (never reached by a
-  reference: a `.tom-secrets` group is the product's at any depth), or in a
-  0600 key file; `auto` takes the keychain where one answers.
-- **KDBX for the other packages**: the library re-exports the KDBX types the
-  service and the apps handle (`Credentials`, `ProtectedValue`, `KdbxFile`,
-  …), because only this package declares `tom_kdbx_store` (DP-29).
-- **The primary vault** (`TomSecretsPrimaryVaults`, BP-8): the group
-  `.tom-secrets/vaults` holds one entry per further vault (locator, master
-  password, key file, outer key, GitHub token, and the KDBX Expires of the
-  entry as the due date of its key file and repository key); the primary
-  cannot list itself, and the group never resolves. A repository's own GitHub
-  token is kept in the device keychain under
-  `tomSecretsGitHubTokenHandle(owner, repository)`
-  (`tsm.github-token.<owner>:<repository>`), the expiry recorded with it
-  under `tomSecretsGitHubTokenExpiryHandle` (`tsm.github-token-expiry.…`); a
-  token in the vault list carries its expiry in `tsm.github-token-expires`.
+`tom_secrets_core` is the pure-Dart library the secrets service, the desktop
+app and the mobile app share. It holds no Flutter and no I/O policy of its
+own: the service and the apps decide where files live and when to sync; the
+core says what a vault is and what each operation does to it.
 
-```dart
-final resolver = TomSecretsResolver(
-  stores: [TomSecretsStore.fromFile(file, name: 'fleet')],
-  config: TomSecretsConfig.builtIn(),
-  machine: TomSecretsMachine.current(values: {'env': 'prod'}),
-);
-final resolution = resolver.resolve('[env:prod]db.main#UserName');
-print(resolution.entry.pathText);
-resolution.value.dispose();
+- **Vaults and locators.** A vault is a KDBX 4.1 file keyed through Argon2id
+  (`tomSecretsNewVault`). A locator names where it lives: `file:<absolute
+  path>`, `github:<owner>/<repo>[@<branch>]/<path>`, or `git:` (recognised).
+  The primary vault lists every further vault with its keys, so unlocking the
+  primary opens everything.
+- **The KDBX mapping.** The core reads and writes KDBX only through
+  `tom_kdbx_store`, and maps the product's concepts onto standard KDBX fields:
+  the metadata entry `.tom-secrets` (store name, kind, file binding, the shared
+  configuration `tsm.config`), the flat key `tsm.key`, the entry type, TOTP in
+  the three conventions KeePassXC, AuthPass and KeePass write, attachments and
+  KeePassXC's passkey fields. A file the product writes still opens in KeePass
+  and KeePassXC.
+- **Resolution and overlays.** A store is one KDBX file indexed for
+  resolution. A group named `@<dimension>:<value>` (`@host:build-01`) binds
+  every entry below it, so one logical path can hold a value per host,
+  platform, environment or any declared dimension. The resolver ranks the
+  candidates of a reference (a path, a `~uuid` or a flat key) against the
+  request's dimension values, reports ambiguity, and reads the requested field
+  as a masked value zeroed after use. `explain` shows the same ranking without
+  reading a value.
+- **The GitHub cycle and the offline cache.** A vault in a GitHub repository is
+  one `tom_core_sync` sync unit over `tom_core_storage`'s GitHub backend (the
+  REST API, no clone): open reads the head and the file, save commits on top
+  of the base without force, a moved branch is merged three-way and committed
+  again. The last file retrieved of each vault is kept, still encrypted, so a
+  vault opens offline and an offline edit merges on reconnecting.
+- **Merge.** Entries and groups are records keyed by UUID; a field only one
+  side changed takes that side, a real conflict keeps the newer value, puts
+  the loser into the entry's history and records the conflict until it is
+  settled.
+- **Key files and outer encryption.** A vault's credential may add a KeePass
+  2.0 XML key file. A vault in a repository may also be stored as
+  `<vault>.kdbx.tsmx`: encrypted once under a random file key wrapped under
+  each repository key (XChaCha20-Poly1305 by default, AES-256-GCM
+  selectable).
+- **Compaction.** A history compaction rewrites a vault branch to one root
+  commit (after a key change, or keeping the repository's retention), pushed
+  over the git protocol; the cycle tells a compaction (followed silently) from
+  a force push (the user chooses).
+- **Importers.** 1Password (1PUX, CSV) and Enpass (JSON, CSV) exports are read
+  into one source model and written into a vault the same way, with re-import
+  matching, a dry-run preview and a report that names entries but never
+  values. A vault or a group can be written back in Enpass's JSON layout.
+- **Trust material, signed objects and grants.** Each device keeps its own
+  approver and approval-link key pairs, an audit-log key and the approvers and
+  hosts it recorded. Grants, revocations, approval records and key-change
+  statements are signed with Ed25519 and ML-DSA-65 and accepted only when one
+  recorded key signed with both; the grants live in the primary vault.
+- **Approval codes and the approval link.** A waiting request shows a
+  ten-character approval code, which a trusted device answers with a
+  single-use token. The approval link connects a host's service and an
+  approver's app: a Noise KK handshake with ML-KEM-768 paired to every
+  Diffie-Hellman, then a ChaCha20-Poly1305 transport.
+- **Pairing.** Two of the user's machines pair with a short code
+  (`<number>-<word>-<word>`): SPAKE2 (RFC 9382), an ML-KEM-768 exchange inside,
+  then the giving side's bundle of vault keys. The device records of the
+  primary vault say what every device received.
+- **First run and device settings.** The first run sets a machine up: the
+  primary vault created or opened (local or on GitHub), its protection layers,
+  the keys kept in the device keychain, or everything taken from a pairing.
+  The device settings (lock policies, served stores, timeouts, key ages) live
+  in a local settings container whose key is kept in the OS keychain, the
+  primary vault or a key file.
+
+## Installation
+
+```bash
+dart pub add tom_secrets_core
 ```
 
-The design is the design document's part-structure (not published with the
-source); its worked examples are `test/worked_examples_test.dart`, row by
-row.
+```yaml
+dependencies:
+  tom_secrets_core: ^0.2.1
+```
 
-## The live check on github.com
+Requires Dart SDK `^3.10.0`. The post-quantum algorithms come from `tom_pqc`,
+whose build hook compiles its C sources for the target, so building an
+application that uses this package needs the platform's C compiler as `tom_pqc`
+describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports the KDBX types a caller handles
+(`Credentials`, `ProtectedValue`, `KdbxFile`, `KdbxEntry`, `KdbxGroup`,
+`KdbxFormat`, ...) from `tom_kdbx_store`; using the GitHub cycle also needs
+`tom_core_storage` for the storage backend.
+
+## Features
+
+### Vault model
+
+| Feature | API |
+| --- | --- |
+| New vault, KDBX 4.1 with Argon2id | `tomSecretsNewVault`, `tomSecretsDefaultArgon2` |
+| Vault locators (`file:`, `github:`, `git:`) | `TomSecretsVaultLocator.parse` |
+| Metadata entry and shared configuration | `TomSecretsMetadata`, `TomSecretsConfig` |
+| Stores indexed with overlays and flat keys | `TomSecretsStore`, `TomSecretsIndexedEntry` |
+| Resolution with rank vectors, ambiguity and explanation | `TomSecretsResolver.resolve`, `TomSecretsResolver.explain` |
+| Masked field values zeroed after use | `TomSecretsFieldValue` |
+| TOTP in three KDBX conventions | `TomSecretsTotp` |
+| Password generator | `TomSecretsPasswordGenerator`, `TomSecretsPasswordPolicy` |
+| The primary vault's list of further vaults | `TomSecretsPrimaryVaults`, `TomSecretsVaultKeys` |
+
+### Protection
+
+| Feature | API |
+| --- | --- |
+| KeePass 2.0 XML key files | `TomSecretsKeyFile` |
+| Outer encryption `.tsmx`, key slots per repository key | `tomSecretsOuterEncrypt`, `tomSecretsOuterDecrypt`, `TomSecretsRepositoryKey` |
+| A vault file as its store keeps it | `tomSecretsEncodeStored`, `tomSecretsDecodeStored` |
+
+### Sync
+
+| Feature | API |
+| --- | --- |
+| The GitHub cycle as a sync unit | `TomSecretsVaultUnit` |
+| Three-way vault merge with conflict records | `tomSecretsMergeVaults`, `tomSecretsSettleConflicts` |
+| Offline cache | `TomSecretsOfflineCache` |
+| Compaction or force push | `tomSecretsClassifyMove`, `TomSecretsCommitReader` |
+| History compaction and the repository's workflow files | `tomSecretsCompact`, `tomSecretsCompactionFiles` |
+
+### Sharing
+
+| Feature | API |
+| --- | --- |
+| Device trust material and key rotation | `TomSecretsTrust` |
+| Signed objects (Ed25519 + ML-DSA-65) | `TomSecretsApproverKey`, `tomSecretsSignedBytes`, `tomSecretsAcceptedBy`, `tomSecretsAcceptKeyChange` |
+| Grants group of the primary vault | `TomSecretsGrantsGroup` |
+| Approval code and single-use token | `tomSecretsApprovalCode`, `tomSecretsCodeToken`, `tomSecretsRedeemToken` |
+| Approval link (Noise KK + ML-KEM-768) | `TomSecretsLinkSession`, `TomSecretsApprovalChannel` |
+| Pairing (SPAKE2, RFC 9382) | `TomSecretsPairingCode`, `tomSecretsGivePairing`, `tomSecretsReceivePairing`, `TomSecretsPairingWindow` |
+| Device records | `TomSecretsDeviceRecords` |
+
+### Import, export and device
+
+| Feature | API |
+| --- | --- |
+| 1Password 1PUX and CSV | `tomSecretsRead1Pux`, `tomSecretsRead1PasswordCsv` |
+| Enpass JSON and CSV | `tomSecretsReadEnpassJson`, `tomSecretsReadEnpassCsv` |
+| One import for every source, with preview and re-import | `tomSecretsImport`, `TomSecretsImportReport` |
+| Enpass JSON export | `tomSecretsExportEnpassJson` |
+| Passkeys in KeePassXC's fields | `TomSecretsPasskey`, `tomSecretsPasskeyPem` |
+| First run, fresh or from a pairing | `TomSecretsFirstRun.run`, `TomSecretsFirstRun.runPaired` |
+| Device settings container | `TomSecretsDeviceSettings`, `TomSecretsDeviceContainer`, `TomSecretsDeviceKeys` |
+
+## Quick start
+
+A vault in memory with one entry and an overlay of it for one host, resolved
+by its flat key on two machines:
+
+```dart
+import 'package:tom_secrets_core/tom_secrets_core.dart';
+
+void main() {
+  final vault = tomSecretsNewVault(
+    Credentials(ProtectedValue.fromString('demo-master-password')),
+    'fleet',
+  );
+
+  // Telegram/Bot with the flat key telegram.bot_token ...
+  final telegram = vault.createGroup(
+    parent: vault.body.rootGroup,
+    name: 'Telegram',
+  );
+  final bot = KdbxEntry.create(vault, telegram);
+  telegram.addEntry(bot);
+  bot.label = 'Bot';
+  bot.setString(
+    KdbxKeyCommon.PASSWORD,
+    ProtectedValue.fromString('demo-shared'),
+  );
+  bot.setString(TomSecretsEntryFields.key, PlainValue('telegram.bot_token'));
+
+  // ... and an overlay of it for the host build-01.
+  final overlay = vault.createGroup(parent: telegram, name: '@host:build-01');
+  final botOnHost = KdbxEntry.create(vault, overlay);
+  overlay.addEntry(botOnHost);
+  botOnHost.label = 'Bot';
+  botOnHost.setString(
+    KdbxKeyCommon.PASSWORD,
+    ProtectedValue.fromString('demo-build-01'),
+  );
+
+  final store = TomSecretsStore.fromFile(vault, name: 'fleet');
+  for (final host in ['build-01', 'laptop']) {
+    final resolver = TomSecretsResolver(
+      stores: [store],
+      config: TomSecretsConfig.builtIn(),
+      machine: TomSecretsMachine(host: host, platform: 'linux'),
+    );
+    final resolution = resolver.resolve('telegram.bot_token');
+    print('$host: ${resolution.entry.pathText} ${resolution.value.text}');
+    resolution.value.dispose();
+  }
+  // build-01: Telegram/Bot demo-build-01
+  // laptop: Telegram/Bot demo-shared
+}
+```
+
+## Examples
+
+The package has no `example/` folder. The test suite's
+`test/worked_examples_test.dart` runs the resolution examples of the design
+row by row, and `test/support/vaults.dart` builds demo vaults in memory the
+way the snippets below do.
+
+## Usage
+
+### Vaults and resolution
+
+The shared configuration declares the dimensions in priority order (the
+built-ins `host`, `platform` and `env` come first unless listed) and the
+stores per environment:
+
+```dart
+final config = TomSecretsConfig.parse('''
+dimensions:
+  - name: env
+    default: dev
+    fallback_to_default: true
+  - name: region
+stores:
+  prod:
+    - name: fleet
+      github: {repository: example-org/vault, path: fleet.kdbx.tsmx}
+''');
+print(config.dimensions.map((d) => d.name).toList());
+// [host, platform, env, region]
+
+final locator = TomSecretsVaultLocator.parse(
+  'github:example-org/vault@main/fleet.kdbx.tsmx',
+) as TomSecretsGitHubLocator;
+print('${locator.repositorySlug} ${locator.branch} ${locator.fileName}');
+// example-org/vault main fleet.kdbx.tsmx
+```
+
+A reference is a path (`fleet/Telegram/Bot`), a `~uuid` or a flat key, with
+optional bindings (`[env:prod]db.main#UserName`). `resolve` answers the entry,
+the field's value and every ranked candidate; it throws a
+`TomSecretsResolveException` whose `kind` and `details` follow the client
+protocol (not found, ambiguous, malformed, denied). `explain` answers the
+request's values, every candidate kept with its rank vector or dropped by the
+binding that drops it, and the outcome. A field value is a
+`TomSecretsFieldValue`: read it with `withBytes` (the bytes are zeroed after
+the callback) or `text`, and `dispose` it when done.
+
+TOTP codes and generated passwords:
+
+```dart
+final totp = TomSecretsTotp.tryParseUri(
+  'otpauth://totp/Example:demo?secret=JBSWY3DPEHPK3PXP&issuer=Example',
+)!;
+print(totp.code(DateTime.utc(2026, 1, 1)).length); // 6
+
+final password = TomSecretsPasswordGenerator().generate(
+  TomSecretsPasswordPolicy(
+    length: 24,
+    classes: {TomSecretsCharacterClass.lower, TomSecretsCharacterClass.digits},
+  ),
+);
+print(password.length); // 24
+```
+
+### Key files and outer encryption
+
+A key file adds to the master password; the outer layer wraps the stored file
+under a repository key. `tomSecretsEncodeStored` and `tomSecretsDecodeStored`
+write and read a vault file as its store keeps it (`.kdbx`, or `.kdbx.tsmx`
+when an outer key is given):
+
+```dart
+final keyFile = TomSecretsKeyFile.generate();
+final credentials = keyFile.credentials('demo-master-password');
+final vault = tomSecretsNewVault(credentials, 'fleet');
+
+final outerKey = TomSecretsRepositoryKey.generate().toBase64();
+const locator = 'github:example-org/vault/fleet.kdbx.tsmx';
+final stored = await tomSecretsEncodeStored(locator, vault, outerKey: outerKey);
+print(String.fromCharCodes(stored.sublist(0, 4))); // TSMX
+
+final keyFileAgain = TomSecretsKeyFile.parse(keyFile.toBytes());
+final reopened = await tomSecretsDecodeStored(
+  locator,
+  stored,
+  keyFileAgain.credentials('demo-master-password'),
+  outerKey: outerKey,
+);
+print(reopened.body.rootGroup.name.get()); // fleet
+```
+
+The key file is a KeePass 2.0 XML key file, so the same file opens the vault
+in KeePass and KeePassXC. A `.tsmx` file no held key has a slot for throws
+`TomKeyRequiredException`; an altered or moved file throws
+`TomSecretsOuterException`. The fixtures in `test/fixtures/outer/` are files
+every later version must still open.
+
+### Sync, merge and compaction
+
+`TomSecretsVaultUnit` keeps one vault converged with its remote. Its storage is
+a `TomStorage` of `tom_core_storage` (`TomGitHubStorage` for a `github:`
+vault); `TomSyncEngine` of `tom_core_sync` can drive it, or the caller pushes
+directly:
+
+```dart
+Future<void> addEntry(TomStorage storage, Credentials credentials) async {
+  final unit = await TomSecretsVaultUnit.open(
+    locator: 'github:example-org/vault/fleet.kdbx.tsmx',
+    storage: storage,
+    credentials: credentials,
+    device: 'build-01',
+    codec: TomSecretsOuterCodec(
+      path: 'fleet.kdbx.tsmx',
+      keys: [TomSecretsRepositoryKey.fromBase64(demoOuterKeyBase64)],
+    ),
+    cache: TomSecretsOfflineCache(Directory('cache')),
+  );
+  final entry = KdbxEntry.create(unit.working, unit.working.body.rootGroup);
+  unit.working.body.rootGroup.addEntry(entry);
+  entry.label = 'New entry';
+  unit.markEdited();
+  final conflicts = await unit.push();
+  print('${conflicts.length} conflicts, opened from ${unit.source}');
+  await unit.dispose();
+}
+```
+
+A save commits on top of the base and moves the branch without force; when
+the branch moved, the unit reads the new head, merges three-way and commits
+again, up to `maxPushAttempts`. Commit messages name the vault and the device
+(`tsm: fleet.kdbx from build-01`); with
+`TomGitHubStorage(committer: tomSecretsDeviceCommitter(device))` the device is
+also the commit's author. When the remote cannot be reached or refuses the
+token, the vault opens from the offline cache (`source`, `fetchedAt`,
+`offlineReason`). `rekey` commits a re-keyed file as it is and switches the
+unit to the new credentials.
+
+The merge can also be called on its own:
+
+```dart
+final result = tomSecretsMergeVaults(base: base, ours: ours, theirs: theirs);
+print(result.isClean);
+for (final conflict in result.conflicts) {
+  print('${conflict.entryUuid}: ${conflict.fields}');
+}
+```
+
+A real conflict is recorded in the entry's custom data `tsm.conflict` until
+`tomSecretsSettleConflicts`; a null `base` merges a force-pushed branch.
+
+With a `TomSecretsCommitReader` (the GitHub REST API or a `tom_git`
+repository), `tomSecretsClassifyMove` tells how the branch moved: ahead of the
+base (merged), a compaction's root (`Tsm-Compacted-From`, followed silently),
+or rewritten otherwise (a `TomSecretsHistoryRewritten` conflict; the user
+chooses `takeRemote` or `mergeOverRemote`). `tomSecretsCompact` writes the
+compaction over the git protocol with the old head as the expected value, and
+`tomSecretsCompactionFiles` answers the workflow, script and configuration
+each vault repository carries.
+
+### Trust, approvals and pairing
+
+Signed objects carry two signatures and are accepted only when one recorded
+key made both:
+
+```dart
+final trust = TomSecretsTrust.create('laptop');
+final approver = await trust.approverKey();
+final grant = await approver.signObject(TomSecretsSignedLabels.grant, {
+  'id': 'demo-grant',
+  'host': 'build-01',
+  'subject': 'exe:/usr/bin/demo',
+  'secret': 'telegram.bot_token',
+  'decision': 'always',
+  'created': '2026-01-01T00:00:00Z',
+  'approver': approver.keyId,
+});
+final accepted = await tomSecretsAcceptedBy(
+  TomSecretsSignedLabels.grant,
+  grant,
+  [approver.publicKey],
+);
+print(accepted?.keyId == approver.keyId); // true
+```
+
+An approval code and the token a trusted device answers it with:
+
+```dart
+final code = tomSecretsApprovalCode(
+  'build-01',
+  'demo-approval',
+  {'kind': 'exe', 'exe': '/usr/bin/demo', 'uid': 1000},
+  ['telegram.bot_token'],
+);
+final tokenKey = List<int>.filled(32, 7); // demo key
+final token = tomSecretsCodeToken(tokenKey, 'build-01', code, 'once');
+final match = tomSecretsRedeemToken(token, [code], [tokenKey], 'build-01');
+print('${code.length} ${token.length} ${match?.decision}'); // 10 26 once
+```
+
+The approval link runs over a `TomSecretsApprovalChannel`
+(`TomSecretsSocketChannel` for TCP): the approver initiates
+(`TomSecretsLinkSession.initiate`), the host responds
+(`TomSecretsLinkSession.respond`). `TomSecretsTrust` rotates its key pairs:
+`rotateApproverKey` answers the key-change statement signed by the old and the
+new pair, `rotateLinkKey` keeps the previous link key for hosts the new one has
+not reached yet (`linkKeyFor`).
+
+Pairing starts from a code the giving side shows:
+
+```dart
+final pairing = TomSecretsPairingCode.generate();
+print(pairing); // e.g. 558-clock-emerald
+final typed = TomSecretsPairingCode.parse('558 Clock Emerald');
+```
+
+The giving side opens a `TomSecretsPairingWindow` and runs
+`tomSecretsGivePairing`; the receiving side runs `tomSecretsReceivePairing`
+(or `tomSecretsReceivePairingAt` over TCP). A machine being set up receives
+with `tomSecretsReceivePairingForSetup` and is set up by
+`TomSecretsFirstRun.runPaired`.
+
+### Import and export
+
+```dart
+final source = tomSecretsReadEnpassJson(exportJson, vaultName: 'Personal');
+final preview = tomSecretsImport(source, file: vault, dryRun: true);
+print(preview.summary); // Import from Enpass: 13 added, 0 updated, 0 conflicts
+final report = tomSecretsImport(source, file: vault);
+final back = tomSecretsExportEnpassJson(vault);
+print('${back.items} items, lost: ${back.lost}');
+```
+
+Each source vault goes to a target group (default `<source>/<vault name>`, or
+a file of its own). Archived items are left out unless `includeArchived`.
+Logins, notes and API credentials get the product's types; every other
+category becomes a subgroup with all fields as custom fields. A re-import
+matches `tsm.import.<source>.id`: unchanged items are skipped, items changed
+only in the source are updated (old values into the history), items changed
+on both sides become a conflict. Saving the vault after the user confirms is
+the caller's. Passkeys that carry their private key are written into
+KeePassXC's `KPEX_PASSKEY_*` fields (`tomSecretsPasskeyPem` converts PEM, DER,
+a raw P-256 scalar or a JWK). The fixtures in `test/fixtures/1password/` and
+`test/fixtures/enpass/` are synthetic.
+
+### First run and device settings
+
+`TomSecretsFirstRun.run` sets a machine up from a `TomSecretsFirstRunSetup`:
+the primary vault created or opened (`file:` or `github:`, the GitHub token
+kept in the device keychain with its expiry), its key file and outer key, the
+machine's settings and `bootstrap.yaml`. Nothing is written before the primary
+opened. The settings are a `TomSecretsDeviceSettings` (lock modes of the
+service and the app, default environment, served stores, refresh interval,
+offline cache, timeouts, key ages) kept in a `TomSecretsDeviceContainer`,
+whose key `TomSecretsDeviceKeys` keeps in the OS keychain, in the primary
+vault (`@host:<host>/.tom-secrets/device`) or in a key file.
+
+## Architecture
+
+```text
+ reference + request values
+            │
+            ▼
+   TomSecretsResolver ──► TomSecretsStore (index, overlays) ──► KdbxFile
+            │                                                     ▲
+            ▼                                                     │
+   TomSecretsResolution (entry, masked value)          tomSecretsDecodeStored
+                                                       (.kdbx / .kdbx.tsmx)
+                                                                  ▲
+   TomSecretsVaultUnit ── TomStorage (GitHub REST) ───────────────┤
+        │  merge: tomSecretsMergeVaults                           │
+        └─ TomSecretsOfflineCache (last file, still encrypted) ───┘
+```
+
+### Key types
+
+| Type | Responsibility |
+| --- | --- |
+| `TomSecretsConfig` | The shared configuration `tsm.config`: dimensions in priority order and stores per environment. |
+| `TomSecretsVaultLocator` | Where a vault lives: `file:`, `github:` or `git:`. |
+| `TomSecretsMetadata` | The metadata entry `.tom-secrets` of a vault file. |
+| `TomSecretsEntryFields` | The product's reserved KDBX field names. |
+| `TomSecretsStore` | One KDBX file under its store name, indexed for resolution. |
+| `TomSecretsResolver` | Resolves and explains references over the stores for a machine. |
+| `TomSecretsFieldValue` | A resolved value, masked and zeroed after use. |
+| `TomSecretsTotp` | A TOTP secret in the three KDBX conventions, and its codes. |
+| `TomSecretsPrimaryVaults` | The primary vault's list of further vaults with their keys. |
+| `TomSecretsKeyFile` | A KeePass 2.0 XML key file and the composite credential. |
+| `TomSecretsRepositoryKey` | A repository key of the outer encryption. |
+| `TomSecretsOuterCodec` | The outer encryption as the sync cycle's codec. |
+| `TomSecretsVaultUnit` | One vault kept converged with its remote. |
+| `TomSecretsOfflineCache` | The last file retrieved of each vault. |
+| `TomSecretsCommitReader` | Reads a vault branch's history to classify a move. |
+| `TomSecretsTrust` | A device's trust material and key rotation. |
+| `TomSecretsApproverKey` | A hybrid Ed25519 + ML-DSA-65 approver key pair that signs objects. |
+| `TomSecretsGrantsGroup` | The grants group `tsm.grants/<host>` of the primary vault. |
+| `TomSecretsLinkSession` | One approval-link session over a channel. |
+| `TomSecretsPairingCode` | The short pairing code. |
+| `TomSecretsDeviceRecords` | The primary vault's records of every paired device. |
+| `TomSecretsImportSource` | An export read into the one source model. |
+| `TomSecretsImportReport` | What an import did or would do, without values. |
+| `TomSecretsFirstRun` | Sets a machine up, fresh or from a pairing. |
+| `TomSecretsDeviceSettings` | The machine's local settings. |
+| `TomSecretsDeviceContainer` | The device settings container and the trust material in it. |
+
+## Ecosystem
+
+```text
+   tom_secrets_service        manager app (desktop, mobile)
+              │                         │
+              └────────────┬────────────┘
+                           ▼
+                   tom_secrets_core ───────────► tom_secrets_client
+                           │                     (reference grammar)
+      ┌──────────────┬─────┴──────────┬───────────────┐
+      ▼              ▼                ▼               ▼
+ tom_kdbx_store  tom_core_storage  tom_core_sync    tom_pqc
+ (KDBX files)    (GitHub backend)  (sync, merge)   (ML-DSA, ML-KEM)
+```
+
+## Further documentation
+
+- [API summaries](doc/api/api_summary_index.md): every public type, function
+  and constant, by module and alphabetically.
+- [The client protocol](https://github.com/al-the-bear/tom_secrets_clients/blob/main/protocol/protocol.md):
+  references, the error kinds, signed objects, approval codes, the approval
+  link and pairing, as the clients and the service speak them.
+- [tom_secrets_service](../tom_secrets_service/README.md): the secrets service
+  built on this core.
+- `tom_kdbx_store`, `tom_core_storage` and `tom_core_sync`: the KDBX layer, the
+  storage backends and the sync engine this package builds on.
+
+## Status
+
+Version 0.2.2. The test suite (`dart test`) covers the model, resolution, the
+merge and the GitHub cycle against a fake GitHub server, the offline cache,
+compaction, the outer encryption against the fixtures in `test/fixtures/outer/`,
+the importers against synthetic exports, trust rotation, and the approval
+material byte for byte against the protocol's vectors (signatures, approval
+codes, the link handshake, RFC 9382's SPAKE2 vectors).
+
+### The live check on github.com
 
 `test/live_github_compaction_test.dart` runs the compaction and the
 force-push detection against a real repository: GitHub's receive-pack taking
@@ -254,7 +558,7 @@ blob and the compaction's root. It skips unless both variables are set; run it
 by hand against a throwaway private repository holding nothing else (the test
 rewrites its default branch), demo data only:
 
-```sh
+```bash
 TSM_LIVE_GITHUB_TOKEN=$(gh auth token) \
 TSM_LIVE_GITHUB_REPO=<owner>/<repo> \
   dart test test/live_github_compaction_test.dart
@@ -262,4 +566,4 @@ TSM_LIVE_GITHUB_REPO=<owner>/<repo> \
 
 ## Licence
 
-BSD-3-Clause (`LICENSE`).
+BSD-3-Clause, see [LICENSE](LICENSE).
