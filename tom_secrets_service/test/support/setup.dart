@@ -161,6 +161,7 @@ final class Demo {
     TomSecretsGitRemoteFor? githubRemoteFor,
     TomSecretsCommitReaderFor? githubReaderFor,
     String host = 'demo-host',
+    Duration approverLinkRetry = const Duration(milliseconds: 100),
   }) async {
     final service = await TomSecretsService.launch(
       TomSecretsServiceConfig(
@@ -186,6 +187,7 @@ final class Demo {
         refreshTick: refreshTick,
         githubRemoteFor: githubRemoteFor,
         githubReaderFor: githubReaderFor,
+        approverLinkRetry: approverLinkRetry,
       ),
     );
     addTearDown(service.stop);

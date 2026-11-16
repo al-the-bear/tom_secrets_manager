@@ -24,6 +24,7 @@ import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'access.dart';
 import 'approvals.dart';
+import 'approver_links.dart';
 import 'audit.dart';
 import 'bootstrap.dart';
 import 'connection.dart';
@@ -67,6 +68,7 @@ final class TomSecretsServiceConfig {
     TomSecretsPeerMeasurer? peerMeasurer,
     this.adminExecutables,
     this.lastUsedInterval,
+    this.approverLinkRetry = const Duration(seconds: 5),
   }) : clock = clock ?? DateTime.now,
        peerMeasurer = peerMeasurer ?? TomSecretsSystemPeerMeasurer(),
        idleSource = idleSource ?? tomSecretsSystemIdleSource(),
@@ -149,6 +151,10 @@ final class TomSecretsServiceConfig {
   /// the refresh interval (`refreshMinutes`, so a `github:` primary is not
   /// committed more often than it is fetched), or an hour with refresh off.
   final Duration? lastUsedInterval;
+
+  /// The first pause before a session to a paired host is opened again
+  /// (doubling up to five minutes); tests make it short.
+  final Duration approverLinkRetry;
 }
 
 /// The executables that may administer a service started from
@@ -267,6 +273,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   /// (`vault.move`) changes it (and the bootstrap file with it).
   late String _primaryLocator = config.bootstrap.primary;
   TomSecretsApprovals? _approvals;
+  TomSecretsApproverLinks? _approverLinks;
   TomSecretsAuditLog? _audit;
   TomSecretsLinkServer? _linkServer;
   Timer? _lastUsedTimer;
@@ -387,6 +394,12 @@ final class TomSecretsService implements TomSecretsApprovalHost {
       );
       final approvals = _approvals = TomSecretsApprovals(this);
       await approvals.reload();
+      // The sessions to the paired hosts this device approves for.
+      _approverLinks = TomSecretsApproverLinks(
+        this,
+        approvals,
+        retry: config.approverLinkRetry,
+      )..start();
       final refresh = settings.refreshMinutes;
       _lastUsedTimer = Timer.periodic(
         config.lastUsedInterval ??
@@ -931,6 +944,8 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     _lastUsedTimer?.cancel();
     _lastUsedTimer = null;
     await _flushLastUsed();
+    await _approverLinks?.stop();
+    _approverLinks = null;
     _approvals?.abandonAll();
     await _approvals?.closeLinks();
     await _linkServer?.close();
@@ -946,6 +961,17 @@ final class TomSecretsService implements TomSecretsApprovalHost {
 
   /// The approvals and grants, while unlocked.
   TomSecretsApprovals? get approvals => _approvals;
+
+  /// The sessions to the paired hosts this device approves for, while
+  /// unlocked.
+  TomSecretsApproverLinks? get approverLinks => _approverLinks;
+
+  /// What waits for an answer: this host's prompts and those of the paired
+  /// hosts this device approves for.
+  List<Map<String, Object?>> get waitingPrompts => [
+    ...?_approvals?.waitingEvents,
+    ...?_approverLinks?.waitingEvents,
+  ];
 
   /// The approval link's listener, while unlocked and configured.
   TomSecretsLinkServer? get linkServer => _linkServer;
@@ -1412,6 +1438,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
       await savePrimary();
     }
     await _approvals?.reload();
+    _approverLinks?.refresh();
     log.info('paired', {
       'device': device,
       'approver': approverKey != null,
@@ -1436,6 +1463,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     final recorded = TomSecretsDeviceRecords(primary.file).revoke(device, now);
     if (recorded) await savePrimary();
     await _approvals?.reload();
+    _approverLinks?.refresh();
     log.info('pairing_revoked', {'device': device});
     return trusted || recorded;
   }
@@ -2314,19 +2342,32 @@ final class _AdminSession {
             (clientToken != null && clientToken is! String)) {
           return malformed('approve');
         }
+        final answer = TomSecretsApprovalAnswer(
+          decision: decision,
+          secret: secret,
+          folder: m['folder'] as String?,
+          pin: m['pin'],
+          approver: service.trust.device,
+          // The app made the token (DP-20); this device signs its grant.
+          clientToken: clientToken as String?,
+        );
         try {
-          await approvals.approve(
-            approvalId,
-            TomSecretsApprovalAnswer(
-              decision: decision,
-              secret: secret,
-              folder: m['folder'] as String?,
-              pin: m['pin'],
-              approver: service.trust.device,
-              // The app made the token (DP-20); this device signs its grant.
-              clientToken: clientToken as String?,
-            ),
-          );
+          // A paired host's prompt goes back over its approval link.
+          final links = service.approverLinks;
+          final remote = links?.hostOf(approvalId);
+          if (links != null && remote != null) {
+            try {
+              await links.approve(approvalId, answer);
+            } on TomSecretsLinkDeliveryException catch (e) {
+              connection.sendError(id, 'unavailable', e.message, {
+                'host': remote,
+                'reason': ?e.kind,
+              });
+              return;
+            }
+          } else {
+            await approvals.approve(approvalId, answer);
+          }
           connection.send({'op': 'ok', 'id': id});
         } on StateError {
           connection.sendError(id, 'not_found', 'no prompt $approvalId');
@@ -2854,6 +2895,8 @@ final class _AdminSession {
           'op': 'approvalList',
           'id': id,
           'approvals': [
+            // This host's prompts (tsm approvals); a paired host's prompts
+            // go to the app's subscription only.
             for (final event in service.approvals?.waitingEvents ?? const [])
               {
                 for (final e in event.entries)
@@ -2908,7 +2951,7 @@ final class _AdminSession {
         connection.send({'op': 'ok', 'id': id});
         // A prompt that waits gets to an approver who attaches late.
         if (isApprover) {
-          for (final event in service.approvals?.waitingEvents ?? const []) {
+          for (final event in service.waitingPrompts) {
             connection.send(event);
           }
         }

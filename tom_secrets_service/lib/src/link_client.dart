@@ -68,6 +68,9 @@ Future<void> tomSecretsDeliverOverLink({
       '$address could not be reached: ${e.message}',
     );
   }
+  // A write that fails (the host went away) is reported through `done`;
+  // the session's stream ends and the delivery fails as told below.
+  unawaited(socket.done.then<void>((_) {}, onError: (Object _) {}));
   TomSecretsLinkSession? session;
   StreamIterator<Map<String, Object?>>? answers;
   try {
@@ -86,7 +89,7 @@ Future<void> tomSecretsDeliverOverLink({
       while (await answers.moveNext().timeout(timeout)) {
         final current = answers.current;
         if (current['op'] == 'linkKey' && current['id'] is String) {
-          await _takeHostLinkKey(session, current, onHostLinkKey);
+          await tomSecretsTakeHostLinkKey(session, current, onHostLinkKey);
           continue;
         }
         if (current['id'] == id) {
@@ -127,7 +130,7 @@ Future<void> tomSecretsDeliverOverLink({
 /// Records the host's new link key of [message] through [onHostLinkKey] and
 /// answers it: `ok`, or `error` for a key of another device or that cannot
 /// be read.
-Future<void> _takeHostLinkKey(
+Future<void> tomSecretsTakeHostLinkKey(
   TomSecretsLinkSession session,
   Map<String, Object?> message,
   Future<void> Function(TomSecretsLinkPublicKey key)? onHostLinkKey,

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.2
+
+- The approver's links (`TomSecretsApproverLinks`): the service keeps a
+  session to every paired host it approves for, passes the host's prompts to
+  the attached app (ids qualified `<host>/<approvalId>`) and carries the
+  app's answers over the link (grants signed by this device; the client
+  token with its `exe-token` grant); a host's new link key is recorded.
+- `TomSecretsIdentity.fromJson`, `tomSecretsGrantSubject`,
+  `tomSecretsTakeHostLinkKey` public.
+
 ## 0.11.1
 
 - The pairing mode (`tsm pair`, part-sharing): started with a

@@ -147,6 +147,28 @@ bool _remote(TomSecretsIdentity identity) =>
     _base(identity.exe) == 'sshd' ||
     _base((identity.parent?['exe'] as String?) ?? '') == 'sshd';
 
+/// The subject a lasting answer [a] to a request of [i] is granted for: a
+/// `folder` decision its folder (with the interpreter), a `tsm run` its
+/// command line, else the script, the interpreter or the executable.
+String tomSecretsGrantSubject(
+  TomSecretsIdentity i,
+  TomSecretsApprovalAnswer a,
+) {
+  if (a.decision == 'folder') {
+    return i.interpreter == null
+        ? 'folder ${a.folder}'
+        : 'folder ${a.folder} ${i.interpreter}';
+  }
+  if (_base(i.exe) == 'tsm' && i.args.isNotEmpty && i.args.first == 'run') {
+    return 'tsm-command ${i.args.join(' ')}';
+  }
+  return switch (i.kind) {
+    'script' => 'script ${i.interpreter} ${i.script}',
+    'interpreter' => 'interpreter ${i.exe}',
+    _ => 'exe ${i.exe}',
+  };
+}
+
 /// An accepted grant of this host.
 final class TomSecretsGrant {
   TomSecretsGrant._(this.object, this.approverKeyId);
@@ -768,22 +790,6 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
     }
   }
 
-  String _subjectFor(TomSecretsIdentity i, TomSecretsApprovalAnswer a) {
-    if (a.decision == 'folder') {
-      return i.interpreter == null
-          ? 'folder ${a.folder}'
-          : 'folder ${a.folder} ${i.interpreter}';
-    }
-    if (_base(i.exe) == 'tsm' && i.args.isNotEmpty && i.args.first == 'run') {
-      return 'tsm-command ${i.args.join(' ')}';
-    }
-    return switch (i.kind) {
-      'script' => 'script ${i.interpreter} ${i.script}',
-      'interpreter' => 'interpreter ${i.exe}',
-      _ => 'exe ${i.exe}',
-    };
-  }
-
   Future<void> _writeGrants(
     _Waiting w,
     TomSecretsApprovalAnswer a, {
@@ -791,7 +797,7 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
   }) async {
     final identity = w.batch.identity;
     final subject = clientTokenId == null
-        ? _subjectFor(identity, a)
+        ? tomSecretsGrantSubject(identity, a)
         : 'exe-token ${identity.exe} $clientTokenId';
     final secrets = switch (a.secret) {
       'all' => {'all'},

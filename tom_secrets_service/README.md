@@ -76,6 +76,15 @@ the manager app and `tsm` administer it. License: BSD-3-Clause.
   link keys; a connected approver gets the prompts and sends answers,
   signed grants (applied at once as pending copies), revocations, key
   changes and new link keys.
+- **The approver's links** (`TomSecretsApproverLinks`, protocol.md 7.2,
+  9.7): while unlocked, a session to every paired host this device approves
+  for (its recorded address, this device's link key for that host), opened
+  again when it ends. The host's prompts go to the attached app as
+  `<host>/<approvalId>`; the app's `approve` goes back over the link: `once`
+  as `approve`, a lasting decision as grants this device signs (written to
+  the host's group, sent as `grant`), an `always` with a client token as
+  its `exe-token` grant with the token. A host that rotated its link key
+  sends the new one first; it is recorded.
 - **Pairing** (protocol.md 6.3, 9.8): the apps run the pairing between the
   two machines (tom_secrets_core's `TomSecretsPairingWindow` /
   `tomSecretsReceivePairingAt`); the service gives this device's public keys

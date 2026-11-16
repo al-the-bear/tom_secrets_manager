@@ -11,6 +11,7 @@ library;
 export 'package:tom_secrets_client/admin.dart';
 export 'src/access.dart';
 export 'src/approvals.dart';
+export 'src/approver_links.dart';
 export 'src/audit.dart';
 export 'src/bootstrap.dart';
 export 'src/connection.dart';

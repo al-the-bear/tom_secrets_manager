@@ -126,6 +126,32 @@ final class TomSecretsIdentity {
     complete: complete,
   );
 
+  /// An identity as [toJson] wrote it (a paired host's prompt, read by the
+  /// approving device). Throws [FormatException] for a record that is not
+  /// one.
+  factory TomSecretsIdentity.fromJson(Map<String, Object?> json) {
+    final kind = json['kind'];
+    final exe = json['exe'];
+    final args = json['args'];
+    final cwd = json['cwd'];
+    if (kind is! String || exe is! String || args is! List || cwd is! String) {
+      throw const FormatException('an identity names kind, exe, args, cwd');
+    }
+    return TomSecretsIdentity(
+      kind: kind,
+      exe: exe,
+      args: [for (final a in args) '$a'],
+      cwd: cwd,
+      uid: json['uid'] ?? 0,
+      exeHash: json['exeHash'] as String?,
+      interpreter: json['interpreter'] as String?,
+      script: json['script'] as String?,
+      scriptHash: json['scriptHash'] as String?,
+      packageRoot: json['packageRoot'] as String?,
+      parent: (json['parent'] as Map?)?.cast<String, Object?>(),
+    );
+  }
+
   /// The protocol's identity object (7.1).
   Map<String, Object?> toJson() => {
     'kind': kind,
