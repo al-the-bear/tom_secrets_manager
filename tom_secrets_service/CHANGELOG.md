@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.6
+
+- The pairing mode takes the handover's `approvalLink`: it goes into the
+  device settings the machine is set up with and, as this machine's link
+  address, to the giving machine, whose service then opens the approval
+  link at once (`tsm pair --link`). A link that is no approval link ends
+  the pairing mode with `handover` before anything is sent.
+- `settings.set` and the link server check an approval link with
+  `tomSecretsApprovalLinkProblem` (`tom_secrets_client` 0.2.4): `settings.set`
+  now refuses every interface (`0.0.0.0`, `::`) as the link server did.
+
 ## 0.11.5
 
 - `vault.create` (protocol.md 6.4, manager app only): a further vault

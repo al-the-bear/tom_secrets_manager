@@ -8,7 +8,9 @@
 /// the pairing received (nothing stored), reported; then, with the master
 /// password, the machine set up by `TomSecretsFirstRun.runPaired` (the
 /// keychain, the device settings container with the trust material and the
-/// giver recorded, `bootstrap.yaml`). The executable ends after it; tsm
+/// giver recorded, `bootstrap.yaml`). The handover's `approvalLink` goes
+/// into the device settings and to the giving machine as this machine's
+/// link address, so its service opens the approval link to this one. The executable ends after it; tsm
 /// starts the service as usual and unlocks it.
 library;
 
@@ -39,6 +41,12 @@ Future<int> tomSecretsRunPairingMode(
 
   final TomSecretsPairingCode code;
   final TomSecretsDeviceKeyMode deviceKey;
+  final link = handover.approvalLink;
+  final linkProblem = link == null ? null : tomSecretsApprovalLinkProblem(link);
+  if (linkProblem != null) {
+    error('handover', linkProblem);
+    return 2;
+  }
   try {
     code = TomSecretsPairingCode.parse(handover.code);
     deviceKey = handover.deviceKey == null
@@ -67,6 +75,7 @@ Future<int> tomSecretsRunPairingMode(
       port: handover.port,
       code: code,
       device: handover.device,
+      linkAddress: handover.approvalLink,
     );
   } on TomSecretsPairingException catch (e) {
     error('pairing', e.message, failure: e.failure.name);
@@ -101,6 +110,7 @@ Future<int> tomSecretsRunPairingMode(
       final result = await firstRun.runPaired(
         receipt,
         masterPassword: password,
+        settings: TomSecretsDeviceSettings(approvalLink: handover.approvalLink),
         deviceKey: deviceKey,
       );
       answer({'status': 'setUp', 'bootstrap': result.bootstrapPath});

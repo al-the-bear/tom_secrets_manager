@@ -12,6 +12,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:tom_secrets_client/admin.dart'
+    show tomSecretsApprovalLinkProblem;
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'approvals.dart';
@@ -39,14 +41,12 @@ final class TomSecretsLinkServer {
     required TomSecretsApprovals approvals,
     required TomSecretsLog log,
   }) async {
+    final problem = tomSecretsApprovalLinkProblem(address, anyPort: true);
+    if (problem != null) throw FormatException(problem);
     final colon = address.lastIndexOf(':');
-    final name = colon < 0 ? '' : address.substring(0, colon);
-    final port = colon < 0 ? null : int.tryParse(address.substring(colon + 1));
-    if (port == null || name.isEmpty || name == '0.0.0.0' || name == '::') {
-      throw FormatException(
-        'approvalLink is <VPN or LAN address>:<port>, not $address',
-      );
-    }
+    var name = address.substring(0, colon);
+    if (name.startsWith('[')) name = name.substring(1, name.length - 1);
+    final port = int.parse(address.substring(colon + 1));
     final server = await ServerSocket.bind(name, port);
     server.listen((socket) async {
       // Read at each connection: a rotation of this device's link key takes

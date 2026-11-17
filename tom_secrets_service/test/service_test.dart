@@ -1008,6 +1008,7 @@ void main() {
           'servedStores': [1],
         },
         {'approvalLink': '10.8.0.7'},
+        {'approvalLink': '0.0.0.0:47731'},
       ]) {
         final e = await _refusedRequest(
           admin.request('settings.set', {'device': bad}),

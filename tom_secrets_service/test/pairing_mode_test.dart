@@ -60,15 +60,19 @@ void main() {
     return (w, code);
   }
 
-  TomSecretsPairingHandover handover(int port, String code) =>
-      TomSecretsPairingHandover(
-        dataDirectory: '${demo.dir}/paired',
-        address: '127.0.0.1',
-        port: port,
-        code: code,
-        device: 'bigbeast',
-        deviceKey: 'keyfile',
-      );
+  TomSecretsPairingHandover handover(
+    int port,
+    String code, {
+    String? approvalLink,
+  }) => TomSecretsPairingHandover(
+    dataDirectory: '${demo.dir}/paired',
+    address: '127.0.0.1',
+    port: port,
+    code: code,
+    device: 'bigbeast',
+    deviceKey: 'keyfile',
+    approvalLink: approvalLink,
+  );
 
   test('reported, a wrong password answered, set up; the service then '
       'unlocks with the giver recorded', () async {
@@ -130,6 +134,93 @@ void main() {
     expect(approver.tokenKey, given.tokenKey);
     expect(trust.hosts.single.host, 'mbp');
     expect(trust.hosts.single.address, '10.8.0.7:47731');
+  });
+
+  test('with an approval link: the giver is told the address, the device '
+      'settings hold it, the service listens there once unlocked, and the '
+      'giver\'s service, recording the pairing, opens the link', () async {
+    // The giving machine's service: its keys go into the bundle.
+    final mbpDemo = await Demo.create();
+    final mbp = await mbpDemo.start(transport: transport, host: 'mbp');
+    final mbpAdmin = await TomSecretsAdminClient.connect(
+      mbpDemo.runtime(transport),
+      mbpDemo.adminKey,
+    );
+    addTearDown(mbpAdmin.close);
+    await mbpAdmin.unlock(primaryPassword);
+    giverKeys = TomSecretsPairingPeerKeys(
+      linkKey: (await mbp.trust.linkKey()).publicKey,
+      approverKey: (await mbp.trust.approverKey()).publicKey,
+    );
+
+    final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final link = '127.0.0.1:${probe.port}';
+    await probe.close();
+    final (w, code) = await window();
+    final input = StreamController<String>();
+    final lines = StreamIterator(input.stream);
+    final answers = StreamController<Map<String, Object?>>();
+    final answered = StreamIterator(answers.stream);
+    final keychain = TomInMemorySecretStore();
+    final exit = tomSecretsRunPairingMode(
+      handover(w.port, code.text, approvalLink: link),
+      lines: lines,
+      answer: answers.add,
+      keychain: keychain,
+    );
+    expect(await answered.moveNext(), isTrue);
+    final given = await w.result;
+    expect(given.receiverKeys.linkAddress, link);
+    input.add(jsonEncode({'password': primaryPassword}));
+    expect(await answered.moveNext(), isTrue);
+    expect(answered.current['status'], 'setUp');
+    final bootstrapPath = answered.current['bootstrap']! as String;
+    expect(await exit, 0);
+    await lines.cancel();
+    unawaited(input.close());
+
+    demo.bootstrap = await TomSecretsBootstrap.read(bootstrapPath);
+    final service = await demo.start(
+      transport: transport,
+      keychain: keychain,
+      host: 'bigbeast',
+    );
+    final admin = await TomSecretsAdminClient.connect(
+      demo.runtime(transport),
+      demo.adminKey,
+    );
+    addTearDown(admin.close);
+    await admin.unlock(primaryPassword);
+    expect(service.settings.approvalLink, link);
+    expect(service.linkServer!.address, link);
+
+    // What the giving app's pair.record keeps: the host and its address.
+    await mbp.recordPairing(
+      device: given.receiver,
+      tokenKey: given.tokenKey,
+      hostLinkKey: given.receiverKeys.linkKey,
+      hostAddress: given.receiverKeys.linkAddress,
+    );
+    expect(mbp.trust.host('bigbeast')!.address, link);
+    for (var i = 0; i < 100; i++) {
+      if (mbp.approverLinks!.connected.contains('bigbeast')) break;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    expect(mbp.approverLinks!.connected, contains('bigbeast'));
+  });
+
+  test('an approval link on every interface is refused before the pairing '
+      'starts', () async {
+    final answers = <Map<String, Object?>>[];
+    final exit = await tomSecretsRunPairingMode(
+      handover(1, '7-guitar-orbit', approvalLink: '0.0.0.0:47731'),
+      lines: StreamIterator(const Stream.empty()),
+      answer: answers.add,
+      keychain: TomInMemorySecretStore(),
+    );
+    expect(exit, 2);
+    expect(answers.single['code'], 'handover');
+    expect(answers.single['message'], contains('every interface'));
   });
 
   test('a wrong code: the pairing\'s failure, nothing stored', () async {

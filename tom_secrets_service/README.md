@@ -100,7 +100,11 @@ sets the machine up from what it received — the keys and tokens in the
 keychain, the device settings container with this machine's approval keys
 and the giving device recorded as its approver and as a host it approves
 for, and `bootstrap.yaml` — and ends. `tsm` then starts it as usual and
-unlocks it.
+unlocks it. A handover with `approvalLink` (`tsm pair --link`) puts it into
+the device settings and tells the giving machine this address with the
+keys, so the giver's service opens the approval link as soon as this
+machine's service listens; a link that is no `host:port` of one address
+(never every interface) is a handover that cannot be used.
 
 | Exit code | Meaning |
 | --- | --- |

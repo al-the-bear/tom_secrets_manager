@@ -1698,10 +1698,10 @@ String? tomSecretsSettingsProblem(Map<String, Object?> device) {
     if (v != null && (v is! String || v.isEmpty)) return '$key is a string';
   }
   final link = device['approvalLink'];
-  if (link is String &&
-      !RegExp(r'^[^\s:]+:\d{1,5}$').hasMatch(link) &&
-      !RegExp(r'^\[[0-9a-fA-F:]+\]:\d{1,5}$').hasMatch(link)) {
-    return 'approvalLink is address:port';
+  if (link is String) {
+    // Port 0: the system picks one (a machine's own tests).
+    final problem = tomSecretsApprovalLinkProblem(link, anyPort: true);
+    if (problem != null) return problem;
   }
   if (device['offlineCache'] case final v? when v is! bool) {
     return 'offlineCache is true or false';
