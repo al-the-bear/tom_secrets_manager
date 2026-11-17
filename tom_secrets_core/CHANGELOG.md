@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.4
+
+- URL matching of login entries (part-browser, protocol.md 5.7):
+  `tomSecretsMatchLogins` (the entries of a page, exact host before domain,
+  then the last used, then by title; a frame only when it is the same site),
+  `TomSecretsSiteUrl` (normalised: https without a scheme, punycode hosts,
+  default ports dropped), `tomSecretsMatchSiteUrl` with the
+  `tsm.urlMatch` rules `domain`, `host`, `exact`, `never`
+  (`TomSecretsEntryFields.urlMatch`), `tomSecretsRegistrableDomain` after
+  the Public Suffix List, which the package carries as data
+  (`tool/update_public_suffix_list.py`; MPL-2.0, see THIRD_PARTY.md).
+
 ## 0.2.3
 
 - `tomSecretsReceivePairingForSetup` takes `linkAddress`: where the new

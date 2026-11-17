@@ -111,6 +111,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | Masked field values zeroed after use | `TomSecretsFieldValue` |
 | TOTP in three KDBX conventions | `TomSecretsTotp` |
 | Password generator | `TomSecretsPasswordGenerator`, `TomSecretsPasswordPolicy` |
+| URL matching of login entries (the Public Suffix List, `tsm.urlMatch`) | `tomSecretsMatchLogins`, `TomSecretsSiteUrl` |
 | The primary vault's list of further vaults | `TomSecretsPrimaryVaults`, `TomSecretsVaultKeys` |
 
 ### Protection
@@ -271,6 +272,18 @@ final password = TomSecretsPasswordGenerator().generate(
   ),
 );
 print(password.length); // 24
+```
+
+Which login entries belong to a web page (the service's `match`, the OS
+autofill): an entry's `URL` and `KP2A_URL*` fields, compared by its
+`tsm.urlMatch` rule, by default the same site after the Public Suffix List:
+
+```dart
+final matches = tomSecretsMatchLogins(store.entries, 'https://login.example.com/');
+for (final m in matches) {
+  print('${m.title} ${m.userName} ${m.level.name}'); // exactHost before domain
+}
+print(tomSecretsRegistrableDomain('a.example.github.io')); // example.github.io
 ```
 
 ### Key files and outer encryption
@@ -568,4 +581,6 @@ TSM_LIVE_GITHUB_REPO=<owner>/<repo> \
 
 ## Licence
 
-BSD-3-Clause, see [LICENSE](LICENSE).
+BSD-3-Clause, see [LICENSE](LICENSE). The package carries the Public Suffix
+List as data (`lib/src/public_suffix_list.g.dart`), which is under the
+Mozilla Public License 2.0; see [THIRD_PARTY.md](THIRD_PARTY.md).

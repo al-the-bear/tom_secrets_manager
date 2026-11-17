@@ -34,6 +34,10 @@ abstract final class TomSecretsEntryFields {
   /// The extra URL fields for autofill.
   static const extraUrlPrefix = 'KP2A_URL';
 
+  /// How the entry's URLs match a web page (part-browser): `domain` (the
+  /// default), `host`, `exact` or `never`.
+  static const urlMatch = KdbxKey('tsm.urlMatch');
+
   /// The virtual field: the current TOTP code.
   static const totp = 'totp';
 

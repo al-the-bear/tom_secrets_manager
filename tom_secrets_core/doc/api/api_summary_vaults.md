@@ -37,6 +37,10 @@
   - [TomSecretsTotpFields](#tomsecretstotpfields)
   - [TomSecretsTotpAlgorithm](#tomsecretstotpalgorithm)
   - [TomSecretsTotp](#tomsecretstotp)
+  - [TomSecretsUrlMatchRule](#tomsecretsurlmatchrule)
+  - [TomSecretsUrlMatchLevel](#tomsecretsurlmatchlevel)
+  - [TomSecretsSiteUrl](#tomsecretssiteurl)
+  - [TomSecretsLoginMatch](#tomsecretsloginmatch)
   - [TomSecretsCharacterClass](#tomsecretscharacterclass)
   - [TomSecretsPasswordPolicy](#tomsecretspasswordpolicy)
   - [TomSecretsPasswordGenerator](#tomsecretspasswordgenerator)
@@ -868,6 +872,48 @@ A TOTP secret with its parameters.
 
 ---
 
+### TomSecretsUrlMatchRule
+
+How an entry's URLs match a page: the entry field `tsm.urlMatch` (part-browser).
+
+| Value | Meaning |
+| --- | --- |
+| `domain` | The registrable domain (the default, also for an unknown value) |
+| `host` | The exact host, any path |
+| `exact` | Scheme, host, port and a path prefix |
+| `never` | Never offered |
+
+| Static Method | Return Type | Description |
+| --- | --- | --- |
+| `of(String? value)` | `TomSecretsUrlMatchRule` | The rule a `tsm.urlMatch` value names; absent or unknown is `domain` |
+
+---
+
+### TomSecretsUrlMatchLevel
+
+How closely an entry matches: `exactHost` before `domain`.
+
+---
+
+### TomSecretsSiteUrl
+
+A web URL as matching reads it: `http` or `https`, the host lower-case with non-ASCII labels as punycode, the port (null when the scheme's default) and the path (`/` at least); a text without a scheme is read as `https`.
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `parse(String text)` (static) | `TomSecretsSiteUrl?` | The URL normalised, or null when it is not a web URL (`androidapp://`, `mailto:`, no host) |
+| `scheme`, `host`, `port`, `path` | `String`, `String`, `int?`, `String` | The parts |
+| `isAddressOrLocalhost` | `bool` | An IP address or `localhost`: matches by host and port exactly |
+| `registrableDomain` | `String?` | The registrable domain after the Public Suffix List, or null |
+
+---
+
+### TomSecretsLoginMatch
+
+A login entry matching a page: `entry` (`TomSecretsIndexedEntry`), `matchedUrl` (the entry URL that matched, as written), `level`, and `title`, `userName`, `hasTotp`, `lastUsed` (its last access, else its last change).
+
+---
+
 ### TomSecretsCharacterClass
 
 The character classes a generated password draws from.
@@ -1036,6 +1082,7 @@ A primary vault's further vaults.
 | `tomSecretsAmbiguousCharacters` | `String` | The characters `TomSecretsPasswordPolicy.excludeAmbiguous` leaves out, because they are easily confused when read or typed. |
 | `tomSecretsProductGroup` | `String` | The root group holding the product's own groups (never resolved into). |
 | `tomSecretsVaultsGroup` | `String` | The subgroup holding the further vaults. |
+| `tomSecretsPublicSuffixListVersion` | `String` | The version of the Public Suffix List the URL matching carries (regenerated with `tool/update_public_suffix_list.py`). |
 
 ### Functions
 
@@ -1055,3 +1102,8 @@ A primary vault's further vaults.
 | `tomSecretsOverlayBinding` | `(String, String)? tomSecretsOverlayBinding(String name)` | The binding an overlay group's `name` stands for (`@host:build-01`), or null when the name is not one. |
 | `tomSecretsBase32Encode` | `String tomSecretsBase32Encode(List<int> bytes)` | RFC 4648 base32 without padding. |
 | `tomSecretsBase32Decode` | `Uint8List? tomSecretsBase32Decode(String text)` | RFC 4648 base32, any case, spaces, dashes and padding ignored; null when it is not base32. |
+| `tomSecretsMatchLogins` | `List<TomSecretsLoginMatch> tomSecretsMatchLogins(Iterable<TomSecretsIndexedEntry> entries, String url, {String? frameUrl})` | The login entries (type `login`, no overlays) whose URLs match the page by their `tsm.urlMatch` rule; with `frameUrl` the frame is matched, only when it is the same site as the page. Ordered: the exact host first, then the last used, then by title (protocol.md 5.7). |
+| `tomSecretsMatchSiteUrl` | `TomSecretsUrlMatchLevel? tomSecretsMatchSiteUrl(TomSecretsSiteUrl entry, TomSecretsSiteUrl page, {TomSecretsUrlMatchRule rule = TomSecretsUrlMatchRule.domain})` | How an entry URL matches a page under a rule, or null; `https` never on `http`, addresses and `localhost` by host and port. |
+| `tomSecretsEntryUrls` | `List<String> tomSecretsEntryUrls(KdbxEntry entry)` | The entry's `URL`, then its `KP2A_URL*` fields in name order; empty ones left out. |
+| `tomSecretsRegistrableDomain` | `String? tomSecretsRegistrableDomain(String host)` | The registrable domain of an ASCII host after the Public Suffix List (both sections), or null for a public suffix. |
+| `tomSecretsAsciiHost` | `String tomSecretsAsciiHost(String host)` | The host lower-case, a trailing dot dropped, non-ASCII labels as punycode (RFC 3492), an IPv6 address without brackets. |

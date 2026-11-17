@@ -39,6 +39,7 @@ export 'src/store.dart';
 export 'src/stored_vault.dart';
 export 'src/totp.dart';
 export 'src/trust.dart';
+export 'src/url_match.dart';
 export 'src/vault_merge.dart';
 export 'src/vault_sync.dart';
 

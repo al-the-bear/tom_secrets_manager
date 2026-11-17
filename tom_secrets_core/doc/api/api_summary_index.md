@@ -70,6 +70,10 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsTotpFields` | abstract final class | The TOTP field names. | [→](api_summary_vaults.md#tomsecretstotpfields) |
 | `TomSecretsTotpAlgorithm` | enum | The hash a TOTP code is made with. | [→](api_summary_vaults.md#tomsecretstotpalgorithm) |
 | `TomSecretsTotp` | final class | A TOTP secret with its parameters. | [→](api_summary_vaults.md#tomsecretstotp) |
+| `TomSecretsUrlMatchRule` | enum | How an entry's URLs match a page (`tsm.urlMatch`). | [→](api_summary_vaults.md#tomsecretsurlmatchrule) |
+| `TomSecretsUrlMatchLevel` | enum | How closely an entry matches: exact host, domain. | [→](api_summary_vaults.md#tomsecretsurlmatchlevel) |
+| `TomSecretsSiteUrl` | final class | A web URL normalised for matching. | [→](api_summary_vaults.md#tomsecretssiteurl) |
+| `TomSecretsLoginMatch` | final class | A login entry matching a page. | [→](api_summary_vaults.md#tomsecretsloginmatch) |
 | `TomSecretsCharacterClass` | enum | The character classes a generated password draws from. | [→](api_summary_vaults.md#tomsecretscharacterclass) |
 | `TomSecretsPasswordPolicy` | final class | What a generated password is made of. | [→](api_summary_vaults.md#tomsecretspasswordpolicy) |
 | `TomSecretsPasswordGenerator` | final class | Generates passwords under a `TomSecretsPasswordPolicy`. | [→](api_summary_vaults.md#tomsecretspasswordgenerator) |
@@ -94,6 +98,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsNewVault` | A new, empty vault named `name`, opened with `credentials` (a password, a key file or both): KDBX 4.1, its key derived through `argon2`, which must be Argon2id, and the product's format version in its custom data. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsOverlayBinding` | The binding an overlay group's `name` stands for (`@host:build-01`), or null when the name is not one. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32Encode` | RFC 4648 base32 without padding. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsMatchLogins` | The login entries of a page, in their order. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsMatchSiteUrl` | How an entry URL matches a page under a rule. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsEntryUrls` | An entry's `URL` and `KP2A_URL*` fields. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsRegistrableDomain` | The registrable domain after the Public Suffix List. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAsciiHost` | A host lower-case with punycode labels. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32Decode` | RFC 4648 base32, any case, spaces, dashes and padding ignored; null when it is not base32. | [→](api_summary_vaults.md#functions) |
 
 ### Global Variables
@@ -537,6 +546,10 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsTotp` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotp) |
 | `TomSecretsTotpAlgorithm` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotpalgorithm) |
 | `TomSecretsTotpFields` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotpfields) |
+| `TomSecretsLoginMatch` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsloginmatch) |
+| `TomSecretsSiteUrl` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssiteurl) |
+| `TomSecretsUrlMatchLevel` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsurlmatchlevel) |
+| `TomSecretsUrlMatchRule` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsurlmatchrule) |
 | `TomSecretsTrust` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretstrust) |
 | `TomSecretsVaultCodec` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsvaultcodec) |
 | `TomSecretsVaultConflict` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsvaultconflict) |
@@ -560,6 +573,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsBase32` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsBase32Decode` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32Encode` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAsciiHost` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsEntryUrls` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsMatchLogins` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsMatchSiteUrl` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsRegistrableDomain` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase64Url` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsBlobId` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsClassifyMove` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
