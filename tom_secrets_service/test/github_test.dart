@@ -877,6 +877,108 @@ void main() {
       expect(stores(service)['team']!['state'], 'current');
     });
 
+    test('vault.create: a vault in the primary\'s repository is one commit by '
+        'this device, then the primary\'s entry; a vault in another '
+        'repository is written with the token the request brings, kept in '
+        'the primary', () async {
+      final service = await start();
+      const ops = 'github:$_repo/ops.kdbx';
+      final file = _vault('ops', 'ops-demo-pw', {'Svc/Key': 'ops-key-1'});
+      TomSecretsMetadata(
+        store: 'ops',
+        kind: TomSecretsVaultKind.system,
+      ).writeTo(file);
+      final before = commits().length;
+      final answer = await admin.request('vault.create', {
+        'store': 'ops',
+        'location': ops,
+        'bytes': base64.encode(await file.save()),
+        'keys': {'password': 'ops-demo-pw'},
+      });
+      expect(answer['location'], ops);
+      final all = commits();
+      expect(all, hasLength(before + 2));
+      expect(all[1].message, 'tsm: ops.kdbx from demo-host');
+      expect(all[1].committer?['email'], 'demo-host@tsm.invalid');
+      expect(all[0].message, 'tsm: primary.kdbx from demo-host');
+      expect(answer['revision'], tomSecretsBlobId(onGitHub('ops.kdbx')));
+      expect(await get('ops/Svc/Key'), 'ops-key-1');
+      final primary = await KdbxFormat().read(
+        onGitHub('primary.kdbx'),
+        _pw(primaryPassword),
+      );
+      final entry = TomSecretsPrimaryVaults(primary).byName('ops')!;
+      expect(entry.locator, ops);
+      expect(entry.password, 'ops-demo-pw');
+      expect(entry.githubToken, isNull, reason: 'the keychain\'s repository');
+      await service.refresh(force: true);
+      expect(stores(service)['ops']!['state'], 'current');
+
+      const thirdRepo = 'al-the-bear/third-vaults';
+      const third = 'github:$thirdRepo/third.kdbx';
+      server.repo(thirdRepo);
+      await admin.request('vault.create', {
+        'store': 'third',
+        'location': third,
+        'bytes': base64.encode(
+          await _vault('third', 'third-demo-pw', {
+            'Web/Key': 'third-key-1',
+          }).save(),
+        ),
+        'keys': {'password': 'third-demo-pw'},
+        'githubToken': 'demo-third-token',
+      });
+      expect(server.bytesAt(thirdRepo, 'third.kdbx'), isNotNull);
+      expect(
+        network.requests
+            .where((r) => r.$1.contains('/repos/$thirdRepo/'))
+            .map((r) => r.$2)
+            .toSet(),
+        {'Bearer demo-third-token'},
+      );
+      expect(await get('third/Web/Key'), 'third-key-1');
+      final listed = TomSecretsPrimaryVaults(
+        await KdbxFormat().read(onGitHub('primary.kdbx'), _pw(primaryPassword)),
+      ).byName('third')!;
+      expect(listed.githubToken, 'demo-third-token');
+    });
+
+    test('vault.create refused: a file already at the path, a token for the '
+        'primary\'s repository, GitHub unreachable; nothing listed', () async {
+      await start();
+      final bytes = base64.encode(
+        await _vault('ops', 'ops-demo-pw', {'Svc/Key': 'k'}).save(),
+      );
+      Future<Object?> create(String location, {String? token}) =>
+          admin.request('vault.create', {
+            'store': 'ops',
+            'location': location,
+            'bytes': bytes,
+            'keys': {'password': 'ops-demo-pw'},
+            'githubToken': ?token,
+          });
+      // Another device wrote a file at the path meanwhile.
+      await put('github:$_repo/ops.kdbx', _vault('x', 'x-pw', const {}));
+      final taken = await refused(create('github:$_repo/ops.kdbx'));
+      expect(taken.kind, 'denied');
+      expect(taken.details['reason'], 'target_exists');
+      final token = await refused(
+        create('github:$_repo/ops2.kdbx', token: 'demo-tok'),
+      );
+      expect(token.details['reason'], 'githubToken');
+      network.net = _Net.unreachable;
+      final offline = await refused(create('github:$_repo/ops3.kdbx'));
+      expect(offline.kind, 'offline');
+      expect(offline.details['stores'], ['ops']);
+      network.net = _Net.online;
+      final primary = await KdbxFormat().read(
+        onGitHub('primary.kdbx'),
+        _pw(primaryPassword),
+      );
+      expect(TomSecretsPrimaryVaults(primary).byName('ops'), isNull);
+      expect(server.bytesAt(_repo, 'ops3.kdbx'), isNull);
+    });
+
     test('a save is one commit on the branch by this device, written as the '
         'app saved it, kept in the offline cache and announced', () async {
       final service = await start();

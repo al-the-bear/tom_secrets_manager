@@ -321,6 +321,7 @@ revokes the old one. Failed authentications delay the next one (1 s, 2 s,
 | `compact` | the history of a `github:` vault repository cut now, with the repository's own `.tsm/compaction.yaml` retention or `retentionDays` instead (0 after a key change), pushed over git by this device |
 | `token.set` | a vault repository's GitHub token renewed (manager app only): checked first (it sees the repository, a short-lived `tsm-token-check-…` branch is created and deleted to prove it may write, the expiry GitHub reports), then kept where the old one was, and every store fetched again |
 | `keys.rotate` | this device's approver and link key pairs rotated (manager app only): what the old approver key signed is signed again, the key-change statement written into the vault for every host it approves for, both sent over the approval link at once; the previous link key is kept for 14 days for the peers not reached |
+| `vault.create` | a further vault created (manager app only): the app's new file written where it lives (a `file:` vault at its path, a `github:` vault in one commit), then listed in the primary with its keys, its repository's token when it brings one and its due date, and served |
 | `vault.move` | a store's outer encryption added or removed: the vault moved to its locator with `.kdbx.tsmx` or `.kdbx`, the new file written before the old one is removed, a `github:` vault in one commit |
 
 ### The editing path

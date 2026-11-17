@@ -192,6 +192,20 @@ abstract interface class TomSecretsVaultOpener {
     String? outerKey,
   });
 
+  /// Creates the store [file] at [locator], where nothing may be yet
+  /// (`denied`, `target_exists` otherwise): [stored], [file] as [locator]
+  /// keeps it (opened with [credentials] and [outerKey]), is written there;
+  /// a `github:` store in one commit on the branch. Answers the store opened
+  /// at [locator]. Throws the storage's failure when the remote cannot be
+  /// reached or refuses the token.
+  Future<TomSecretsOpenedVault> create(
+    String locator,
+    KdbxFile file, {
+    required Uint8List stored,
+    required Credentials credentials,
+    String? outerKey,
+  });
+
   /// The head of a rewritten branch (a force push without a compaction) a
   /// refused [commit] of [locator] met, awaiting the user's answer; null when
   /// there is none (and always for a `file:` vault).
@@ -323,6 +337,21 @@ final class TomSecretsLocatorOpener implements TomSecretsVaultOpener {
     to,
     file,
     base: base,
+    stored: stored,
+    credentials: credentials,
+    outerKey: outerKey,
+  );
+
+  @override
+  Future<TomSecretsOpenedVault> create(
+    String locator,
+    KdbxFile file, {
+    required Uint8List stored,
+    required Credentials credentials,
+    String? outerKey,
+  }) => _for(locator).create(
+    locator,
+    file,
     stored: stored,
     credentials: credentials,
     outerKey: outerKey,
@@ -512,6 +541,32 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
     await File(_path(from)).delete();
     return TomSecretsOpenedVault(
       locator: to,
+      file: file,
+      stored: stored,
+      fetchedAt: (await target.lastModified()).toUtc(),
+    );
+  }
+
+  @override
+  Future<TomSecretsOpenedVault> create(
+    String locator,
+    KdbxFile file, {
+    required Uint8List stored,
+    required Credentials credentials,
+    String? outerKey,
+  }) async {
+    final target = File(_path(locator));
+    if (target.existsSync()) {
+      throw TomSecretsSaveException(
+        'denied',
+        'a file is at ${target.path} already',
+        reason: 'target_exists',
+      );
+    }
+    await target.parent.create(recursive: true);
+    await _write(locator, stored);
+    return TomSecretsOpenedVault(
+      locator: locator,
       file: file,
       stored: stored,
       fetchedAt: (await target.lastModified()).toUtc(),
@@ -756,6 +811,9 @@ final class _Next {
   /// The token was refused: only an unlock or a `reload` fetches again.
   final bool auth;
 }
+
+/// A store name (protocol.md 3).
+final RegExp _storeNamePattern = RegExp(r'^[a-z0-9][a-z0-9_-]*$');
 
 /// The unlocked vaults.
 final class TomSecretsVaultSet {
@@ -1678,6 +1736,164 @@ final class TomSecretsVaultSet {
     _setStatus(name, location, TomSecretsStoreState.current, from: moved);
     _rebuildOpened(machine);
     return _revisionOf(moved);
+  }
+
+  /// Creates the further vault [name] at [location] (`vault.create`,
+  /// protocol.md 6.4): [stored] is the new file as [location] keeps it and
+  /// must open with [keys] (its `outerKey` exactly for a `.tsmx` location)
+  /// and carry readable metadata. [name] must be a store name the primary
+  /// does not use yet (`malformed`, `store`), [location] a vault locator
+  /// that is neither the primary's nor a listed vault's (`malformed`,
+  /// `location`), and [githubToken] is only for a `github:` vault outside
+  /// the primary's repository (`malformed`, `githubToken`). The file is
+  /// written first, through the opener's [TomSecretsVaultOpener.create]
+  /// (`denied`, `target_exists` when a file is there); only then is the
+  /// vault listed in the primary with [keys], [githubToken] and [keysDue]
+  /// (its Expires) and the primary written. The vault is served from then
+  /// on, unless this machine's device settings name the stores it serves
+  /// and not this one. Answers the new vault's revision. The set holds
+  /// [keys] from then on (disposed on a refusal or when it is not served).
+  Future<String> create(
+    String name,
+    String location,
+    Uint8List stored, {
+    required TomSecretsHeldKeys keys,
+    String? githubToken,
+    DateTime? keysDue,
+  }) async {
+    final primary = _primary;
+    final machine = _machine;
+    Never refuse(String kind, String message, [String? reason]) {
+      keys.dispose();
+      throw TomSecretsSaveException(kind, message, reason: reason);
+    }
+
+    if (primary == null || machine == null || _primaryName == null) {
+      refuse('locked', 'unlock the service first');
+    }
+    final list = TomSecretsPrimaryVaults(primary.file);
+    if (!_storeNamePattern.hasMatch(name) || name.length > 64) {
+      refuse('malformed', '$name is not a store name', 'store');
+    }
+    if (name == _primaryName || list.byName(name) != null) {
+      refuse('malformed', 'the primary names a store $name already', 'store');
+    }
+    final TomSecretsVaultLocator parsed;
+    try {
+      parsed = TomSecretsVaultLocator.parse(location);
+    } on Object {
+      refuse('malformed', '$location is not a vault locator', 'location');
+    }
+    if (parsed is! TomSecretsFileLocator &&
+        parsed is! TomSecretsGitHubLocator) {
+      refuse(
+        'malformed',
+        'a new vault is a file: or a github: vault',
+        'location',
+      );
+    }
+    if (location == primary.locator ||
+        list.list().any((k) => k.locator == location)) {
+      refuse('malformed', 'another vault is at $location already', 'location');
+    }
+    final outer = location.endsWith(tomSecretsOuterSuffix);
+    if (outer != (keys.outerKeyText != null)) {
+      refuse(
+        'malformed',
+        outer
+            ? 'an outer-encrypted file needs its repository key'
+            : 'a file without outer encryption takes no repository key',
+        'keys',
+      );
+    }
+    if (githubToken != null) {
+      final own = TomSecretsVaultLocator.parse(primary.locator);
+      final inPrimaryRepository =
+          parsed is TomSecretsGitHubLocator &&
+          own is TomSecretsGitHubLocator &&
+          own.repositorySlug == parsed.repositorySlug;
+      if (parsed is! TomSecretsGitHubLocator || inPrimaryRepository) {
+        refuse(
+          'malformed',
+          'a GitHub token is kept only for a github: vault outside the '
+              'primary\'s repository',
+          'githubToken',
+        );
+      }
+    }
+    final KdbxFile file;
+    try {
+      file = await opener.decode(
+        location,
+        stored,
+        keys.credentials,
+        outerKey: keys.outerKeyText,
+      );
+      TomSecretsMetadata.read(file);
+    } on Object {
+      refuse('malformed', 'the file does not open with the keys', 'bytes');
+    }
+    final entry = TomSecretsVaultKeys(
+      name: name,
+      locator: location,
+      password: keys.password?.reveal(),
+      keyFile: keys.keyFile?.withRevealed(Uint8List.fromList),
+      outerKey: keys.outerKeyText,
+      githubToken: githubToken,
+      expires: keysDue?.toUtc(),
+    );
+    // Listed before the file is written, so the token source finds a token
+    // the request brings for another repository; taken out again when the
+    // write fails.
+    list.put(entry);
+    final TomSecretsOpenedVault created;
+    try {
+      created = await opener.create(
+        location,
+        file,
+        stored: stored,
+        credentials: keys.credentials,
+        outerKey: keys.outerKeyText,
+      );
+    } on TomSecretsSaveException {
+      list.remove(name);
+      keys.dispose();
+      rethrow;
+    } on Object catch (e) {
+      list.remove(name);
+      keys.dispose();
+      final failure = tomSecretsFetchFailureOf(e);
+      if (failure == null) rethrow;
+      final now = TomSecretsStoreState.offlineFor(failure);
+      throw TomSecretsSaveException(
+        now.wireName,
+        now == TomSecretsStoreState.offline
+            ? 'the store cannot be reached'
+            : 'the store\'s token was refused',
+      );
+    }
+    try {
+      await writePrimary();
+    } on Object catch (e) {
+      // Not delivered: the entry waits in the held copy and the next
+      // refresh writes it (primaryWritePending).
+      if (tomSecretsFetchFailureOf(e) == null) rethrow;
+    }
+    final served = _served;
+    if (served != null && !served.contains(name)) {
+      // Listed for the machines that serve it; editable here through
+      // vaultKeys / vaultFile as a vault not served.
+      keys.dispose();
+      return _revisionOf(created);
+    }
+    _keys[name] = list.byName(name)!;
+    _held.remove(name)?.dispose();
+    _held[name] = keys;
+    _opened[name] = created;
+    _fetched(name, null);
+    _setStatus(name, location, TomSecretsStoreState.current, from: created);
+    _rebuildOpened(machine);
+    return _revisionOf(created);
   }
 
   /// The stores whose branch was rewritten and that wait for the user's

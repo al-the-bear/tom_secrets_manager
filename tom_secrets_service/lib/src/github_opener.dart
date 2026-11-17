@@ -416,6 +416,70 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
     return open(to, credentials, outerKey: outerKey);
   }
 
+  /// Creates the vault [file] at [locator] in one commit on the branch
+  /// through `TomSecretsVaultUnit.create` (part-stores), committed by this
+  /// device; a `.tsmx` file keeps the outer cipher of [stored]. A file at
+  /// [locator] refuses it (`denied`, `target_exists`). The unit is kept for
+  /// the saves, as [open] keeps it.
+  @override
+  Future<TomSecretsOpenedVault> create(
+    String locator,
+    KdbxFile file, {
+    required Uint8List stored,
+    required Credentials credentials,
+    String? outerKey,
+  }) async {
+    final vault = _parse(locator);
+    final repository = _repository(vault);
+    final codec = outerKey == null
+        ? _codec(vault, null)
+        : tomSecretsOuterCodecFor(
+                vault.fileName,
+                outerKey,
+                cipher: tomSecretsOuterCipherOf(stored),
+              ) ??
+              const TomSecretsPlainCodec();
+    final TomSecretsVaultUnit unit;
+    try {
+      unit = await TomSecretsVaultUnit.create(
+        locator: locator,
+        storage: repository.storage,
+        file: file,
+        device: device,
+        codec: codec,
+        cache: cacheDirectory != null && _useCache()
+            ? TomSecretsOfflineCache(Directory(cacheDirectory!))
+            : null,
+        history: await repository.history(vault.branch),
+        clock: () => _clock().toUtc(),
+      );
+    } on TomCasConflictException {
+      throw TomSecretsSaveException(
+        'denied',
+        'a file is at ${vault.path} already',
+        reason: 'target_exists',
+      );
+    } on TomCommitFailedException catch (e) {
+      throw e.cause ?? e;
+    } on GitHubAuthException {
+      throw const TomTokenRejectedException(
+        'github',
+        TomGitHubStorage.host,
+        'GitHub refused the token',
+      );
+    }
+    await _units.remove(locator)?.dispose();
+    _units[locator] = unit;
+    return TomSecretsOpenedVault(
+      locator: locator,
+      file: unit.working,
+      stored: unit.baseBytes,
+      revision: unit.head,
+      source: 'github',
+      fetchedAt: unit.fetchedAt,
+    );
+  }
+
   @override
   String? rewrittenHeadOf(String locator) => _units[locator]?.rewrittenHead;
 

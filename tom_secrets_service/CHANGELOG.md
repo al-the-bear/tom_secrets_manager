@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.5
+
+- `vault.create` (protocol.md 6.4, manager app only): a further vault
+  created beside the primary. The app's new file is written where it lives
+  (`TomSecretsVaultOpener.create`: a `file:` vault at its path, its folder
+  made; a `github:` vault in one commit through `TomSecretsVaultUnit.create`),
+  refused when a file is there (`target_exists`); only then is it listed in
+  the primary with its keys, the token of a repository outside the primary's
+  and its due date (`keysDue`), the primary written, and the vault served
+  (`TomSecretsVaultSet.create`, `TomSecretsService.createVault`).
+
 ## 0.11.4
 
 - The client endpoint's rate limits (protocol.md 11), per measured identity

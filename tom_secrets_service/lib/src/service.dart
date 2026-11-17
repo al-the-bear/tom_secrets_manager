@@ -1341,6 +1341,47 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     return revision;
   }
 
+  /// Creates the further vault [store] at [location] (`vault.create`,
+  /// protocol.md 6.4) as [TomSecretsVaultSet.create] says: the file written
+  /// where it lives, then listed in the primary with its keys. Answers the
+  /// new vault's revision; tells the subscribers about both stores.
+  Future<String> createVault(
+    String store,
+    String location,
+    Uint8List stored, {
+    required TomSecretsHeldKeys keys,
+    String? githubToken,
+    DateTime? keysDue,
+  }) async {
+    final revision = await _serial(
+      () => _tellingStates(
+        () => _vaults.create(
+          store,
+          location,
+          stored,
+          keys: keys,
+          githubToken: githubToken,
+          keysDue: keysDue,
+        ),
+      ),
+    );
+    log.info('vault_created', {
+      'store': store,
+      'github': location.startsWith('github:'),
+      'outer': location.endsWith(tomSecretsOuterSuffix),
+    });
+    final primary = _vaults.primaryName;
+    if (primary != null) {
+      _emit({
+        'op': 'store_changed',
+        'store': primary,
+        'revision': ?_vaults.statusOf(primary)?.revision,
+      });
+    }
+    _emit({'op': 'store_changed', 'store': store, 'revision': revision});
+    return revision;
+  }
+
   /// Writes [primary] into the bootstrap file (`bootstrap.yaml` in the data
   /// directory), when there is one; a failure is logged (this run already
   /// serves the moved primary, the next start would not find it).
@@ -3133,6 +3174,88 @@ final class _AdminSession {
             if (e.kind == 'offline' || e.kind == 'token_expired')
               'stores': [store],
             'reason': ?e.reason,
+          });
+        }
+      case 'vault.create':
+        final store = m['store'];
+        final location = m['location'];
+        final bytes = m['bytes'];
+        final wireKeys = m['keys'];
+        final token = m['githubToken'];
+        final due = m['keysDue'];
+        final keysDue = due is String ? DateTime.tryParse(due) : null;
+        if (store is! String ||
+            location is! String ||
+            bytes is! String ||
+            wireKeys is! Map ||
+            (token != null && (token is! String || token.isEmpty)) ||
+            (due != null && keysDue == null)) {
+          connection.sendError(
+            id,
+            'malformed',
+            'vault.create carries store, location, bytes and keys',
+            {'reason': 'create'},
+          );
+          return;
+        }
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        final newKeys = _newKeysOf(wireKeys.cast<String, Object?>());
+        if (newKeys == null) {
+          connection.sendError(id, 'malformed', 'keys cannot be read', {
+            'reason': 'keys',
+          });
+          return;
+        }
+        final Uint8List stored;
+        try {
+          stored = base64.decode(bytes);
+        } on FormatException {
+          newKeys.dispose();
+          connection.sendError(id, 'malformed', 'bytes is not base64', {
+            'reason': 'bytes',
+          });
+          return;
+        }
+        try {
+          final revision = await service.createVault(
+            store,
+            location,
+            stored,
+            keys: newKeys,
+            githubToken: token as String?,
+            keysDue: keysDue,
+          );
+          connection.send({
+            'op': 'ok',
+            'id': id,
+            'store': store,
+            'location': location,
+            'revision': revision,
+          });
+        } on TomSecretsSaveException catch (e) {
+          service.log.info('create_refused', {
+            'store': store,
+            'kind': e.kind,
+            'reason': e.reason,
+          });
+          connection.sendError(id, e.kind, e.message, {
+            if (e.kind == 'offline' || e.kind == 'token_expired')
+              'stores': [store],
+            'reason': ?e.reason,
+          });
+        } on Object catch (e) {
+          service.log.error('create_failed', e, {'store': store});
+          connection.sendError(id, 'internal', 'the vault was not created', {
+            'code': e.runtimeType.toString(),
           });
         }
       case 'pair.identity' || 'pair.record' || 'pair.revoke' || 'pair.list':
