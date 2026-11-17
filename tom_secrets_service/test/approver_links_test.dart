@@ -221,6 +221,31 @@ void main() {
     );
   });
 
+  test('a connection that drops before or during the handshake leaves the '
+      'host serving: its link and its admin endpoint answer', () async {
+    for (final send in [false, true]) {
+      final socket = await Socket.connect(
+        InternetAddress.loopbackIPv4,
+        linkPort,
+      );
+      if (send) socket.add(List.filled(64, 7));
+      socket.destroy();
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    expect((await adminB.request('status'))['locked'], isFalse);
+    // And the approver's link still carries prompts.
+    final needed = nextEvent('approval_needed');
+    final c = await clientOnB();
+    final answer = c.get('primary/Db/Main');
+    final event = await needed;
+    await adminA.request('approve', {
+      'approvalId': event['approvalId'],
+      'decision': 'once',
+      'secret': 'ref',
+    });
+    expect((await answer).text, 'demo-db-pw');
+  });
+
   test('the link is opened again after bigbeast relocked; under its rotated '
       'link key mbp takes the new key', () async {
     final before = mbp.trust.host('bigbeast')!.linkKey;

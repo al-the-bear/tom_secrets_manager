@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.7
+
+- The approval link's listener survives a connection that drops before or
+  during the handshake (a port scan, a peer that went away): the peer's
+  address is read when the connection is accepted, and a failed write ends
+  that session only. Before, reading the address of a closed socket for the
+  log stopped the service.
+
 ## 0.11.6
 
 - The pairing mode takes the handover's `approvalLink`: it goes into the

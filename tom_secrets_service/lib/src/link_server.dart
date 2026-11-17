@@ -49,6 +49,16 @@ final class TomSecretsLinkServer {
     final port = int.parse(address.substring(colon + 1));
     final server = await ServerSocket.bind(name, port);
     server.listen((socket) async {
+      // Read at once: a peer that went away has no address to read later.
+      String? peer;
+      try {
+        peer = socket.remoteAddress.address;
+      } on SocketException {
+        peer = null;
+      }
+      // A write to a peer that went away fails through `done`; the session
+      // ends as below, and the service goes on.
+      unawaited(socket.done.then<void>((_) {}, onError: (Object _) {}));
       // Read at each connection: a rotation of this device's link key takes
       // effect at once, its previous key answered during the migration.
       final me = await trust.linkKey();
@@ -73,8 +83,9 @@ final class TomSecretsLinkServer {
         log.info('link_refused', {
           'error': e.runtimeType.toString(),
           'detail': e is TomSecretsLinkException ? e.message : null,
-          'peer': socket.remoteAddress.address,
+          'peer': ?peer,
         });
+        socket.destroy();
       }
     });
     return TomSecretsLinkServer._(server, '$name:${server.port}');
