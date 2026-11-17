@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3
+
+- `tomSecretsReceivePairingForSetup` takes `linkAddress`: where the new
+  machine's approval link will listen, sent to the giving machine with its
+  keys so the giver records it and opens the link; checked with
+  `tom_secrets_client`'s `tomSecretsApprovalLinkProblem`. Needs
+  `tom_secrets_client` 0.2.4.
+
 ## 0.2.2
 
 - The README rewritten as the package's manual; API summaries of every area in `doc/api/`.

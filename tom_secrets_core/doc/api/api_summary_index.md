@@ -290,7 +290,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsPairingAddresses` | This machine's LAN and VPN addresses (`tomSecretsIsPairingAddress`). | [→](api_summary_sharing.md#functions) |
 | `tomSecretsReceivePairingAt` | The receiving side connecting to a pairing window at `address`:`port` (`tomSecretsReceivePairing` over TCP). | [→](api_summary_sharing.md#functions) |
 | `tomSecretsPairingSetupProblem` | Why a bundle cannot set a machine up, or null when it can: the primary must be in it, with its token when it is in a GitHub repository. | [→](api_summary_sharing.md#functions) |
-| `tomSecretsReceivePairingForSetup` | Receives a pairing for a machine being set up as `device`: connects to the giving machine's window at `address`:`port` with `code`, answers with the public keys of fresh trust material (made `now`), and refuses a bundle it cannot be set up from (`tomSecretsPairingSetupProblem`). | [→](api_summary_sharing.md#functions) |
+| `tomSecretsReceivePairingForSetup` | Receives a pairing for a machine being set up as `device`: connects to the giving machine's window at `address`:`port` with `code`, answers with the public keys of fresh trust material (made `now`) and `linkAddress`, where this machine's approval link will listen (the giver records it and opens the link), and refuses a bundle it cannot be set up from (`tomSecretsPairingSetupProblem`); a `linkAddress` that is no approval link throws `ArgumentError`. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsParsePairingAddress` | Splits `host:port` (an IPv6 address in brackets: `[fd00::1]:47900`) as the giving machine's Pairing screen shows it. | [→](api_summary_sharing.md#functions) |
 
 ### Global Variables

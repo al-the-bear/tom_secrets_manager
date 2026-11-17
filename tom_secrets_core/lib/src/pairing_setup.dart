@@ -13,6 +13,9 @@ library;
 
 import 'dart:io';
 
+import 'package:tom_secrets_client/admin.dart'
+    show tomSecretsApprovalLinkProblem;
+
 import 'locator.dart';
 import 'pairing.dart';
 import 'trust.dart';
@@ -70,17 +73,28 @@ String? tomSecretsPairingSetupProblem(TomSecretsPairingBundle bundle) {
 
 /// Receives a pairing for a machine being set up as [device]: connects to
 /// the giving machine's window at [address]:[port] with [code], answers with
-/// the public keys of fresh trust material (made [now]), and refuses a
-/// bundle it cannot be set up from ([tomSecretsPairingSetupProblem]).
-/// Stores nothing. Throws [TomSecretsPairingException].
+/// the public keys of fresh trust material (made [now]) and [linkAddress],
+/// the address this machine's approval link will listen on (the device
+/// setting `approvalLink`), so the giving machine records it and opens the
+/// link; refuses a bundle it cannot be set up from
+/// ([tomSecretsPairingSetupProblem]). Stores nothing. Throws
+/// [TomSecretsPairingException], and [ArgumentError] for a [linkAddress]
+/// that is no approval link (`tomSecretsApprovalLinkProblem`).
 Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({
   required String address,
   required int port,
   required TomSecretsPairingCode code,
   required String device,
+  String? linkAddress,
   DateTime? now,
   Duration connectTimeout = const Duration(seconds: 10),
 }) async {
+  if (linkAddress != null) {
+    final problem = tomSecretsApprovalLinkProblem(linkAddress);
+    if (problem != null) {
+      throw ArgumentError.value(linkAddress, 'linkAddress', problem);
+    }
+  }
   final trust = TomSecretsTrust.create(device, now: now);
   final received = await tomSecretsReceivePairingAt(
     address,
@@ -94,6 +108,7 @@ Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({
       return TomSecretsPairingPeerKeys(
         linkKey: (await trust.linkKey()).publicKey,
         approverKey: (await trust.approverKey()).publicKey,
+        linkAddress: linkAddress,
       );
     },
   );

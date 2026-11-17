@@ -110,9 +110,12 @@ void main() {
         port: w.port,
         code: code,
         device: 'bigbeast',
+        linkAddress: '10.8.0.1:47731',
       );
       final given = await w.result;
       expect(receipt.giver, 'mbp');
+      // The giver records where this machine's approval link listens.
+      expect(given.receiverKeys.linkAddress, '10.8.0.1:47731');
       expect(receipt.received.tokenKey, given.tokenKey);
       expect(
         given.receiverKeys.approverKey!.keyId,
@@ -237,6 +240,20 @@ void main() {
     );
     expect(tomSecretsPairingSetupProblem(b), contains('GitHub token'));
     expect(tomSecretsPairingSetupProblem(bundle()), isNull);
+  });
+
+  test('a link address that is no approval link is refused before '
+      'anything is sent', () async {
+    await expectLater(
+      tomSecretsReceivePairingForSetup(
+        address: '127.0.0.1',
+        port: 1,
+        code: TomSecretsPairingCode.parse('7-guitar-orbit'),
+        device: 'bigbeast',
+        linkAddress: '0.0.0.0:47731',
+      ),
+      throwsArgumentError,
+    );
   });
 
   test('the address as the Pairing screen shows it', () {

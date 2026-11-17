@@ -428,7 +428,9 @@ The giving side opens a `TomSecretsPairingWindow` and runs
 `tomSecretsGivePairing`; the receiving side runs `tomSecretsReceivePairing`
 (or `tomSecretsReceivePairingAt` over TCP). A machine being set up receives
 with `tomSecretsReceivePairingForSetup` and is set up by
-`TomSecretsFirstRun.runPaired`.
+`TomSecretsFirstRun.runPaired`; its `linkAddress` tells the giving machine
+where this one's approval link will listen (the device setting
+`approvalLink` it is set up with), so the giver opens the link at once.
 
 ### Import and export
 
