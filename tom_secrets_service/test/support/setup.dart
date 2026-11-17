@@ -31,7 +31,8 @@ const testArgon2 = KdbxArgon2(
 );
 
 /// Allows every value (the tests of the endpoint, not of the allow list).
-final class AllowAllPolicy implements TomSecretsAccessPolicy {
+final class AllowAllPolicy
+    implements TomSecretsAccessPolicy, TomSecretsLookupPolicy {
   /// The policy.
   const AllowAllPolicy();
 
@@ -39,6 +40,13 @@ final class AllowAllPolicy implements TomSecretsAccessPolicy {
   Future<List<TomSecretsAccess>> check(TomSecretsAccessBatch batch) async => [
     for (final _ in batch.items) const TomSecretsAccessAllowed(),
   ];
+
+  @override
+  Future<TomSecretsCoverage> coverage(
+    TomSecretsIdentity identity, {
+    String? clientTokenHash,
+    required ({String store, String uuid})? Function(String reference) entryOf,
+  }) async => TomSecretsCoverage(covers: (_, _) => true, hasAllowGrant: true);
 }
 
 /// The identity of this process, for the tests' TCP runs on Linux and
@@ -154,6 +162,8 @@ final class Demo {
     Duration Function(int)? authDelay,
     TomSecretsPeerMeasurer? peerMeasurer,
     Set<String>? adminExecutables,
+    Set<String>? browserHostExecutables,
+    Set<String>? helperExecutables,
     Duration? lastUsedInterval,
     http.Client? githubClient,
     DateTime Function()? clock,
@@ -183,6 +193,8 @@ final class Demo {
                 ? const SelfPeerMeasurer()
                 : null),
         adminExecutables: adminExecutables,
+        browserHostExecutables: browserHostExecutables,
+        helperExecutables: helperExecutables,
         lastUsedInterval: lastUsedInterval,
         githubBaseUrl: FakeGitHubServer.baseUrl,
         githubClient: githubClient,

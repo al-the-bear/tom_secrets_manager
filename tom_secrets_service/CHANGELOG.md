@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.11.8
+
+- The phase-B client messages as features under protocol 1 (protocol.md
+  5.5, section 8): `welcome.features` offers `binary`, `getFile`, `match`
+  and `propose`, and the service keeps the ones the client's `hello` names.
+- `getFile`: an attachment or a field as bytes, `file`, binary chunks of
+  256 KiB (`TomSecretsConnection.sendChunk`), `end` with its SHA-256; only
+  for a client that named `binary` and `getFile`.
+- `match`: the login entries of a page (`tomSecretsMatchLogins`) that an
+  `allow` grant of the client covers (`TomSecretsLookupPolicy.coverage`,
+  `TomSecretsCoverage`), never a value; only for the browser host and the
+  helpers (`TomSecretsServiceConfig.browserHostExecutables`,
+  `helperExecutables`, `tomSecretsLookupExecutables`), no system vault for
+  the browser host, audited.
+- `propose`: a login of the browser host holding an `allow` grant, passed
+  to the attached manager app as the event `proposal`; `unavailable`
+  (`no_app`) with no app attached.
+- The rate limits count `getFile`, `match` and `propose` with `get`.
+
 ## 0.11.7
 
 - The approval link's listener survives a connection that drops before or

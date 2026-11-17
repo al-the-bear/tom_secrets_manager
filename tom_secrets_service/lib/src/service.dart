@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:tom_core_storage/settings.dart';
 import 'package:tom_core_storage/tom_core_storage.dart'
@@ -68,6 +69,8 @@ final class TomSecretsServiceConfig {
     TomSecretsLog? log,
     TomSecretsPeerMeasurer? peerMeasurer,
     this.adminExecutables,
+    this.browserHostExecutables,
+    this.helperExecutables,
     this.lastUsedInterval,
     this.approverLinkRetry = const Duration(seconds: 5),
     this.rateLimits = const TomSecretsRateLimitSettings(),
@@ -150,6 +153,16 @@ final class TomSecretsServiceConfig {
   /// set; null (an in-process service in tests) does not check.
   final Set<String>? adminExecutables;
 
+  /// The real paths of the browser host (`tsm-browser-host`), the client
+  /// `match` and `propose` answer (protocol.md 5.5); null (an in-process
+  /// service in tests): any executable of that file name.
+  final Set<String>? browserHostExecutables;
+
+  /// The real paths of the developer-tool helpers (`tsm`, which
+  /// `git-credential-tsm` and `docker-credential-tsm` resolve to, or copies
+  /// of those names), which `match` answers too; null: by file name.
+  final Set<String>? helperExecutables;
+
   /// How often the grants' last use is written to the primary vault; null:
   /// the refresh interval (`refreshMinutes`, so a `github:` primary is not
   /// committed more often than it is fetched), or an hour with refresh off.
@@ -190,6 +203,44 @@ Set<String> tomSecretsAdminExecutables(
       tomSecretsRealPath(path, null),
   };
 }
+
+/// The file name of the browser host (protocol.md 5.5), without `.exe`.
+const String tomSecretsBrowserHostName = 'tsm-browser-host';
+
+/// The file names the developer-tool helpers run as (protocol.md 5.5),
+/// without `.exe`: `tsm` and its multi-call names.
+const List<String> tomSecretsHelperNames = [
+  'tsm',
+  'git-credential-tsm',
+  'docker-credential-tsm',
+];
+
+/// The browser host and the helpers of a service started from
+/// [serviceExecutable], as real paths beside it (protocol.md 5.5).
+({Set<String> browserHosts, Set<String> helpers}) tomSecretsLookupExecutables(
+  String serviceExecutable,
+) {
+  final dir = File(serviceExecutable).parent.path;
+  final ext = Platform.isWindows ? '.exe' : '';
+  String at(String name) =>
+      tomSecretsRealPath('$dir${Platform.pathSeparator}$name$ext', null);
+  return (
+    browserHosts: {at(tomSecretsBrowserHostName)},
+    helpers: {for (final name in tomSecretsHelperNames) at(name)},
+  );
+}
+
+/// The optional features this service offers (protocol.md 8).
+const List<String> tomSecretsServiceFeatures = [
+  'binary',
+  'getFile',
+  'match',
+  'propose',
+];
+
+/// The size of a `getFile` chunk (protocol.md 2.5: at most 1 MiB less the
+/// 8 id bytes).
+const int tomSecretsFileChunkSize = 256 * 1024;
 
 /// A running service.
 final class TomSecretsService implements TomSecretsApprovalHost {
@@ -923,6 +974,20 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   }
 
   bool get _hasSubscribers => _admins.any((a) => a.subscribed);
+
+  /// Sends [event] to every subscribed manager app (not `tsm`); whether one
+  /// got it (protocol.md 5.5 `propose`: with none attached the proposal is
+  /// dropped).
+  bool _emitToApps(Map<String, Object?> event) {
+    var sent = false;
+    for (final a in _admins) {
+      if (a.subscribed && a.isApp) {
+        a.connection.send(event);
+        sent = true;
+      }
+    }
+    return sent;
+  }
 
   void _emit(Map<String, Object?> event) {
     for (final a in _admins) {
@@ -1845,6 +1910,34 @@ final class _ClientSession {
   Map<String, Object?> _client = const {};
   final Set<int> _open = {};
 
+  /// The features both sides named (protocol.md 8): the client's
+  /// `hello.features` that this service offers.
+  Set<String> _features = const {};
+
+  String get _exeName {
+    final exe = _identity?.exe ?? '';
+    final name = exe.split(RegExp(r'[/\\]')).last;
+    return name.toLowerCase().endsWith('.exe')
+        ? name.substring(0, name.length - 4)
+        : name;
+  }
+
+  /// Whether the client is the browser host (protocol.md 5.5).
+  bool get _isBrowserHost {
+    final allowed = service.config.browserHostExecutables;
+    return allowed == null
+        ? _exeName == tomSecretsBrowserHostName
+        : allowed.contains(_identity?.exe);
+  }
+
+  /// Whether the client is a developer-tool helper (protocol.md 5.5).
+  bool get _isHelper {
+    final allowed = service.config.helperExecutables;
+    return allowed == null
+        ? tomSecretsHelperNames.contains(_exeName)
+        : allowed.contains(_identity?.exe);
+  }
+
   void _message(Map<String, Object?> m) {
     final op = m['op'] as String;
     if (!_greeted) {
@@ -1852,7 +1945,7 @@ final class _ClientSession {
       return;
     }
     final id = m['id'];
-    if (op == 'get' || op == 'getMany') {
+    if (const {'get', 'getMany', 'getFile', 'match', 'propose'}.contains(op)) {
       if (!_validId(id)) {
         connection.sendError(null, 'malformed', 'a request carries an id', {
           'reason': 'frame',
@@ -1875,8 +1968,13 @@ final class _ClientSession {
         });
         return;
       }
+      final Future<void> work = switch (op) {
+        'match' => _match(id, m),
+        'propose' => _propose(id, m),
+        _ => _request(id, op, m),
+      };
       unawaited(
-        _request(id, op, m)
+        work
             .catchError((Object e) {
               // A request never goes unanswered, and its failure never ends
               // the service.
@@ -1946,6 +2044,12 @@ final class _ClientSession {
         _clientTokenHash = null;
       }
     }
+    final features = m['features'];
+    _features = {
+      if (features is List)
+        for (final f in features)
+          if (f is String && tomSecretsServiceFeatures.contains(f)) f,
+    };
     final client = m['client'];
     _client = client is Map ? client.cast<String, Object?>() : const {};
     service.log.debug('client', {
@@ -1957,15 +2061,51 @@ final class _ClientSession {
       'op': 'welcome',
       'protocol': 1,
       'service': {'version': tomSecretsServiceVersion},
-      'features': const <String>[],
+      'features': tomSecretsServiceFeatures,
       'host': service.config.host,
       'platform': Platform.operatingSystem,
     });
   }
 
+  /// Waits for an unlock as `get` does (protocol.md 5.6 step 3): true when
+  /// the service is unlocked, else the client was answered `locked`.
+  Future<bool> _unlocked(int id, Map<String, Object?> m) async {
+    if (!service.isLocked) return true;
+    final wait = m['wait'] != false;
+    final timeoutMs = m['timeoutMs'];
+    var timeout = service.settings.approvalTimeout;
+    if (timeoutMs is int &&
+        timeoutMs >= 0 &&
+        timeoutMs < timeout.inMilliseconds) {
+      timeout = Duration(milliseconds: timeoutMs);
+    }
+    if (wait && service._hasSubscribers) {
+      service._emit({'op': 'unlock_needed', 'identity': _identity!.toJson()});
+      connection.send({'op': 'progress', 'id': id, 'pending': 'unlock'});
+      if (await service.waitUnlocked(timeout)) return true;
+    }
+    connection.sendError(id, 'locked', 'the service is locked');
+    return false;
+  }
+
   Future<void> _request(int id, String op, Map<String, Object?> m) async {
     final List<Map<String, Object?>> items;
-    if (op == 'get') {
+    if (op == 'getFile') {
+      final missing = [
+        for (final f in const ['binary', 'getFile'])
+          if (!_features.contains(f)) f,
+      ];
+      if (missing.isNotEmpty) {
+        connection.sendError(
+          id,
+          'unsupported',
+          'getFile needs the features binary and getFile in hello',
+          {'op': op, 'features': missing},
+        );
+        return;
+      }
+    }
+    if (op == 'get' || op == 'getFile') {
       items = [m];
     } else {
       final refs = m['refs'];
@@ -1986,27 +2126,7 @@ final class _ClientSession {
     // An identity slowed down by repeated refusals waits (protocol.md 11).
     final delay = service._rateLimits.delayFor(_admitted!);
     if (delay > Duration.zero) await Future<void>.delayed(delay);
-    if (service.isLocked) {
-      final wait = m['wait'] != false;
-      final timeoutMs = m['timeoutMs'];
-      var timeout = service.settings.approvalTimeout;
-      if (timeoutMs is int &&
-          timeoutMs >= 0 &&
-          timeoutMs < timeout.inMilliseconds) {
-        timeout = Duration(milliseconds: timeoutMs);
-      }
-      if (wait && service._hasSubscribers) {
-        service._emit({'op': 'unlock_needed', 'identity': _identity!.toJson()});
-        connection.send({'op': 'progress', 'id': id, 'pending': 'unlock'});
-        if (!await service.waitUnlocked(timeout)) {
-          connection.sendError(id, 'locked', 'the service is locked');
-          return;
-        }
-      } else {
-        connection.sendError(id, 'locked', 'the service is locked');
-        return;
-      }
-    }
+    if (!await _unlocked(id, m)) return;
     // The values stay masked until the frame is written from their bytes,
     // and are zeroed right after.
     final held = <TomSecretsFieldValue>[];
@@ -2046,7 +2166,14 @@ final class _ClientSession {
               r,
         ].length,
       );
-      if (op == 'get') {
+      if (op == 'getFile') {
+        final result = results.single;
+        if (result['op'] == 'value') {
+          _sendFile(id, resolved.single.$1!);
+        } else {
+          connection.send({...result, 'id': id});
+        }
+      } else if (op == 'get') {
         connection.send({...results.single, 'id': id});
       } else {
         connection.send({'op': 'values', 'id': id, 'results': results});
@@ -2062,6 +2189,190 @@ final class _ClientSession {
         value.dispose();
       }
     }
+  }
+
+  /// Streams the value of [request] (protocol.md 5.5 `getFile`): `file
+  /// {id, name, size}`, the binary chunks, `end {id, sha256}`. The name is
+  /// the field's (an attachment's without `attachment:`). Each chunk is
+  /// zeroed once its frame is built.
+  void _sendFile(int id, TomSecretsAccessRequest request) {
+    final resolution = request.resolution;
+    final field = resolution.field;
+    final name = field.startsWith(TomSecretsEntryFields.attachmentPrefix)
+        ? field.substring(TomSecretsEntryFields.attachmentPrefix.length)
+        : field;
+    resolution.value.withBytes((bytes) {
+      connection.send({
+        'op': 'file',
+        'id': id,
+        'name': name,
+        'size': bytes.length,
+      });
+      for (var at = 0; at < bytes.length; at += tomSecretsFileChunkSize) {
+        final end = at + tomSecretsFileChunkSize < bytes.length
+            ? at + tomSecretsFileChunkSize
+            : bytes.length;
+        connection.sendChunk(id, Uint8List.sublistView(bytes, at, end));
+      }
+      connection.send({
+        'op': 'end',
+        'id': id,
+        'sha256': crypto.sha256.convert(bytes).toString(),
+      });
+    });
+  }
+
+  /// The coverage of this client's grants (protocol.md 5.5).
+  Future<TomSecretsCoverage> _coverage(TomSecretsResolver resolver) async {
+    final policy = service.config.policy ?? service.approvals;
+    if (policy is! TomSecretsLookupPolicy) return TomSecretsCoverage.none;
+    return (policy as TomSecretsLookupPolicy).coverage(
+      _identity!,
+      clientTokenHash: _clientTokenHash,
+      entryOf: (reference) {
+        try {
+          final resolution = resolver.resolve(reference);
+          resolution.value.dispose();
+          return (store: resolution.entry.store, uuid: resolution.entry.uuid);
+        } on Object {
+          return null;
+        }
+      },
+    );
+  }
+
+  void _auditLookup(String what, String outcome, [List<String>? uuids]) =>
+      service.audit?.add(
+        TomSecretsAuditRecord(
+          time: DateTime.now().toUtc(),
+          host: service.host,
+          identity: _identity!.toJson(),
+          refs: [what],
+          outcome: outcome,
+          entries: uuids ?? const [],
+        ),
+      );
+
+  /// `match` (protocol.md 5.5): the login entries of a page that this
+  /// client's grants cover, never a value; only for the browser host and
+  /// the helpers; audited. The browser host gets no entry of a system vault.
+  Future<void> _match(int id, Map<String, Object?> m) async {
+    final url = m['url'];
+    final frameUrl = m['frameUrl'];
+    if (url is! String ||
+        url.isEmpty ||
+        url.length > 4096 ||
+        (frameUrl != null && (frameUrl is! String || frameUrl.length > 4096))) {
+      connection.sendError(id, 'malformed', 'match carries a url', {
+        'reason': 'url',
+      });
+      return;
+    }
+    final site = TomSecretsSiteUrl.parse(url)?.host ?? '';
+    final browser = _isBrowserHost;
+    if (!browser && !_isHelper) {
+      service._rateLimits.refused(_admitted!, 1);
+      _auditLookup('match $site', 'denied:not_allowed_op');
+      connection.sendError(id, 'denied', 'match is not for this client', {
+        'reason': 'not_allowed_op',
+      });
+      return;
+    }
+    final delay = service._rateLimits.delayFor(_admitted!);
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
+    if (!await _unlocked(id, m)) return;
+    final resolver = service.vaults.resolver;
+    if (resolver == null) {
+      connection.sendError(id, 'locked', 'the service is locked');
+      return;
+    }
+    final coverage = await _coverage(resolver);
+    final found = tomSecretsMatchLogins(
+      [
+        for (final store in resolver.stores)
+          if (!browser || store.metadata.kind != TomSecretsVaultKind.system)
+            for (final e in store.entries)
+              if (coverage.covers(e.store, e.uuid)) e,
+      ],
+      url,
+      frameUrl: frameUrl as String?,
+    );
+    connection.send({
+      'op': 'matches',
+      'id': id,
+      'candidates': [
+        for (final f in found)
+          {
+            'entryId': '${f.entry.store}/~${f.entry.uuid}',
+            'title': f.title,
+            'userName': f.userName,
+            'matchedUrl': f.matchedUrl,
+            'hasTotp': f.hasTotp,
+          },
+      ],
+    });
+    _auditLookup('match $site', 'matched', [
+      for (final f in found) f.entry.uuid,
+    ]);
+    service.log.info('match', {'candidates': found.length});
+  }
+
+  /// `propose` (protocol.md 5.5): a login the browser host proposes, passed
+  /// to the attached manager app as the event `proposal`; nothing is kept.
+  /// Only for the browser host holding an `allow` grant.
+  Future<void> _propose(int id, Map<String, Object?> m) async {
+    final url = m['url'];
+    final title = m['title'];
+    final userName = m['userName'];
+    final password = m['password'];
+    if (url is! String ||
+        url.isEmpty ||
+        url.length > 4096 ||
+        userName is! String ||
+        password is! String ||
+        (title != null && title is! String)) {
+      connection.sendError(
+        id,
+        'malformed',
+        'propose carries url, userName and password',
+        {'reason': 'propose'},
+      );
+      return;
+    }
+    final site = TomSecretsSiteUrl.parse(url)?.host ?? '';
+    Future<void> refuse() async {
+      service._rateLimits.refused(_admitted!, 1);
+      _auditLookup('propose $site', 'denied:not_allowed_op');
+      connection.sendError(id, 'denied', 'propose is not for this client', {
+        'reason': 'not_allowed_op',
+      });
+    }
+
+    if (!_isBrowserHost) return refuse();
+    if (!await _unlocked(id, m)) return;
+    final resolver = service.vaults.resolver;
+    if (resolver == null) {
+      connection.sendError(id, 'locked', 'the service is locked');
+      return;
+    }
+    if (!(await _coverage(resolver)).hasAllowGrant) return refuse();
+    final sent = service._emitToApps({
+      'op': 'proposal',
+      'url': url,
+      'title': ?title,
+      'userName': userName,
+      'password': password,
+    });
+    if (!sent) {
+      _auditLookup('propose $site', 'unavailable');
+      connection.sendError(id, 'unavailable', 'no app is attached', {
+        'reason': 'no_app',
+      });
+      return;
+    }
+    _auditLookup('propose $site', 'accepted');
+    service.log.info('proposal', {});
+    connection.send({'op': 'accepted', 'id': id});
   }
 
   Map<String, Object?> _error(

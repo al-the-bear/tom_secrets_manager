@@ -198,7 +198,8 @@ final class TomSecretsGrant {
 }
 
 /// Approvals and grants of one unlocked service.
-final class TomSecretsApprovals implements TomSecretsAccessPolicy {
+final class TomSecretsApprovals
+    implements TomSecretsAccessPolicy, TomSecretsLookupPolicy {
   /// The approvals of [service].
   TomSecretsApprovals(this.service, {TomSecretsFileHashes? hashes})
     : hashes = hashes ?? TomSecretsFileHashes();
@@ -458,6 +459,68 @@ final class TomSecretsApprovals implements TomSecretsAccessPolicy {
       }
     }
     return best;
+  }
+
+  /// What the grants of [identity] cover without asking (protocol.md 5.5):
+  /// an entry is covered when, among the grants whose subject names the
+  /// client, the most specific one for the entry (subject, then secret:
+  /// its reference, its store, `all`) is `allow`; `never` beats `allow` at
+  /// equal rank, and a pinned grant whose file changed does not count. A
+  /// reference grant names the entry its reference resolves to ([entryOf]).
+  @override
+  Future<TomSecretsCoverage> coverage(
+    TomSecretsIdentity identity, {
+    String? clientTokenHash,
+    required ({String store, String uuid})? Function(String reference) entryOf,
+  }) async {
+    final tokenId = clientTokenHash == null
+        ? null
+        : service.trust.clientTokenIdOf(clientTokenHash);
+    final mine = <(TomSecretsGrant, int, ({String store, String uuid})?)>[];
+    for (final g in grants) {
+      if (!identity.complete &&
+          !(g.subject.startsWith('exe ') &&
+              const TomSecretsInterpreters().ruleFor(identity.exe) == null)) {
+        continue;
+      }
+      if (!subjectMatches(g.subject, identity, clientTokenId: tokenId)) {
+        continue;
+      }
+      if (g.decision == 'allow' && !await _pinHolds(g, identity)) continue;
+      final secret = g.secret;
+      final named = secret == 'all' || secret.startsWith('store ')
+          ? null
+          : entryOf(secret);
+      mine.add((g, _subjectRank(g.subject), named));
+    }
+    bool covers(String store, String uuid) {
+      TomSecretsGrant? best;
+      var bestRank = -1;
+      for (final (g, subjectRank, named) in mine) {
+        final secretRank = g.secret == 'all'
+            ? 1
+            : g.secret.startsWith('store ')
+            ? (g.secret.substring(6) == store ? 2 : 0)
+            : (named != null && named.store == store && named.uuid == uuid
+                  ? 3
+                  : 0);
+        if (secretRank == 0) continue;
+        final rank = subjectRank * 10 + secretRank;
+        if (rank > bestRank ||
+            (rank == bestRank &&
+                g.decision == 'never' &&
+                best?.decision != 'never')) {
+          best = g;
+          bestRank = rank;
+        }
+      }
+      return best?.decision == 'allow';
+    }
+
+    return TomSecretsCoverage(
+      covers: covers,
+      hasAllowGrant: mine.any((m) => m.$1.decision == 'allow'),
+    );
   }
 
   Future<bool> _pinHolds(TomSecretsGrant g, TomSecretsIdentity identity) async {

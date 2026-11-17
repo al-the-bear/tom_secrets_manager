@@ -92,6 +92,19 @@ final class TomSecretsConnection {
     _tail = _tail.then((_) => _write(frame));
   }
 
+  /// Sends [chunk] as a binary frame of the request [id] (protocol.md 2.5):
+  /// the id as 8 bytes big-endian, then the chunk. The frame is zeroed once
+  /// written; [chunk] stays the caller's.
+  void sendChunk(int id, List<int> chunk) {
+    if (_closed) return;
+    final payload = Uint8List(8 + chunk.length);
+    ByteData.sublistView(payload).setUint64(0, id);
+    payload.setRange(8, payload.length, chunk);
+    final frame = tomSecretsEncodeFrame(tomSecretsFrameBinary, payload);
+    payload.fillRange(0, payload.length, 0);
+    _tail = _tail.then((_) => _write(frame));
+  }
+
   Future<void> _tail = Future<void>.value();
 
   Future<void> _write(Uint8List frame) async {

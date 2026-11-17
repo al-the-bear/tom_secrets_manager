@@ -127,6 +127,41 @@ abstract interface class TomSecretsAccessPolicy {
   Future<List<TomSecretsAccess>> check(TomSecretsAccessBatch batch);
 }
 
+/// What a client's grants cover without a prompt (protocol.md 5.5): `match`
+/// lists only the entries an `allow` grant covers, and `propose` needs the
+/// client to hold an `allow` grant at all.
+final class TomSecretsCoverage {
+  /// Coverage deciding each entry with [covers]; [hasAllowGrant] when some
+  /// `allow` grant names the client.
+  const TomSecretsCoverage({required this.covers, required this.hasAllowGrant});
+
+  /// Nothing covered, no grant.
+  static final TomSecretsCoverage none = TomSecretsCoverage(
+    covers: (_, _) => false,
+    hasAllowGrant: false,
+  );
+
+  /// Whether an `allow` grant decides the entry [uuid] (hex) of [store].
+  final bool Function(String store, String uuid) covers;
+
+  /// Whether some `allow` grant names the client.
+  final bool hasAllowGrant;
+}
+
+/// A policy that can say what a client's grants cover without asking
+/// (protocol.md 5.5 `match`, `propose`). A policy that is not one covers
+/// nothing.
+abstract interface class TomSecretsLookupPolicy {
+  /// The coverage of the client measured as [identity] whose `hello` brought
+  /// the client token of [clientTokenHash]; [entryOf] resolves a grant's
+  /// reference to the entry it names (store and UUID hex), or null.
+  Future<TomSecretsCoverage> coverage(
+    TomSecretsIdentity identity, {
+    String? clientTokenHash,
+    required ({String store, String uuid})? Function(String reference) entryOf,
+  });
+}
+
 /// Refuses every value (`denied`, reason `no_approver`): the policy of a
 /// service with no allow list and no approver.
 final class TomSecretsDenyAllPolicy implements TomSecretsAccessPolicy {

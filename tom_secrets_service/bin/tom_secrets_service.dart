@@ -73,6 +73,7 @@ Future<void> main() async {
               ? TomSecretsTransport.tcp
               : TomSecretsTransport.unix,
         );
+  final lookup = tomSecretsLookupExecutables(Platform.resolvedExecutable);
   final TomSecretsService service;
   try {
     service = await TomSecretsService.launch(
@@ -91,6 +92,9 @@ Future<void> main() async {
           Platform.resolvedExecutable,
           bootstrap,
         ),
+        // The browser host and the helpers beside it (protocol.md 5.5).
+        browserHostExecutables: lookup.browserHosts,
+        helperExecutables: lookup.helpers,
       ),
     );
   } on TomSecretsAlreadyRunning {

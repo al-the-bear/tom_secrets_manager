@@ -208,6 +208,27 @@ service is locked, a waiting request tells the subscribed admins
 (`unlock_needed`), sends the client `progress`, and is answered once the
 service is unlocked, or `locked` when the approval timeout passes.
 
+`welcome.features` offers `binary`, `getFile`, `match` and `propose`
+(protocol.md 5.5, section 8):
+
+- `getFile` answers an attachment or a field as bytes: `file`, binary chunks
+  of 256 KiB, `end` with the SHA-256; only on a connection whose `hello`
+  named `binary` and `getFile`, else `unsupported`. It is checked and
+  decided as `get` is.
+- `match` answers the login entries of a web page that an `allow` grant of
+  the client covers, never a value and without a prompt (URL matching:
+  `tom_secrets_core`'s `tomSecretsMatchLogins`), only for the browser host
+  (`tsm-browser-host`) and the helpers (`tsm` and its multi-call names),
+  known by their real paths beside the service
+  (`TomSecretsServiceConfig.browserHostExecutables`, `helperExecutables`,
+  `tomSecretsLookupExecutables`); the browser host gets no entry of a
+  system vault; every `match` is audited.
+- `propose` passes a login the browser host proposes to the attached manager
+  app as the event `proposal` and keeps nothing; only for the browser host
+  holding an `allow` grant; with no app attached `unavailable` (`no_app`).
+- Any other client asking `match` or `propose` gets `denied`
+  (`not_allowed_op`).
+
 ### Peer identity
 
 Each accepted connection's process is measured once
@@ -436,8 +457,6 @@ session) the service never locks itself, the maximum unlocked time included.
   network listener is the approval link, and only on the configured address.
 - Frames: a request's payload at most 64 KiB, an answer's at most 1 MiB; a
   reference at most 1 KiB of UTF-8; `getMany` takes 1 to 256 references.
-- The service offers no phase-B features (`welcome.features` is empty): no
-  `getFile`, no binary chunks, no `match` or `propose`.
 - Automatic locking needs a desktop session; on a headless machine only an
   explicit `lock` (or `shutdown`) locks the service.
 - Values are served only while unlocked; a locked service makes clients wait
@@ -445,7 +464,8 @@ session) the service never locks itself, the maximum unlocked time included.
 - **Rate limits** (protocol.md 11), per measured identity, set by
   `TomSecretsServiceConfig.rateLimits` (`TomSecretsRateLimitSettings`, the
   protocol's values by default):
-  - `get` and `getMany`: a token bucket of 20 a second, bursts of 50; over
+  - `get`, `getMany`, `getFile`, `match` and `propose`: a token bucket of 20
+    a second, bursts of 50; over
     it a request is answered `rate_limited` (`reason` `requests`,
     `retryAfterMs` until the next one may go);
   - ten refusals (`denied`, `not_found`, `ambiguous`) within a minute make
