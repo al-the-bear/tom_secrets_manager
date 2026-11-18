@@ -223,10 +223,21 @@ service is unlocked, or `locked` when the approval timeout passes.
   known by their real paths beside the service
   (`TomSecretsServiceConfig.browserHostExecutables`, `helperExecutables`,
   `tomSecretsLookupExecutables`); the browser host gets no entry of a
-  system vault; every `match` is audited.
-- `propose` passes a login the browser host proposes to the attached manager
-  app as the event `proposal` and keeps nothing; only for the browser host
-  holding an `allow` grant; with no app attached `unavailable` (`no_app`).
+  system vault; every `match` is audited. `userName` keeps one user's
+  logins.
+- `match` with `pick` (the helpers, git's credential lookup) answers one
+  login of the host (the host rule): the one the client's grants cover; of
+  several, the one an allow grant names by its reference; else the user
+  picks one of the host's logins at the app's prompt (`approval_needed`
+  with `pick` and `url`; `approve` with `pick`): `always` writes a grant for
+  it (the helper's subject names the tool that started it,
+  `exe-from git => tsm`), `once` lets the connection read it once. With no
+  approver connected, refused or unanswered: none.
+- `propose` passes a login the browser host or a helper proposes to the
+  attached manager app as the event `proposal` and keeps nothing; only for
+  a client holding an `allow` grant; with no app attached `unavailable`
+  (`no_app`). A helper's credential the vaults hold already (git's `store`
+  after a login it answered) is ignored: `accepted` with `known`.
 - Any other client asking `match` or `propose` gets `denied`
   (`not_allowed_op`).
 
@@ -566,7 +577,7 @@ session) the service never locks itself, the maximum unlocked time included.
 
 ## Status
 
-Version 0.12.0. The suite runs with `testkit :test` from the package folder.
+Version 0.13.0. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real

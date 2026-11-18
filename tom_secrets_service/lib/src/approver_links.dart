@@ -148,6 +148,42 @@ final class TomSecretsApproverLinks {
     if (link == null || event == null) {
       throw StateError('no prompt $qualified');
     }
+    final pick = event['pick'];
+    if (pick is List) {
+      // A helper's pick prompt (protocol.md 5.5): the login picked goes
+      // back; `always` is also this device's signed grant for its
+      // reference, which the host applies at once.
+      final picked = [
+        for (final c in pick.cast<Map>())
+          if (c['entryId'] == answer.pick) c,
+      ];
+      if (answer.decision != 'never' &&
+          ((answer.decision != 'once' && answer.decision != 'always') ||
+              picked.isEmpty)) {
+        throw ArgumentError('a pick is answered once or always with a login');
+      }
+      if (answer.decision == 'always') {
+        final identity = TomSecretsIdentity.fromJson(
+          (event['identity']! as Map).cast<String, Object?>(),
+        );
+        final grant = await approvals.addGrant({
+          'host': link.host,
+          'subject': tomSecretsGrantSubject(identity, answer),
+          'secret': answer.pick,
+          'decision': 'allow',
+          'pin': 'off',
+        });
+        await link.request({'op': 'grant', 'grant': grant});
+      }
+      await link.request({
+        'op': 'approve',
+        'approvalId': approvalId,
+        'decision': answer.decision,
+        'secret': answer.secret,
+        'pick': ?answer.pick,
+      });
+      return;
+    }
     if (event['confirmOnly'] == true) {
       // An ssh-agent confirmation: this signature only (part-os-integration).
       if (answer.decision != 'once' && answer.decision != 'never') {

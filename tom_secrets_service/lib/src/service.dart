@@ -44,7 +44,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.12.0';
+const String tomSecretsServiceVersion = '0.13.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -2212,11 +2212,27 @@ final class _ClientSession {
     final held = <TomSecretsFieldValue>[];
     try {
       final resolved = [for (final item in items) _resolve(item, held)];
-      final batch = [
+      final requests = [
         for (final r in resolved)
           if (r case (final TomSecretsAccessRequest request, null)) request,
       ];
-      final decisions = batch.isEmpty
+      // A login picked `once` at this connection's pick prompt is read once
+      // without asking again (protocol.md 5.5).
+      final picked = <int, TomSecretsAccess>{};
+      for (var i = 0; i < requests.length; i++) {
+        final entry = requests[i].resolution.entry;
+        final key = '${entry.store}/${entry.uuid}';
+        if (_pickedOnce.containsKey(key)) {
+          final approver = _pickedOnce.remove(key);
+          picked[i] = TomSecretsAccessAllowed(approver: approver);
+          _auditPicked(requests[i], approver);
+        }
+      }
+      final batch = [
+        for (var i = 0; i < requests.length; i++)
+          if (!picked.containsKey(i)) requests[i],
+      ];
+      final checked = batch.isEmpty
           ? const <TomSecretsAccess>[]
           : await (service.config.policy ?? service.approvals!).check(
               TomSecretsAccessBatch(
@@ -2232,6 +2248,11 @@ final class _ClientSession {
                 clientTokenHash: _clientTokenHash,
               ),
             );
+      var nextChecked = 0;
+      final decisions = [
+        for (var i = 0; i < requests.length; i++)
+          picked[i] ?? checked[nextChecked++],
+      ];
       var next = 0;
       final results = [
         for (final (request, error) in resolved)
@@ -2302,6 +2323,19 @@ final class _ClientSession {
     });
   }
 
+  void _auditPicked(TomSecretsAccessRequest request, String? approver) =>
+      service.audit?.add(
+        TomSecretsAuditRecord(
+          time: DateTime.now().toUtc(),
+          host: service.host,
+          identity: _identity!.toJson(),
+          refs: [request.reference],
+          outcome: 'allowed',
+          approver: approver,
+          entries: [request.resolution.entry.uuid],
+        ),
+      );
+
   /// The coverage of this client's grants (protocol.md 5.5).
   Future<TomSecretsCoverage> _coverage(TomSecretsResolver resolver) async {
     final policy = service.config.policy ?? service.approvals;
@@ -2334,15 +2368,21 @@ final class _ClientSession {
       );
 
   /// `match` (protocol.md 5.5): the login entries of a page that this
-  /// client's grants cover, never a value; only for the browser host and
-  /// the helpers; audited. The browser host gets no entry of a system vault.
+  /// client's grants cover (with `userName`, only that user's), never a
+  /// value; only for the browser host and the helpers; audited. The browser
+  /// host gets no entry of a system vault. A helper's `pick` answers one
+  /// login, asking the user to pick when the grants do not decide.
   Future<void> _match(int id, Map<String, Object?> m) async {
     final url = m['url'];
     final frameUrl = m['frameUrl'];
+    final userName = m['userName'];
+    final pick = m['pick'] ?? false;
     if (url is! String ||
         url.isEmpty ||
         url.length > 4096 ||
-        (frameUrl != null && (frameUrl is! String || frameUrl.length > 4096))) {
+        (frameUrl != null && (frameUrl is! String || frameUrl.length > 4096)) ||
+        (userName != null && userName is! String) ||
+        pick is! bool) {
       connection.sendError(id, 'malformed', 'match carries a url', {
         'reason': 'url',
       });
@@ -2350,7 +2390,9 @@ final class _ClientSession {
     }
     final site = TomSecretsSiteUrl.parse(url)?.host ?? '';
     final browser = _isBrowserHost;
-    if (!browser && !_isHelper) {
+    // A pick prompt is for the developer-tool helpers (git asks one
+    // credential; the browser host shows its own list).
+    if ((!browser && !_isHelper) || (pick && !_isHelper)) {
       service._rateLimits.refused(_admitted!, 1);
       _auditLookup('match $site', 'denied:not_allowed_op');
       connection.sendError(id, 'denied', 'match is not for this client', {
@@ -2367,16 +2409,30 @@ final class _ClientSession {
       return;
     }
     final coverage = await _coverage(resolver);
-    final found = tomSecretsMatchLogins(
-      [
-        for (final store in resolver.stores)
-          if (!browser || store.metadata.kind != TomSecretsVaultKind.system)
-            for (final e in store.entries)
-              if (coverage.covers(e.store, e.uuid)) e,
-      ],
-      url,
-      frameUrl: frameUrl as String?,
+    final eligible = [
+      for (final store in resolver.stores)
+        if (!browser || store.metadata.kind != TomSecretsVaultKind.system)
+          ...store.entries,
+    ];
+    List<TomSecretsLoginMatch> matching(Iterable<TomSecretsIndexedEntry> e) => [
+      for (final f in tomSecretsMatchLogins(
+        e,
+        url,
+        frameUrl: frameUrl as String?,
+      ))
+        // A helper's pick looks up by the host rule (part-os-integration:
+        // git asks for one host), not the entries' own (by default the
+        // site).
+        if ((userName == null || f.userName == userName) &&
+            (!pick || f.level == TomSecretsUrlMatchLevel.exactHost))
+          f,
+    ];
+    var found = matching(
+      eligible.where((e) => coverage.covers(e.store, e.uuid)),
     );
+    if (pick) {
+      found = await _picked(id, url, found, coverage, eligible, matching);
+    }
     connection.send({
       'op': 'matches',
       'id': id,
@@ -2397,9 +2453,84 @@ final class _ClientSession {
     service.log.info('match', {'candidates': found.length});
   }
 
-  /// `propose` (protocol.md 5.5): a login the browser host proposes, passed
-  /// to the attached manager app as the event `proposal`; nothing is kept.
-  /// Only for the browser host holding an `allow` grant.
+  /// The entries this connection may read once without asking: a login the
+  /// user picked `once` at a helper's pick prompt (protocol.md 5.5), by
+  /// `<store>/<uuid>`; the next `get` of it takes it.
+  final Map<String, String?> _pickedOnce = {};
+
+  /// `match` with `pick` (protocol.md 5.5, part-os-integration): one login
+  /// for a helper. One covered login answers; of several, the one an allow
+  /// grant names by its reference (a remembered pick); else, when the vaults
+  /// hold logins of the site (covered or not), the approvers pick one of
+  /// them at a prompt (the covered ones when there are several): `always`
+  /// writes a grant for it, `once` lets this connection read it once.
+  /// Refused, unanswered or with no approver: none.
+  Future<List<TomSecretsLoginMatch>> _picked(
+    int id,
+    String url,
+    List<TomSecretsLoginMatch> covered,
+    TomSecretsCoverage coverage,
+    List<TomSecretsIndexedEntry> eligible,
+    List<TomSecretsLoginMatch> Function(Iterable<TomSecretsIndexedEntry>)
+    matching,
+  ) async {
+    if (covered.length == 1) return covered;
+    if (covered.length > 1) {
+      final named = [
+        for (final f in covered)
+          if (coverage.named(f.entry.store, f.entry.uuid)) f,
+      ];
+      if (named.length == 1) return named;
+    }
+    final options = covered.length > 1 ? covered : matching(eligible);
+    if (options.isEmpty) return const [];
+    final policy = service.config.policy ?? service.approvals;
+    final resolver = service.vaults.resolver;
+    if (policy is! TomSecretsApprovals || resolver == null) return const [];
+    final items = <TomSecretsAccessRequest>[];
+    for (final f in options) {
+      final ref = '${f.entry.store}/~${f.entry.uuid}';
+      final resolution = resolver.resolve(ref, field: 'Title');
+      resolution.value.dispose();
+      items.add(
+        TomSecretsAccessRequest(
+          reference: ref,
+          resolution: resolution,
+          client: _client,
+          identity: _identity!,
+        ),
+      );
+    }
+    final answer = await policy.askPick(
+      TomSecretsAccessBatch(
+        identity: _identity!,
+        client: _client,
+        items: items,
+        onProgress: (p) => connection.send({'op': 'progress', 'id': id, ...p}),
+        clientTokenHash: _clientTokenHash,
+      ),
+      [
+        for (final f in options)
+          {
+            'entryId': '${f.entry.store}/~${f.entry.uuid}',
+            'title': f.title,
+            'userName': f.userName,
+            'matchedUrl': f.matchedUrl,
+          },
+      ],
+      url,
+    );
+    if (answer == null) return const [];
+    final picked = options[answer.index];
+    _pickedOnce['${picked.entry.store}/${picked.entry.uuid}'] = answer.approver;
+    return [picked];
+  }
+
+  /// `propose` (protocol.md 5.5): a login the browser host or a helper
+  /// (git's `store`) proposes, passed to the attached manager app as the
+  /// event `proposal`; nothing is kept. Only for a client holding an `allow`
+  /// grant; a helper's credential the vaults hold already is ignored
+  /// (`accepted` with `known`, DP-52).
   Future<void> _propose(int id, Map<String, Object?> m) async {
     final url = m['url'];
     final title = m['title'];
@@ -2428,7 +2559,8 @@ final class _ClientSession {
       });
     }
 
-    if (!_isBrowserHost) return refuse();
+    final helper = !_isBrowserHost && _isHelper;
+    if (!_isBrowserHost && !helper) return refuse();
     if (!await _unlocked(id, m)) return;
     final resolver = service.vaults.resolver;
     if (resolver == null) {
@@ -2436,6 +2568,13 @@ final class _ClientSession {
       return;
     }
     if (!(await _coverage(resolver)).hasAllowGrant) return refuse();
+    // A helper's `store` (git saw the credential work, DP-52): a credential
+    // the vaults hold already is ignored; only a new one is proposed.
+    if (helper && _known(resolver, url, userName, password)) {
+      _auditLookup('propose $site', 'known');
+      connection.send({'op': 'accepted', 'id': id, 'known': true});
+      return;
+    }
     final sent = service._emitToApps({
       'op': 'proposal',
       'url': url,
@@ -2453,6 +2592,24 @@ final class _ClientSession {
     _auditLookup('propose $site', 'accepted');
     service.log.info('proposal', {});
     connection.send({'op': 'accepted', 'id': id});
+  }
+
+  /// Whether a login of the vaults matching [url] holds [userName] and
+  /// [password].
+  static bool _known(
+    TomSecretsResolver resolver,
+    String url,
+    String userName,
+    String password,
+  ) {
+    for (final f in tomSecretsMatchLogins([
+      for (final store in resolver.stores) ...store.entries,
+    ], url)) {
+      if (f.userName != userName) continue;
+      final value = f.entry.entry.getString(KdbxKeyCommon.PASSWORD);
+      if (value?.getText() == password) return true;
+    }
+    return false;
   }
 
   Map<String, Object?> _error(
@@ -2850,6 +3007,7 @@ final class _AdminSession {
           clientToken: clientToken as String?,
           sshHost: sshHost,
           withParent: withParent,
+          pick: m['pick'] is String ? m['pick'] as String : null,
         );
         try {
           // A paired host's prompt goes back over its approval link.

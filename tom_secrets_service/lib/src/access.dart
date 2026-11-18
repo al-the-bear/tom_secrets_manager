@@ -203,7 +203,11 @@ abstract interface class TomSecretsAccessPolicy {
 final class TomSecretsCoverage {
   /// Coverage deciding each entry with [covers]; [hasAllowGrant] when some
   /// `allow` grant names the client.
-  const TomSecretsCoverage({required this.covers, required this.hasAllowGrant});
+  const TomSecretsCoverage({
+    required this.covers,
+    required this.hasAllowGrant,
+    bool Function(String store, String uuid)? named,
+  }) : _named = named;
 
   /// Nothing covered, no grant.
   static final TomSecretsCoverage none = TomSecretsCoverage(
@@ -213,6 +217,13 @@ final class TomSecretsCoverage {
 
   /// Whether an `allow` grant decides the entry [uuid] (hex) of [store].
   final bool Function(String store, String uuid) covers;
+
+  final bool Function(String store, String uuid)? _named;
+
+  /// Whether the `allow` grant that decides the entry names it by its
+  /// reference (a remembered pick, protocol.md 5.5), not by its store or
+  /// `all`.
+  bool named(String store, String uuid) => _named?.call(store, uuid) ?? false;
 
   /// Whether some `allow` grant names the client.
   final bool hasAllowGrant;

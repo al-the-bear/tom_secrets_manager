@@ -361,54 +361,263 @@ void main() {
     );
   });
 
-  test('propose: the browser host with a grant reaches the attached app as '
-      'proposal; with no app attached unavailable (no_app); a helper is '
-      'denied', () async {
-    final service = await start(browserHosts: self);
-    final proposal = admin.events.firstWhere((e) => e['op'] == 'proposal');
-    final raw = await _Raw.open(demo, transport);
-    await raw.hello(service);
-    final accepted = await raw.ask({
-      'op': 'propose',
-      'id': 1,
-      'url': 'https://new.example.com/signup',
-      'title': 'New site',
-      'userName': 'demo-new-user',
-      'password': 'demo-new-pw',
-    });
-    expect(accepted, {'op': 'accepted', 'id': 1});
-    final event = await proposal;
-    expect(event['url'], 'https://new.example.com/signup');
-    expect(event['title'], 'New site');
-    expect(event['userName'], 'demo-new-user');
-    expect(event['password'], 'demo-new-pw');
-    await service.stop();
+  test(
+    'propose: the browser host with a grant reaches the attached app as '
+    'proposal; with no app attached unavailable (no_app); a helper '
+    "(git's store, DP-52): a known credential ignored, a new one proposed",
+    () async {
+      final service = await start(browserHosts: self);
+      final proposal = admin.events.firstWhere((e) => e['op'] == 'proposal');
+      final raw = await _Raw.open(demo, transport);
+      await raw.hello(service);
+      final accepted = await raw.ask({
+        'op': 'propose',
+        'id': 1,
+        'url': 'https://new.example.com/signup',
+        'title': 'New site',
+        'userName': 'demo-new-user',
+        'password': 'demo-new-pw',
+      });
+      expect(accepted, {'op': 'accepted', 'id': 1});
+      final event = await proposal;
+      expect(event['url'], 'https://new.example.com/signup');
+      expect(event['title'], 'New site');
+      expect(event['userName'], 'demo-new-user');
+      expect(event['password'], 'demo-new-pw');
+      await service.stop();
 
-    final quiet = await start(browserHosts: self, subscribe: false);
-    final again = await _Raw.open(demo, transport);
-    await again.hello(quiet);
-    final dropped = await again.ask({
-      'op': 'propose',
-      'id': 1,
-      'url': 'https://new.example.com/',
-      'userName': 'u',
-      'password': 'p',
-    });
-    expect(dropped['kind'], 'unavailable');
-    expect((dropped['details']! as Map)['reason'], 'no_app');
-    await quiet.stop();
+      final quiet = await start(browserHosts: self, subscribe: false);
+      final again = await _Raw.open(demo, transport);
+      await again.hello(quiet);
+      final dropped = await again.ask({
+        'op': 'propose',
+        'id': 1,
+        'url': 'https://new.example.com/',
+        'userName': 'u',
+        'password': 'p',
+      });
+      expect(dropped['kind'], 'unavailable');
+      expect((dropped['details']! as Map)['reason'], 'no_app');
+      await quiet.stop();
 
-    final helper = await start(helpers: self);
-    final raw3 = await _Raw.open(demo, transport);
-    await raw3.hello(helper);
-    final denied = await raw3.ask({
-      'op': 'propose',
-      'id': 1,
-      'url': 'https://new.example.com/',
-      'userName': 'u',
-      'password': 'p',
+      final helper = await start(helpers: self);
+      var proposed = 0;
+      final sub = admin.events.listen((e) {
+        if (e['op'] == 'proposal') proposed++;
+      });
+      final raw3 = await _Raw.open(demo, transport);
+      await raw3.hello(helper);
+      final known = await raw3.ask({
+        'op': 'propose',
+        'id': 1,
+        'url': 'https://mail.example.com/',
+        'userName': 'Mail-user',
+        'password': 'Mail-demo-pw',
+      });
+      expect(known, {'op': 'accepted', 'id': 1, 'known': true});
+      final changed = await raw3.ask({
+        'op': 'propose',
+        'id': 2,
+        'url': 'https://mail.example.com/',
+        'userName': 'Mail-user',
+        'password': 'demo-new-pw',
+      });
+      expect(changed, {'op': 'accepted', 'id': 2});
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await sub.cancel();
+      expect(proposed, 1);
+    },
+  );
+
+  group('match with pick (a helper, part-os-integration)', () {
+    /// Adds a second login of mail.example.com to the team vault.
+    Future<String> secondMailLogin() async {
+      final team = await KdbxFormat().read(
+        File(demo.teamPath).readAsBytesSync(),
+        tomSecretsVaultCredentials(password: teamPassword),
+      );
+      final work = _login(team, 'Mail work', 'https://mail.example.com/work');
+      File(demo.teamPath).writeAsBytesSync(await team.save());
+      return 'team/~${tomSecretsUuidHex(work.uuid)}';
+    }
+
+    /// The answer of [request], progress frames skipped.
+    Future<Map<String, Object?>> answer(
+      _Raw raw,
+      Map<String, Object?> request,
+    ) async {
+      raw.send(request);
+      while (true) {
+        final m = await raw.next();
+        if (m['op'] != 'progress') return m;
+      }
+    }
+
+    test('no grant: the logins of the site at a pick prompt; always writes '
+        'a grant for the pick, the next match answers it without asking, '
+        'get reads it', () async {
+      final work = await secondMailLogin();
+      final service = await start(helpers: self, policy: null);
+      final raw = await _Raw.open(demo, transport);
+      await raw.hello(service);
+      final needed = admin.events.firstWhere(
+        (e) => e['op'] == 'approval_needed',
+      );
+      final matched = answer(raw, {
+        'op': 'match',
+        'id': 1,
+        'url': 'https://mail.example.com/',
+        'pick': true,
+      });
+      final event = await needed;
+      expect(event['url'], 'https://mail.example.com/');
+      final pick = (event['pick']! as List).cast<Map>();
+      // The host rule: only mail.example.com's logins, not example.com's.
+      expect([for (final p in pick) p['title']], ['Mail', 'Mail work']);
+      expect(pick.last['entryId'], work);
+      await admin.request('approve', {
+        'approvalId': event['approvalId'],
+        'decision': 'always',
+        'secret': 'ref',
+        'pick': work,
+      });
+      final first = await matched;
+      expect(
+        [for (final c in first['candidates']! as List) c['entryId']],
+        [work],
+      );
+      final grants = (await admin.request('grants.list'))['grants']! as List;
+      expect(grants.map((g) => (g as Map)['secret']), contains(work));
+
+      var prompted = false;
+      final sub = admin.events.listen((e) {
+        if (e['op'] == 'approval_needed') prompted = true;
+      });
+      final again = await answer(raw, {
+        'op': 'match',
+        'id': 2,
+        'url': 'https://mail.example.com/',
+        'pick': true,
+      });
+      expect(
+        [for (final c in again['candidates']! as List) c['title']],
+        ['Mail work'],
+      );
+      final value = await answer(raw, {'op': 'get', 'id': 3, 'ref': work});
+      expect(value['op'], 'value');
+      await sub.cancel();
+      expect(prompted, isFalse);
     });
-    expect((denied['details']! as Map)['reason'], 'not_allowed_op');
+
+    test('once: this connection reads the pick once, a second get asks; '
+        'userName narrows the logins; never answers none; no approver: '
+        'none at once', () async {
+      final work = await secondMailLogin();
+      final service = await start(helpers: self, policy: null);
+      final raw = await _Raw.open(demo, transport);
+      await raw.hello(service);
+      var needed = admin.events.firstWhere((e) => e['op'] == 'approval_needed');
+      final matched = answer(raw, {
+        'op': 'match',
+        'id': 1,
+        'url': 'https://mail.example.com/',
+        'userName': 'Mail work-user',
+        'pick': true,
+      });
+      final event = await needed;
+      expect((event['pick']! as List), hasLength(1));
+      await admin.request('approve', {
+        'approvalId': event['approvalId'],
+        'decision': 'once',
+        'secret': 'ref',
+        'pick': work,
+      });
+      expect(((await matched)['candidates']! as List), hasLength(1));
+      final first = await answer(raw, {'op': 'get', 'id': 2, 'ref': work});
+      expect(first['op'], 'value');
+      needed = admin.events.firstWhere((e) => e['op'] == 'approval_needed');
+      final second = answer(raw, {'op': 'get', 'id': 3, 'ref': work});
+      final ask = await needed;
+      expect(ask['pick'], isNull, reason: 'a value prompt');
+      await admin.request('approve', {
+        'approvalId': ask['approvalId'],
+        'decision': 'once',
+        'secret': 'ref',
+      });
+      expect((await second)['op'], 'value');
+
+      needed = admin.events.firstWhere((e) => e['op'] == 'approval_needed');
+      final refused = answer(raw, {
+        'op': 'match',
+        'id': 4,
+        'url': 'https://mail.example.com/',
+        'pick': true,
+      });
+      final ask2 = await needed;
+      await admin.request('approve', {
+        'approvalId': ask2['approvalId'],
+        'decision': 'never',
+        'secret': 'ref',
+      });
+      expect((await refused)['candidates'], isEmpty);
+      // A never at a pick prompt writes nothing.
+      expect((await admin.request('grants.list'))['grants'], isEmpty);
+      await service.stop();
+
+      final alone = await start(helpers: self, policy: null, subscribe: false);
+      final raw2 = await _Raw.open(demo, transport);
+      await raw2.hello(alone);
+      final none = await answer(raw2, {
+        'op': 'match',
+        'id': 1,
+        'url': 'https://mail.example.com/',
+        'pick': true,
+      });
+      expect(none['candidates'], isEmpty);
+    });
+
+    test('pick is for the helpers: the browser host is denied', () async {
+      final service = await start(browserHosts: self);
+      final raw = await _Raw.open(demo, transport);
+      await raw.hello(service);
+      final denied = await answer(raw, {
+        'op': 'match',
+        'id': 1,
+        'url': 'https://mail.example.com/',
+        'pick': true,
+      });
+      expect((denied['details']! as Map)['reason'], 'not_allowed_op');
+    });
+
+    test('a helper call: a lasting grant names the tool that started it', () {
+      final helper = TomSecretsIdentity.fromJson({
+        'kind': 'exe',
+        'exe': '/opt/tsm/bin/tsm',
+        'args': ['get'],
+        'cwd': '/home/demo/work',
+        'parent': {'exe': '/usr/bin/git'},
+      });
+      expect(tomSecretsIsHelperCall(helper), isTrue);
+      expect(
+        tomSecretsGrantSubject(
+          helper,
+          const TomSecretsApprovalAnswer(
+            decision: 'always',
+            secret: 'ref',
+            approver: 'demo',
+          ),
+        ),
+        'exe-from /usr/bin/git => /opt/tsm/bin/tsm',
+      );
+      final shell = TomSecretsIdentity.fromJson({
+        'kind': 'exe',
+        'exe': '/opt/tsm/bin/tsm',
+        'args': ['get', 'telegram.bot_token'],
+        'cwd': '/home/demo/work',
+        'parent': {'exe': '/bin/zsh'},
+      });
+      expect(tomSecretsIsHelperCall(shell), isFalse);
+    });
   });
 
   test('propose needs an allow grant of the browser host', () async {

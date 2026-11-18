@@ -74,6 +74,7 @@ final class TomSecretsApprovalAnswer {
     this.clientToken,
     this.sshHost = false,
     this.withParent = false,
+    this.pick,
   });
 
   /// The decision.
@@ -102,6 +103,10 @@ final class TomSecretsApprovalAnswer {
   /// The lasting grant names the client together with its parent process's
   /// executable (`exe-from`; ssh started by git, for example).
   final bool withParent;
+
+  /// For a helper's pick prompt (protocol.md 5.5 `match` with `pick`): the
+  /// `entryId` of the login picked.
+  final String? pick;
 }
 
 /// A request that went to the approvers.
@@ -114,6 +119,8 @@ final class _Waiting {
     this.code, {
     this.confirmOnly = false,
     this.grantId,
+    this.pick,
+    this.url,
   });
 
   final String approvalId;
@@ -129,6 +136,13 @@ final class _Waiting {
 
   /// The grant behind a [confirmOnly] prompt.
   final String? grantId;
+
+  /// A helper's pick prompt: the logins to pick from (`entryId`, `title`,
+  /// `userName`, `matchedUrl`), in the order of [items].
+  final List<Map<String, Object?>>? pick;
+
+  /// The page or host the logins of a pick prompt match.
+  final String? url;
   final Completer<List<TomSecretsAccess>> done = Completer();
   final Set<String> redeemedTokens = {};
   int badTokens = 0;
@@ -153,6 +167,8 @@ final class _Waiting {
     if (wantsToken) 'wantClientToken': true,
     if (batch.ssh case final ssh?) 'ssh': ssh.toJson(),
     if (confirmOnly) 'confirmOnly': true,
+    'pick': ?pick,
+    'url': ?url,
   };
 
   /// Whether the client asked for a client token.
@@ -191,7 +207,9 @@ String tomSecretsGrantSubject(
     return 'tsm-command ${i.args.join(' ')}';
   }
   final parent = i.parent?['exe'];
-  if (a.withParent && i.kind == 'exe' && parent is String) {
+  if ((a.withParent || tomSecretsIsHelperCall(i)) &&
+      i.kind == 'exe' &&
+      parent is String) {
     return 'exe-from $parent => ${i.exe}';
   }
   return switch (i.kind) {
@@ -200,6 +218,20 @@ String tomSecretsGrantSubject(
     _ => 'exe ${i.exe}',
   };
 }
+
+/// Whether [i] is a developer-tool helper's call (`git-credential-tsm get`,
+/// `docker-credential-tsm list`, ...): `tsm` or one of its multi-call names
+/// with one helper verb. Its lasting grants name the tool that started it
+/// (`exe-from git => tsm`, part-os-integration: "one grant covers git"), so
+/// they never cover `tsm get` typed in a shell.
+bool tomSecretsIsHelperCall(TomSecretsIdentity i) =>
+    const {
+      'tsm',
+      'git-credential-tsm',
+      'docker-credential-tsm',
+    }.contains(_base(i.exe)) &&
+    i.args.length == 1 &&
+    const {'get', 'store', 'erase', 'list'}.contains(i.args.single);
 
 /// The secrets a lasting answer [a] writes grants for: of a value request
 /// with [refs] (canonical) resolved in [stores], its references, stores or
@@ -608,7 +640,7 @@ final class TomSecretsApprovals
           : entryOf(secret);
       mine.add((g, _subjectRank(g.subject), named));
     }
-    bool covers(String store, String uuid) {
+    (TomSecretsGrant?, int) decide(String store, String uuid) {
       TomSecretsGrant? best;
       var bestRank = -1;
       for (final (g, subjectRank, named) in mine) {
@@ -629,11 +661,21 @@ final class TomSecretsApprovals
           bestRank = rank;
         }
       }
-      return best?.decision == 'allow';
+      return (best, bestRank);
+    }
+
+    bool covers(String store, String uuid) =>
+        decide(store, uuid).$1?.decision == 'allow';
+
+    // An allow grant naming the entry by its reference decides it.
+    bool named(String store, String uuid) {
+      final (best, rank) = decide(store, uuid);
+      return best?.decision == 'allow' && rank % 10 == 3;
     }
 
     return TomSecretsCoverage(
       covers: covers,
+      named: named,
       hasAllowGrant: mine.any((m) => m.$1.decision == 'allow'),
     );
   }
@@ -768,6 +810,8 @@ final class TomSecretsApprovals
     List<TomSecretsAccessRequest> items, {
     bool confirmOnly = false,
     String? grantId,
+    List<Map<String, Object?>>? pick,
+    String? url,
   }) {
     final identity = batch.identity;
     List<TomSecretsAccess> all(TomSecretsAccess a) => [
@@ -797,6 +841,7 @@ final class TomSecretsApprovals
       if (w.key == key &&
           _sameList(wRefs, refs) &&
           w.confirmOnly == confirmOnly &&
+          (w.pick == null) == (pick == null) &&
           (w.batch.ssh == null) == (batch.ssh == null)) {
         _progress(batch, w);
         return w.done.future;
@@ -828,6 +873,8 @@ final class TomSecretsApprovals
       code,
       confirmOnly: confirmOnly,
       grantId: grantId,
+      pick: pick,
+      url: url,
     );
     _waiting[approvalId] = waiting;
     var limit = connected
@@ -859,6 +906,30 @@ final class TomSecretsApprovals
       'code': code != null,
     });
     return waiting.done.future;
+  }
+
+  /// Asks the approvers to pick one of the logins of [batch] (its items,
+  /// in the order of [candidates]) for a developer-tool helper's `match`
+  /// with `pick` (protocol.md 5.5, part-os-integration: "several are listed
+  /// by the app's approval prompt for the user to pick, and the pick is
+  /// remembered in the grant"). Answers the index picked and who picked it,
+  /// or null when the
+  /// user refused, nobody answered in time, or no approver is connected (a
+  /// pick needs the app; there is no approval code for it). Audited.
+  Future<({int index, String? approver})?> askPick(
+    TomSecretsAccessBatch batch,
+    List<Map<String, Object?>> candidates,
+    String url,
+  ) async {
+    if (!service.hasLocalApprover && _links.isEmpty) return null;
+    final answers = await _ask(batch, batch.items, pick: candidates, url: url);
+    _auditBatch(batch, answers);
+    final index = answers.indexWhere((a) => a is TomSecretsAccessAllowed);
+    if (index < 0) return null;
+    return (
+      index: index,
+      approver: (answers[index] as TomSecretsAccessAllowed).approver,
+    );
   }
 
   void _progress(TomSecretsAccessBatch batch, _Waiting w) =>
@@ -926,6 +997,10 @@ final class TomSecretsApprovals
   }) async {
     final w = _waiting[approvalId];
     if (w == null) throw StateError('no prompt $approvalId');
+    if (w.pick != null) {
+      await _answerPick(w, answer, lasting: lasting);
+      return;
+    }
     if (w.confirmOnly) {
       // A confirmation: this signature only, nothing written.
       if (answer.decision != 'once' && answer.decision != 'never') {
@@ -953,6 +1028,44 @@ final class TomSecretsApprovals
       await _writeGrants(w, answer, clientTokenId: tokenId);
     }
     _answer(w, answer);
+  }
+
+  /// A pick prompt's answer: `once` or `always` with the login picked
+  /// (`always` from this device writes a grant for that login's reference,
+  /// so the next `match` answers it without asking), or `never` (nothing
+  /// picked, nothing written).
+  Future<void> _answerPick(
+    _Waiting w,
+    TomSecretsApprovalAnswer answer, {
+    required bool lasting,
+  }) async {
+    if (answer.decision == 'never') {
+      _close(w, 'denied', [
+        for (final _ in w.items) const TomSecretsAccessDenied('refused'),
+      ]);
+      return;
+    }
+    final index = w.pick!.indexWhere((c) => c['entryId'] == answer.pick);
+    if ((answer.decision != 'once' && answer.decision != 'always') ||
+        index < 0) {
+      throw ArgumentError('a pick is answered once or always with a login');
+    }
+    if (lasting && answer.decision == 'always') {
+      final item = w.items[index];
+      await addGrant({
+        'host': service.host,
+        'subject': tomSecretsGrantSubject(w.batch.identity, answer),
+        'secret': _canonical(item.reference),
+        'decision': 'allow',
+        'pin': 'off',
+      });
+    }
+    _close(w, 'approved', [
+      for (var i = 0; i < w.items.length; i++)
+        i == index
+            ? TomSecretsAccessAllowed(approver: answer.approver)
+            : const TomSecretsAccessDenied('not_picked'),
+    ]);
   }
 
   void _answer(_Waiting w, TomSecretsApprovalAnswer answer) {
@@ -1353,6 +1466,7 @@ final class TomSecretsApprovals
               folder: m['folder'] as String?,
               pin: m['pin'],
               approver: session.peerDevice,
+              pick: m['pick'] as String?,
             ),
             // A remote approver's lasting decision comes as its own grant.
             lasting: false,

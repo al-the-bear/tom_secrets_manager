@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.13.0
+
+- The git credential helper's side (part-os-integration, DP-52, DP-53):
+  `match` takes `userName` and, for the helpers, `pick`: one login of the
+  host by the host rule — the one the client's grants cover, of several the
+  one an allow grant names by its reference, else the user picks one of the
+  host's logins at the app's prompt (`approval_needed.pick` and `url`,
+  answered by `approve` with `pick`): `always` writes a grant for that
+  login's reference (the helper's subject names the tool that started it,
+  `exe-from git => tsm`), `once` lets the connection read it once; refused,
+  unanswered or with no approver connected, none. Over the approval link
+  too.
+- `propose` is open to the helpers holding an allow grant; a credential the
+  vaults hold already is ignored (`accepted` with `known`).
+- `TomSecretsCoverage.named`; `tomSecretsIsHelperCall`.
+
 ## 0.12.0
 
 - The ssh-agent (part-os-integration, DP-48, DP-49, protocol.md 7.6): a
