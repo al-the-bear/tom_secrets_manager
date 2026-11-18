@@ -514,5 +514,56 @@ void main() {
       final store = TomSecretsStore.fromFile(file, name: 'primary');
       expect(store.entries.where((e) => e.entry.label == 'bigbeast'), isEmpty);
     });
+
+    test("a device's GitHub kind and token expiry (DP-83): recorded, kept "
+        'through a revocation, only for a recorded device', () {
+      final file = tomSecretsNewVault(
+        Credentials(ProtectedValue.fromString('demo-master')),
+        'primary',
+        argon2: testArgon2,
+      );
+      final records = TomSecretsDeviceRecords(file);
+      final at = DateTime.utc(2026, 11, 15, 12);
+      records.put(TomSecretsDeviceRecord(device: 'phone', paired: at));
+      final expires = DateTime.utc(2027, 5, 15);
+      expect(
+        records.setGitHub('phone', TomSecretsGitHubAuth.app, expires),
+        isTrue,
+      );
+      expect(
+        records.setGitHub('phone', TomSecretsGitHubAuth.app, expires),
+        isFalse,
+        reason: 'unchanged',
+      );
+      expect(
+        records.setGitHub('nobody', TomSecretsGitHubAuth.token, at),
+        isFalse,
+      );
+      records.revoke('phone', at);
+      final r = records.byDevice('phone')!;
+      expect(r.githubAuth, TomSecretsGitHubAuth.app);
+      expect(r.githubTokenExpires, expires);
+      expect(r.toJson()['githubAuth'], 'app');
+    });
+
+    test("the GitHub App's client id in the primary's metadata", () {
+      final file = tomSecretsNewVault(
+        Credentials(ProtectedValue.fromString('demo-master')),
+        'primary',
+        argon2: testArgon2,
+      );
+      expect(TomSecretsMetadata.read(file).githubAppClientId, isNull);
+      TomSecretsMetadata.read(
+        file,
+      ).copyWith(githubAppClientId: 'Iv23demoClientId').writeTo(file);
+      expect(
+        TomSecretsMetadata.read(file).githubAppClientId,
+        'Iv23demoClientId',
+      );
+      TomSecretsMetadata.read(
+        file,
+      ).copyWith(clearGithubAppClientId: true).writeTo(file);
+      expect(TomSecretsMetadata.read(file).githubAppClientId, isNull);
+    });
   });
 }

@@ -286,6 +286,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsPairingWindow` | final class | The giving side's pairing window: it listens on the addresses given (the LAN and VPN ones, `tomSecretsPairingAddresses`), takes the first connection and runs `tomSecretsGivePairing` over it. | [→](api_summary_sharing.md#tomsecretspairingwindow) |
 | `TomSecretsPairingReceipt` | final class | A pairing received by a machine being set up, held in memory until the setup: the bundle, the approval-token key, and this machine's fresh trust material (whose public keys the giving side recorded). | [→](api_summary_sharing.md#tomsecretspairingreceipt) |
 | `TomSecretsDeviceRecord` | final class | One paired device. | [→](api_summary_sharing.md#tomsecretsdevicerecord) |
+| `TomSecretsGitHubAuth` | enum | How a device reaches GitHub: the App sign-in or a pasted token. | [→](api_summary_sharing.md#tomsecretsdevicerecord) |
 | `TomSecretsDeviceRecords` | final class | The device records of the primary vault `file`. | [→](api_summary_sharing.md#tomsecretsdevicerecords) |
 
 ### Functions

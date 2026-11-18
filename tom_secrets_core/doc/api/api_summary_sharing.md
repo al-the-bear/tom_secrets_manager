@@ -1068,7 +1068,7 @@ One paired device.
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsDeviceRecord({device, paired, platform, pairedBy, keyIds, approverKeyId, approverKeySince, linkKeySince, revoked})` | const | A record of `device`. |
+| `TomSecretsDeviceRecord({device, paired, platform, pairedBy, keyIds, approverKeyId, approverKeySince, linkKeySince, revoked, githubAuth, githubTokenExpires})` | const | A record of `device`. |
 
 #### Properties
 
@@ -1084,12 +1084,15 @@ One paired device.
 | `linkKeySince` | `DateTime?` | Since when its approval-link key pair is in use. |
 | `revoked` | `DateTime?` | When it was revoked, or null. |
 | `isRevoked` | `bool` | Whether it was revoked. |
+| `githubAuth` | `TomSecretsGitHubAuth?` | How it reaches GitHub: `app` (signed in with the GitHub App) or `token` (a pasted fine-grained token), when it said so. |
+| `githubTokenExpires` | `DateTime?` | When its GitHub token expires (a signed-in device: its refresh token). |
 
 #### Methods
 
 | Method | Return Type | Description |
 | --- | --- | --- |
 | `toJson()` | `Map<String, Object?>` | The record as the wire carries it (`pair.list`). |
+| `withGitHub(auth, expires)` | `TomSecretsDeviceRecord` | This record with `githubAuth` and `githubTokenExpires` replaced. |
 
 ---
 
@@ -1118,6 +1121,7 @@ The device records of the primary vault `file`.
 | `list()` | `List<TomSecretsDeviceRecord>` | Every record, in file order. |
 | `byDevice(device)` | `TomSecretsDeviceRecord?` | The record of `device`, or null. |
 | `put(record)` | `void` | Writes `record`, replacing the record of the same device (a device paired again is updated, never duplicated). |
+| `setGitHub(device, auth, expires)` | `bool` | Records how `device` reaches GitHub; whether it had a record and it changed. |
 | `revoke(device, at)` | `bool` | Marks `device` revoked at `at`; whether it had a record. |
 
 ---

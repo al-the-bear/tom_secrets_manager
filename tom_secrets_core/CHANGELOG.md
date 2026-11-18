@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.7
+
+- The GitHub App sign-in's records (part-key-rotation §3, DP-83, DP-155):
+  the primary's metadata keeps the App's client id
+  (`TomSecretsMetadata.githubAppClientId`, `tsm.github-app-client-id`;
+  `copyWith(githubAppClientId:, clearGithubAppClientId:)`); a device record
+  names how the device reaches GitHub (`TomSecretsGitHubAuth` `app` or
+  `token`) and when its token expires (`githubAuth`,
+  `githubTokenExpires`, `withGitHub`, `TomSecretsDeviceRecords.setGitHub`).
+
 ## 0.2.6
 
 - The agent's side of SSH (part-os-integration, DP-48, DP-49):

@@ -405,6 +405,7 @@ The field names of the metadata entry.
 | `config` | `KdbxKey` | The shared configuration (primary vault only). |
 | `keysDue` | `KdbxKey` | When this vault's own key file and repository key are due for rotation (ISO 8601). Read for the primary; a further vault's date is the Expires of its entry in the primary. |
 | `sshConfirm` | `KdbxKey` | `tsm.ssh-confirm`: `true` when every ssh-agent signature with a key of this vault is confirmed. |
+| `githubAppClientId` | `KdbxKey` | `tsm.github-app-client-id`: the client id of the user's GitHub App (primary only); every device signs in with it. |
 
 ---
 
@@ -454,7 +455,7 @@ The content of a metadata entry.
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsMetadata({format, store, kind, purpose, binding, configYaml, keysDue, sshConfirm = false})` | — | Metadata with these members. |
+| `TomSecretsMetadata({format, store, kind, purpose, binding, configYaml, keysDue, sshConfirm = false, githubAppClientId})` | — | Metadata with these members. |
 | `TomSecretsMetadata.absent()` | factory | The metadata of a file without a metadata entry: no binding, kind `personal`, the store name from the file name. |
 | `TomSecretsMetadata.read(file)` | factory | The metadata entry of `file` (`.tom-secrets` in the root group), or `TomSecretsMetadata.absent` when it has none. |
 
@@ -470,6 +471,7 @@ The content of a metadata entry.
 | `configYaml` | `String?` | `tsm.config` as written, or null (only the primary vault has one). |
 | `keysDue` | `DateTime?` | When the vault's own key file and repository key are due for rotation (`tsm.keys-due`), or null. The primary's is reminded of; a further vault's date is the Expires of its entry in the primary. |
 | `sshConfirm` | `bool` | Whether the ssh-agent confirms every signature with a key of this vault (`tsm.ssh-confirm`). |
+| `githubAppClientId` | `String?` | The client id of the user's GitHub App (`tsm.github-app-client-id`), or null. |
 | `config` | `TomSecretsConfig?` | The shared configuration of `tsm.config`, or null when absent. |
 
 #### Methods
@@ -477,7 +479,7 @@ The content of a metadata entry.
 | Method | Return Type | Description |
 | --- | --- | --- |
 | `writeTo(file)` | `void` | Writes this metadata into `file`'s metadata entry, creating it when the file has none. |
-| `copyWith({store, kind, purpose, binding, configYaml, keysDue, sshConfirm})` | `TomSecretsMetadata` | This metadata with the members given replaced. |
+| `copyWith({store, kind, purpose, binding, configYaml, keysDue, sshConfirm, githubAppClientId, clearGithubAppClientId})` | `TomSecretsMetadata` | This metadata with the members given replaced. |
 
 ---
 

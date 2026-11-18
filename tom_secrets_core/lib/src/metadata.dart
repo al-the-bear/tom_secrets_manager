@@ -43,6 +43,11 @@ abstract final class TomSecretsMetadataFields {
   /// `true`: every signature the ssh-agent makes with a key of this vault
   /// is confirmed by the user (part-os-integration).
   static const sshConfirm = KdbxKey('tsm.ssh-confirm');
+
+  /// The client id of the user's GitHub App for the vault repositories
+  /// (part-key-rotation §3, DP-83, DP-155; primary vault only): every device
+  /// learns it with the primary and signs in with it.
+  static const githubAppClientId = KdbxKey('tsm.github-app-client-id');
 }
 
 /// What a vault is for (BP-25).
@@ -107,6 +112,7 @@ final class TomSecretsMetadata {
     this.configYaml,
     this.keysDue,
     this.sshConfirm = false,
+    this.githubAppClientId,
   }) : binding = Map.unmodifiable(binding);
 
   /// The metadata of a file without a metadata entry: no binding, kind
@@ -164,6 +170,7 @@ final class TomSecretsMetadata {
               (throw TomSecretsMetadataException('tsm.keys-due is "$due"')),
       },
       sshConfirm: text(TomSecretsMetadataFields.sshConfirm) == 'true',
+      githubAppClientId: text(TomSecretsMetadataFields.githubAppClientId),
     );
   }
 
@@ -194,6 +201,10 @@ final class TomSecretsMetadata {
   /// vault (`tsm.ssh-confirm`).
   final bool sshConfirm;
 
+  /// The client id of the user's GitHub App (`tsm.github-app-client-id`,
+  /// the primary only), or null when none is registered.
+  final String? githubAppClientId;
+
   /// This metadata with the members given replaced.
   TomSecretsMetadata copyWith({
     String? store,
@@ -203,6 +214,8 @@ final class TomSecretsMetadata {
     String? configYaml,
     DateTime? keysDue,
     bool? sshConfirm,
+    String? githubAppClientId,
+    bool clearGithubAppClientId = false,
   }) => TomSecretsMetadata(
     format: format,
     store: store ?? this.store,
@@ -212,6 +225,9 @@ final class TomSecretsMetadata {
     configYaml: configYaml ?? this.configYaml,
     keysDue: keysDue ?? this.keysDue,
     sshConfirm: sshConfirm ?? this.sshConfirm,
+    githubAppClientId: clearGithubAppClientId
+        ? null
+        : githubAppClientId ?? this.githubAppClientId,
   );
 
   /// The shared configuration of `tsm.config`, or null when absent.
@@ -245,6 +261,7 @@ final class TomSecretsMetadata {
       set(TomSecretsMetadataFields.config, configYaml);
       set(TomSecretsMetadataFields.keysDue, keysDue?.toUtc().toIso8601String());
       set(TomSecretsMetadataFields.sshConfirm, sshConfirm ? 'true' : null);
+      set(TomSecretsMetadataFields.githubAppClientId, githubAppClientId);
     });
   }
 }

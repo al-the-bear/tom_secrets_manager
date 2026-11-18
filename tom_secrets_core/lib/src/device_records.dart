@@ -27,6 +27,25 @@ const _approverKeyId = KdbxKey('tsm.approver-key-id');
 const _linkKeySince = KdbxKey('tsm.link-key-since');
 const _approverKeySince = KdbxKey('tsm.approver-key-since');
 const _revoked = KdbxKey('tsm.revoked');
+const _githubAuth = KdbxKey('tsm.github-auth');
+const _githubTokenExpires = KdbxKey('tsm.github-token-expires');
+
+/// How a device reaches the vault repositories on GitHub (part-key-rotation
+/// §3, DP-83): signed in through the user's GitHub App (`app`), or with a
+/// fine-grained token pasted on it (`token`). It decides what cuts off a
+/// lost device: deleting its token, or revoking the App's authorization
+/// (every signed-in device then signs in again).
+enum TomSecretsGitHubAuth {
+  /// Signed in with the GitHub App (device flow).
+  app,
+
+  /// A pasted fine-grained personal access token.
+  token;
+
+  /// The kind written as [text], or null.
+  static TomSecretsGitHubAuth? of(String? text) =>
+      values.where((v) => v.name == text).firstOrNull;
+}
 
 /// One paired device.
 final class TomSecretsDeviceRecord {
@@ -41,6 +60,8 @@ final class TomSecretsDeviceRecord {
     this.approverKeySince,
     this.linkKeySince,
     this.revoked,
+    this.githubAuth,
+    this.githubTokenExpires,
   });
 
   /// The device's name.
@@ -71,6 +92,31 @@ final class TomSecretsDeviceRecord {
   /// When it was revoked, or null.
   final DateTime? revoked;
 
+  /// How it reaches GitHub, when it said so.
+  final TomSecretsGitHubAuth? githubAuth;
+
+  /// When its GitHub token expires: a pasted token's expiry, or a signed-in
+  /// device's refresh token's (its sign-in lasts that long unused).
+  final DateTime? githubTokenExpires;
+
+  /// This record with [githubAuth] and [githubTokenExpires] replaced.
+  TomSecretsDeviceRecord withGitHub(
+    TomSecretsGitHubAuth? auth,
+    DateTime? expires,
+  ) => TomSecretsDeviceRecord(
+    device: device,
+    platform: platform,
+    paired: paired,
+    pairedBy: pairedBy,
+    keyIds: keyIds,
+    approverKeyId: approverKeyId,
+    approverKeySince: approverKeySince,
+    linkKeySince: linkKeySince,
+    revoked: revoked,
+    githubAuth: auth,
+    githubTokenExpires: expires,
+  );
+
   /// Whether it was revoked.
   bool get isRevoked => revoked != null;
 
@@ -87,6 +133,9 @@ final class TomSecretsDeviceRecord {
     if (linkKeySince != null)
       'linkKeySince': linkKeySince!.toUtc().toIso8601String(),
     if (revoked != null) 'revoked': revoked!.toUtc().toIso8601String(),
+    'githubAuth': ?githubAuth?.name,
+    if (githubTokenExpires != null)
+      'githubTokenExpires': githubTokenExpires!.toUtc().toIso8601String(),
   };
 }
 
@@ -148,7 +197,23 @@ final class TomSecretsDeviceRecords {
       set(_approverKeySince, time(record.approverKeySince));
       set(_linkKeySince, time(record.linkKeySince));
       set(_revoked, time(record.revoked));
+      set(_githubAuth, record.githubAuth?.name);
+      set(_githubTokenExpires, time(record.githubTokenExpires));
     });
+  }
+
+  /// Records how [device] reaches GitHub ([auth], [expires]); whether it
+  /// had a record (a device never paired, the first one, has none) and it
+  /// changed.
+  bool setGitHub(String device, TomSecretsGitHubAuth? auth, DateTime? expires) {
+    final record = byDevice(device);
+    if (record == null) return false;
+    if (record.githubAuth == auth &&
+        record.githubTokenExpires?.toUtc() == expires?.toUtc()) {
+      return false;
+    }
+    put(record.withGitHub(auth, expires));
+    return true;
   }
 
   /// Marks [device] revoked at [at]; whether it had a record.
@@ -166,6 +231,8 @@ final class TomSecretsDeviceRecords {
         approverKeySince: record.approverKeySince,
         linkKeySince: record.linkKeySince,
         revoked: at,
+        githubAuth: record.githubAuth,
+        githubTokenExpires: record.githubTokenExpires,
       ),
     );
     return true;
@@ -199,6 +266,8 @@ final class TomSecretsDeviceRecords {
       approverKeySince: time(_approverKeySince),
       linkKeySince: time(_linkKeySince),
       revoked: time(_revoked),
+      githubAuth: TomSecretsGitHubAuth.of(text(_githubAuth)),
+      githubTokenExpires: time(_githubTokenExpires),
     );
   }
 }
