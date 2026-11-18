@@ -30,6 +30,7 @@ import 'approver_links.dart';
 import 'audit.dart';
 import 'bootstrap.dart';
 import 'connection.dart';
+import 'github_app.dart';
 import 'github_opener.dart';
 import 'identity.dart';
 import 'key_expiry.dart';
@@ -44,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.13.0';
+const String tomSecretsServiceVersion = '0.14.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -55,6 +56,7 @@ final class TomSecretsServiceConfig {
     required this.adminKey,
     this.opener,
     this.githubBaseUrl = 'https://api.github.com',
+    this.githubWebUrl = 'https://github.com',
     this.githubClient,
     this.githubRemoteFor,
     this.githubReaderFor,
@@ -103,6 +105,10 @@ final class TomSecretsServiceConfig {
 
   /// GitHub's API, for `github:` vaults.
   final String githubBaseUrl;
+
+  /// GitHub's web endpoints, for the App's device flow (part-key-rotation
+  /// §3).
+  final String githubWebUrl;
 
   /// The HTTP client `github:` vaults are fetched through (null: its own).
   final http.Client? githubClient;
@@ -287,6 +293,11 @@ final class TomSecretsService
     await runtime.acquire();
     try {
       await service._deviceKeys.effectiveMode();
+      try {
+        await service._githubApp.load();
+      } on Object catch (e) {
+        config.log.error('github_app_unreadable', e);
+      }
       await runtime.removeStaleEndpoints();
       await service._bind();
     } on Object catch (e) {
@@ -463,6 +474,118 @@ final class TomSecretsService
     await _agent.close();
   }
 
+  // ── The GitHub App sign-in (part-key-rotation §3, DP-83) ────────────────
+
+  late final TomSecretsGitHubApp _githubApp = TomSecretsGitHubApp(
+    keychain: config.keychain,
+    webBaseUrl: config.githubWebUrl,
+    apiBaseUrl: config.githubBaseUrl,
+    client: config.githubClient,
+    clock: config.clock,
+  );
+
+  /// The device's App sign-in.
+  TomSecretsGitHubApp get githubApp => _githubApp;
+
+  /// The client id of the user's GitHub App the primary names, or null.
+  String? get githubAppClientId {
+    final primary = _vaults.primary;
+    if (primary == null) return null;
+    try {
+      return TomSecretsMetadata.read(primary.file).githubAppClientId;
+    } on TomSecretsMetadataException {
+      return null;
+    }
+  }
+
+  /// Writes the App's client id into the primary's metadata ([clientId]
+  /// empty: removes it) and saves the primary; every device learns it with
+  /// its next refresh.
+  Future<void> setGitHubAppClientId(String clientId) async {
+    final primary = _vaults.primary;
+    if (primary == null) throw StateError('locked');
+    final m = TomSecretsMetadata.read(primary.file);
+    (clientId.isEmpty
+            ? m.copyWith(clearGithubAppClientId: true)
+            : m.copyWith(githubAppClientId: clientId))
+        .writeTo(primary.file);
+    await savePrimary();
+  }
+
+  /// Starts "Sign in with GitHub" for the App the primary names (or
+  /// [clientId] when the service is locked and the primary unread): the
+  /// device code; the outcome comes as the event `github_sign_in`, and a
+  /// sign-in fetches every store again with the new token.
+  Future<TomSecretsDeviceCode> startGitHubSignIn([String? clientId]) {
+    final id = githubAppClientId ?? clientId;
+    if (id == null || id.isEmpty) {
+      throw const TomSecretsGitHubAppException(
+        'not_configured',
+        'no GitHub App is registered',
+      );
+    }
+    return _githubApp.startSignIn(
+      id,
+      onDone: (outcome, {login}) {
+        log.info('github_sign_in', {'outcome': outcome});
+        _emit({'op': 'github_sign_in', 'outcome': outcome, 'login': ?login});
+        if (outcome == 'signed_in') {
+          unawaited(_recordGitHubAuth(TomSecretsGitHubAuth.app));
+          if (!isLocked) unawaited(refresh(force: true));
+        }
+      },
+    );
+  }
+
+  /// Signs the device out of the App: its pasted tokens are used again.
+  Future<void> signOutOfGitHub() async {
+    await _githubApp.signOut();
+    log.info('github_signed_out', {});
+    _emit({'op': 'github_sign_in', 'outcome': 'signed_out'});
+    await _recordGitHubAuth(null);
+    if (!isLocked) unawaited(refresh(force: true));
+  }
+
+  /// This device's record in the primary names how it reaches GitHub
+  /// (part-sharing; the Pairing screen's lost-device advice reads it).
+  Future<void> _recordGitHubAuth(
+    TomSecretsGitHubAuth? auth, {
+    DateTime? expires,
+  }) async {
+    final primary = _vaults.primary;
+    if (primary == null) return;
+    try {
+      final changed = TomSecretsDeviceRecords(primary.file).setGitHub(
+        config.host,
+        auth,
+        auth == TomSecretsGitHubAuth.app ? _githubApp.refreshExpires : expires,
+      );
+      if (changed) await savePrimary();
+    } on Object catch (e) {
+      log.error('device_record_failed', e);
+    }
+  }
+
+  DateTime? _lastForcedRenewal;
+
+  /// GitHub refused the App's token (401) on a store: the token is renewed
+  /// once (at most once a minute) and the stores fetched again.
+  Future<bool> _renewAfterRefusal(TomSecretsRefreshReport report) async {
+    if (!report.states.any(
+      (s) => s.state == TomSecretsStoreState.tokenExpired,
+    )) {
+      return false;
+    }
+    if (!await _githubApp.signedIn) return false;
+    final now = config.clock();
+    final last = _lastForcedRenewal;
+    if (last != null && now.difference(last) < const Duration(minutes: 1)) {
+      return false;
+    }
+    _lastForcedRenewal = now;
+    return await _githubApp.accessToken(force: true) != null;
+  }
+
   // ── The ssh-agent (part-os-integration) ─────────────────────────────────
 
   late final TomSecretsSshAgent _agent = TomSecretsSshAgent(this);
@@ -618,8 +741,12 @@ final class TomSecretsService
   Future<TomSecretsRefreshReport> refresh({bool force = false}) =>
       _serial(() async {
         if (isLocked) return const TomSecretsRefreshReport();
-        final report = await _vaults.refresh(force: force);
+        var report = await _vaults.refresh(force: force);
         if (isLocked) return report;
+        if (await _renewAfterRefusal(report)) {
+          report = await _vaults.refresh(force: true);
+          if (isLocked) return report;
+        }
         report.states.forEach(_emitState);
         for (final name in report.reopened) {
           _emit({
@@ -809,6 +936,9 @@ final class TomSecretsService
   /// list keeps for a vault in that repository, never for the primary's own
   /// repository (part-stores).
   Future<String?> _githubToken(TomSecretsGitHubLocator vault) async {
+    // Signed in with the GitHub App (DP-83): its user token, renewed first
+    // when it runs out; a device that must sign in again has none.
+    if (await _githubApp.signedIn) return _githubApp.accessToken();
     final keychain = config.keychain;
     if (keychain != null) {
       try {
@@ -945,7 +1075,15 @@ final class TomSecretsService
       ),
       own: own,
     );
+    final appRefresh = _githubApp.refreshExpires;
     return [
+      if (appRefresh != null)
+        TomSecretsKeyDate(
+          kind: 'github_app',
+          key: 'github-app:${config.host}',
+          expiresAt: appRefresh,
+          firstDays: settings.keyExpiryWarningDays,
+        ),
       for (final MapEntry(key: slug, value: at) in tokens.entries)
         TomSecretsKeyDate(
           kind: 'github_token',
@@ -1089,6 +1227,11 @@ final class TomSecretsService
     'hardening': _hardening,
     // [B] The ssh-agent's endpoint, when it runs (part-os-integration).
     'agent': ?_agent.endpoint,
+    // [B] The GitHub App sign-in (part-key-rotation §3).
+    'github': {
+      'state': _githubApp.state(githubAppClientId).wireName,
+      'login': ?_githubApp.describe(null)['login'],
+    },
   };
 
   /// Writes the grants' last use now (the timer, the lock).
@@ -1304,6 +1447,11 @@ final class TomSecretsService
       );
     }
     log.info('token_set', {'repository': repository, 'where': where});
+    // A device not signed in with the App reaches GitHub with this pasted
+    // token: its record says so (part-sharing).
+    if (!await _githubApp.signedIn) {
+      await _recordGitHubAuth(TomSecretsGitHubAuth.token, expires: expiresAt);
+    }
     await refresh(force: true);
     return (where: where, expiresAt: expiresAt);
   }
@@ -3969,6 +4117,72 @@ final class _AdminSession {
         final later = await service.writeSettings(value);
         service.log.info('settings', {'nextUnlock': later.length});
         connection.send({'op': 'ok', 'id': id, 'nextUnlock': later});
+      case 'github.app':
+        connection.send({
+          'op': 'githubApp',
+          'id': id,
+          ...service.githubApp.describe(service.githubAppClientId),
+        });
+      case 'github.app.configure':
+        final clientId = m['clientId'];
+        if (clientId is! String ||
+            (clientId.isNotEmpty &&
+                !RegExp(r'^[A-Za-z0-9._-]{4,64}$').hasMatch(clientId))) {
+          connection.sendError(id, 'malformed', 'a client id', {
+            'reason': 'clientId',
+          });
+          return;
+        }
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        await service.setGitHubAppClientId(clientId);
+        connection.send({'op': 'ok', 'id': id});
+      case 'github.signIn':
+        final clientId = m['clientId'];
+        if (clientId != null && clientId is! String) {
+          connection.sendError(id, 'malformed', 'a client id', {
+            'reason': 'clientId',
+          });
+          return;
+        }
+        try {
+          final code = await service.startGitHubSignIn(clientId as String?);
+          connection.send({
+            'op': 'deviceCode',
+            'id': id,
+            'userCode': code.userCode,
+            'verificationUri': code.verificationUri,
+            'expiresIn': code.expiresIn.inSeconds,
+            'interval': code.interval.inSeconds,
+          });
+        } on TomSecretsGitHubAppException catch (e) {
+          switch (e.kind) {
+            case 'not_configured':
+              connection.sendError(id, 'not_found', e.message, {
+                'reason': 'no_github_app',
+              });
+            case 'no_keychain':
+              connection.sendError(id, 'unsupported', e.message, {
+                'reason': 'no_keychain',
+              });
+            default:
+              connection.sendError(id, 'denied', e.message, {'reason': e.kind});
+          }
+        } on Object catch (e) {
+          service.log.error('github_sign_in_failed', e);
+          connection.sendError(id, 'offline', 'GitHub could not be reached');
+        }
+      case 'github.signOut':
+        await service.signOutOfGitHub();
+        connection.send({'op': 'ok', 'id': id});
       case 'approve' ||
           'approval.redeem' ||
           'approval.issue' ||

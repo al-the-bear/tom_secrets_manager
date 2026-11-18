@@ -15,6 +15,7 @@ export 'src/approver_links.dart';
 export 'src/audit.dart';
 export 'src/bootstrap.dart';
 export 'src/connection.dart';
+export 'src/github_app.dart';
 export 'src/github_opener.dart';
 export 'src/hardening.dart';
 export 'src/identity.dart';

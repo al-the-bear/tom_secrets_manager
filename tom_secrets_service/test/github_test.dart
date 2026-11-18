@@ -70,8 +70,16 @@ final class _Network extends http.BaseClient {
         headers: {'content-type': 'application/json'},
       );
 
+  /// GitHub's web endpoints (the App's device flow), when a test serves
+  /// them.
+  Future<http.StreamedResponse> Function(http.Request request)? web;
+
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final webAnswer = web;
+    if (request.url.host == 'github.com' && webAnswer != null) {
+      return webAnswer(request as http.Request);
+    }
     requests.add((request.url.path, request.headers['Authorization']));
     final auth = request.headers['Authorization'] ?? '';
     bool carries(Set<String> tokens) => tokens.any(auth.endsWith);
@@ -109,6 +117,68 @@ final class _Network extends http.BaseClient {
           reasonPhrase: answer.reasonPhrase,
         );
     }
+  }
+}
+
+/// GitHub's device flow and token endpoint for the App `Iv23demo`: the
+/// device code, one `authorization_pending`, then user tokens `ghu_<n>`
+/// with refresh tokens `ghr_<n>`; a refresh token used is spent.
+final class _DeviceFlow {
+  int _issued = 0;
+  int _pending = 1;
+  final Set<String> spentRefresh = {};
+  final List<Map<String, String>> grants = [];
+
+  /// The next poll answers this error instead (`access_denied`, ...).
+  String? refuse;
+
+  /// The next refresh answers `bad_refresh_token`.
+  bool refuseRefresh = false;
+
+  http.StreamedResponse _json(Map<String, Object?> body) =>
+      http.StreamedResponse(
+        Stream.value(utf8.encode(jsonEncode(body))),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+
+  Future<http.StreamedResponse> answer(http.Request request) async {
+    final body = request.bodyFields;
+    if (body['client_id'] != 'Iv23demo') {
+      return _json({'error': 'incorrect_client_credentials'});
+    }
+    if (request.url.path == '/login/device/code') {
+      return _json({
+        'device_code': 'demo-device-code',
+        'user_code': 'WDJB-MJHT',
+        'verification_uri': 'https://github.com/login/device',
+        'expires_in': 900,
+        'interval': 0,
+      });
+    }
+    grants.add(body);
+    if (body['grant_type'] == 'refresh_token') {
+      final token = body['refresh_token']!;
+      if (refuseRefresh || !spentRefresh.add(token)) {
+        return _json({'error': 'bad_refresh_token'});
+      }
+      return _tokens();
+    }
+    if (refuse case final error?) return _json({'error': error});
+    if (_pending-- > 0) return _json({'error': 'authorization_pending'});
+    return _tokens();
+  }
+
+  http.StreamedResponse _tokens() {
+    _issued++;
+    return _json({
+      'access_token': 'ghu_$_issued',
+      'expires_in': 28800,
+      'refresh_token': 'ghr_$_issued',
+      'refresh_token_expires_in': 15897600,
+      'token_type': 'bearer',
+      'scope': '',
+    });
   }
 }
 
@@ -531,6 +601,148 @@ void main() {
       service.statusReport()['stores'],
       everyElement(containsPair('source', 'file')),
     );
+  });
+
+  group('Sign in with GitHub (part-key-rotation §3, DP-83)', () {
+    late _DeviceFlow flow;
+
+    setUp(() {
+      flow = _DeviceFlow();
+      network.web = flow.answer;
+    });
+
+    /// The token the last request to the demo repository carried.
+    String? lastToken() => network.requests
+        .lastWhere((r) => r.$1.contains('/repos/$_repo/'))
+        .$2
+        ?.split(' ')
+        .last;
+
+    Future<Map<String, Object?>> signIn() async {
+      final done = admin.events.firstWhere((e) => e['op'] == 'github_sign_in');
+      final code = await admin.request('github.signIn');
+      expect(code['op'], 'deviceCode');
+      expect(code['userCode'], 'WDJB-MJHT');
+      expect(code['verificationUri'], 'https://github.com/login/device');
+      return done.timeout(const Duration(seconds: 10));
+    }
+
+    test('the App configured once in the primary; sign-in by the device '
+        'flow; the stores read with the user token; renewed before its 8 '
+        'hours run out and at the first 401; the key list names the '
+        'sign-in; a refused refresh says sign in again; signing out uses '
+        'the pasted token again', () async {
+      final service = await start();
+      expect((await admin.request('github.app'))['state'], 'not_configured');
+      await expectLater(
+        admin.request('github.signIn'),
+        throwsA(
+          isA<TomSecretsAdminException>().having(
+            (e) => e.details['reason'],
+            'reason',
+            'no_github_app',
+          ),
+        ),
+      );
+      await admin.request('github.app.configure', {'clientId': 'Iv23demo'});
+      expect(service.githubAppClientId, 'Iv23demo');
+      expect((await admin.request('github.app'))['state'], 'signed_out');
+
+      final done = await signIn();
+      expect(done['outcome'], 'signed_in');
+      expect(flow.grants.first['grant_type'], contains('device_code'));
+      final app = await admin.request('github.app');
+      expect(app['state'], 'signed_in');
+      expect(app['signedInClientId'], 'Iv23demo');
+      expect(app.toString(), isNot(contains('ghu_')), reason: 'no token');
+      final kept =
+          jsonDecode((await keychain.read(tomSecretsGitHubAppHandle))!) as Map;
+      expect(kept['access'], 'ghu_1');
+      expect(kept['refresh'], 'ghr_1');
+      expect((await admin.request('status'))['github'], {'state': 'signed_in'});
+
+      await admin.request('reload');
+      expect(lastToken(), 'ghu_1');
+      final keys = (await admin.request('keys'))['keys']! as List;
+      expect(
+        keys.map((k) => (k as Map)['key']),
+        contains('github-app:demo-host'),
+      );
+
+      // Eight hours later: renewed (both tokens) before it is used.
+      now = now.add(const Duration(hours: 8));
+      await admin.request('reload');
+      expect(lastToken(), 'ghu_2');
+      expect(flow.spentRefresh, {'ghr_1'});
+
+      // GitHub refuses the token: renewed once and fetched again.
+      network.refusedTokens.add('ghu_2');
+      await service.refresh(force: true);
+      expect(lastToken(), 'ghu_3');
+      expect(stores(service).values.map((s) => s['state']).toSet(), {
+        'current',
+      });
+
+      // The refresh token refused: sign in again, the stores say so.
+      network.refusedTokens.add('ghu_3');
+      flow.refuseRefresh = true;
+      now = now.add(const Duration(minutes: 2));
+      await service.refresh(force: true);
+      expect((await admin.request('github.app'))['state'], 'sign_in_again');
+      expect(stores(service).values.map((s) => s['state']).toSet(), {
+        'token_expired',
+      });
+
+      // Signed out: the pasted token of the keychain again.
+      await admin.request('github.signOut');
+      expect(await keychain.read(tomSecretsGitHubAppHandle), isNull);
+      await admin.request('reload');
+      expect(lastToken(), 'demo-keychain-token');
+      expect((await admin.request('github.app'))['state'], 'signed_out');
+    });
+
+    test('the user refuses the code: denied, nothing kept; a wrong client '
+        'id: bad_client_id', () async {
+      await start();
+      await admin.request('github.app.configure', {'clientId': 'Iv23demo'});
+      flow.refuse = 'access_denied';
+      expect((await signIn())['outcome'], 'denied');
+      expect(await keychain.read(tomSecretsGitHubAppHandle), isNull);
+      await admin.request('github.app.configure', {'clientId': 'Iv23wrong'});
+      await expectLater(
+        admin.request('github.signIn'),
+        throwsA(isA<TomSecretsAdminException>()),
+      );
+      await admin.request('github.app.configure', {'clientId': ''});
+      expect((await admin.request('github.app'))['state'], 'not_configured');
+      await expectLater(
+        admin.request('github.app.configure', {'clientId': 'bad id!'}),
+        throwsA(isA<TomSecretsAdminException>()),
+      );
+    });
+
+    test("the device's record names how it reaches GitHub", () async {
+      final primary = primaryVault();
+      TomSecretsDeviceRecords(
+        primary,
+      ).put(TomSecretsDeviceRecord(device: 'demo-host', paired: now));
+      await put(_primary, primary);
+      await start();
+      await admin.request('github.app.configure', {'clientId': 'Iv23demo'});
+      await signIn();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final listed = await admin.request('pair.list');
+      final me = (listed['devices']! as List).cast<Map>().single;
+      expect(me['githubAuth'], 'app');
+      expect(me['githubTokenExpires'], isNotNull);
+      await admin.request('github.signOut');
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final after = await admin.request('pair.list');
+      expect(
+        (after['devices']! as List).cast<Map>().single['githubAuth'],
+        isNull,
+      );
+    });
   });
 
   group('key-expiry reminders', () {

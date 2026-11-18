@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.14.0
+
+- "Sign in with GitHub" (part-key-rotation §3, DP-6, DP-83, DP-155,
+  protocol.md 6.3): `github.app` (where the sign-in stands, never a
+  token), `github.app.configure` (the App's client id into the primary's
+  metadata, the manager app only), `github.signIn` (the device flow: the
+  code to enter, then the event `github_sign_in`), `github.signOut`. The
+  service is the single owner of the device's user tokens
+  (`TomSecretsGitHubApp`, keychain item `tsm.github-app.session`): a
+  signed-in device uses them for every `github:` vault, renewed before the
+  8 hours run out and once at GitHub's first 401; a refused refresh token
+  leaves `sign_in_again`. No client secret or App private key anywhere.
+- `statusReport.github`; the key `github-app:<device>` (the refresh
+  token's expiry) in `keys` and the reminders; the device's record names
+  how it reaches GitHub (`githubAuth`, `githubTokenExpires`), also after
+  `token.set`.
+- A keychain that says it is not available is not read at start.
+- `TomSecretsServiceConfig.githubWebUrl`. On `tom_secrets_core` 0.2.7.
+
 ## 0.13.0
 
 - The git credential helper's side (part-os-integration, DP-52, DP-53):

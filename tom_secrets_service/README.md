@@ -448,6 +448,20 @@ open with the store's keys.
   the next unlock. Every change of a store's state or source is sent as
   `store_state`.
 
+### Sign in with GitHub
+
+Once the user has registered the product's GitHub App (contents read and
+write, device flow on, no webhook) and the manager app has named its client
+id (`github.app.configure`, kept in the primary's metadata), a device signs
+in with the device flow (`github.signIn`, `tsm login`): the user enters the
+code on github.com, and the service keeps the App's user tokens in the
+device keychain (`tsm.github-app.session`) and uses them for every
+`github:` vault. It alone renews them (8 hours, or at the first 401; the
+refresh token lasts 6 months unused), since a refresh token renewed twice
+fails. A refused refresh leaves `sign_in_again`. `github.signOut` uses the
+device's pasted tokens again; a pasted token is the way to cut off one lost
+device (revoking the App's authorization signs out every device).
+
 ### Key-expiry reminders
 
 `TomSecretsExpiringKey` covers the GitHub tokens (from `keyExpiryWarningDays`
@@ -577,7 +591,7 @@ session) the service never locks itself, the maximum unlocked time included.
 
 ## Status
 
-Version 0.13.0. The suite runs with `testkit :test` from the package folder.
+Version 0.14.0. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real
