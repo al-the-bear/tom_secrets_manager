@@ -62,6 +62,12 @@ enum TomSecretsLockMode {
 
   /// (b) Relock after an idle period; unlock again with the master password.
   idle,
+
+  /// (c) Relock after an idle period or at the screen lock; unlock again
+  /// with the OS unlock (Touch ID, Windows Hello) through the attached app,
+  /// which senses the screen lock (part-os-unlock). Without an app, and on
+  /// Linux, where there is no OS unlock, it behaves like [idle].
+  osUnlock,
 }
 
 /// A lock policy.
@@ -98,7 +104,7 @@ final class TomSecretsLockPolicy {
   /// The mode.
   final TomSecretsLockMode mode;
 
-  /// The idle period of mode (b).
+  /// The idle period of modes (b) and (c).
   final Duration idle;
 
   /// The longest unlocked time, or null.
@@ -121,7 +127,7 @@ final class TomSecretsLockPolicy {
     if (idle == null) return false; // headless never locks automatically
     final max = maxUnlocked;
     if (max != null && unlockedFor >= max) return true;
-    return mode == TomSecretsLockMode.idle && idle >= this.idle;
+    return mode != TomSecretsLockMode.never && idle >= this.idle;
   }
 }
 

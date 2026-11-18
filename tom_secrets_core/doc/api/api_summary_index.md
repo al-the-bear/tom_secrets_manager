@@ -168,7 +168,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsOuterEncrypt` | Encrypts `content` (the KDBX bytes) as a `.tsmx` file for `path`, with a fresh random file key wrapped under each of `keys` (phase A and B write one; the guided rotation writes two). | [→](api_summary_protection.md#functions) |
 | `tomSecretsOuterDecrypt` | Decrypts the `.tsmx` `file` for `path` with whichever of `keys` has a slot. | [→](api_summary_protection.md#functions) |
 | `tomSecretsOuterCodecFor` | The outer layer of a vault file named `fileName`: a `.tsmx` file opened with `outerKey` (base64), written under `cipher` until it decodes a file (then under that file's), or null for a plain `.kdbx`. | [→](api_summary_protection.md#functions) |
-| `tomSecretsVaultCredentials` | The credentials of a vault with `password` and the bytes of a `keyFile`, either of them optional. | [→](api_summary_protection.md#functions) |
+| `tomSecretsVaultCredentials` | The credentials of a vault with `password` and the bytes of a `keyFile`, either of them optional, or of its `compositeKey`. | [→](api_summary_protection.md#functions) |
+| `tomSecretsCompositeKey` | The 32-byte composite key of a password and a key file, which the OS unlock keeps. | [→](api_summary_protection.md#functions) |
 | `tomSecretsDecodeStored` | `stored`, the file at `locator` as its store keeps it, opened with `credentials` (and `outerKey` for a `.tsmx` file). | [→](api_summary_protection.md#functions) |
 | `tomSecretsEncodeStored` | `file` saved as the store at `locator` keeps it: its KDBX bytes, under the outer layer with `outerKey` for a `.tsmx` file. | [→](api_summary_protection.md#functions) |
 
@@ -689,6 +690,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsUuidFromHex` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsUuidHex` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsVaultCredentials` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
+| `tomSecretsCompositeKey` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
 | `tomSecretsVerifiedBy` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 
 ---

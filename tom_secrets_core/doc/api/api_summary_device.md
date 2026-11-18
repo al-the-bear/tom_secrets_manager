@@ -243,6 +243,7 @@ How a lock policy relocks.
 | --- | --- |
 | `never` | (a) Automatic locking is off. |
 | `idle` | (b) Relock after an idle period; unlock again with the master password. |
+| `osUnlock` | (c) Relock after an idle period or at the screen lock; unlock again with the OS unlock (Touch ID, Windows Hello) through the attached app. Without an app, and on Linux, it behaves like `idle`. |
 
 ---
 
@@ -264,7 +265,7 @@ A lock policy.
 | Property | Type | Description |
 | --- | --- | --- |
 | `mode` | `TomSecretsLockMode` | The mode. |
-| `idle` | `Duration` | The idle period of mode (b). |
+| `idle` | `Duration` | The idle period of modes (b) and (c). |
 | `maxUnlocked` | `Duration?` | The longest unlocked time, or null. |
 | `lockOnSleep` | `bool` | Whether the app locks the service on system sleep. |
 

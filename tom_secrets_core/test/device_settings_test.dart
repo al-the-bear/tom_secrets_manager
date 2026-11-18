@@ -40,4 +40,30 @@ void main() {
     expect(old.keyPairAgeMonths, 24);
     expect(old.vaultKeyAgeMonths, 12);
   });
+
+  test('lock mode (c) relocks on idle like (b), keeps its name across a '
+      'round trip, and headless never locks', () {
+    const c = TomSecretsLockPolicy(
+      mode: TomSecretsLockMode.osUnlock,
+      idle: Duration(minutes: 5),
+    );
+    final back = TomSecretsLockPolicy.fromJson(c.toJson());
+    expect(back.mode, TomSecretsLockMode.osUnlock);
+    expect(c.toJson()['mode'], 'osUnlock');
+    const unlocked = Duration(minutes: 1);
+    expect(
+      c.shouldLock(idle: const Duration(minutes: 6), unlockedFor: unlocked),
+      isTrue,
+    );
+    expect(
+      c.shouldLock(idle: const Duration(minutes: 4), unlockedFor: unlocked),
+      isFalse,
+    );
+    expect(c.shouldLock(idle: null, unlockedFor: unlocked), isFalse);
+    const never = TomSecretsLockPolicy(mode: TomSecretsLockMode.never);
+    expect(
+      never.shouldLock(idle: const Duration(days: 1), unlockedFor: unlocked),
+      isFalse,
+    );
+  });
 }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.8
+
+- The OS unlock (part-os-unlock, DP-72): lock mode (c)
+  `TomSecretsLockMode.osUnlock` (relock on idle or at the screen lock,
+  unlock with Touch ID or Windows Hello through the app; on idle it locks
+  like (b)); `tomSecretsCompositeKey` (the 32 bytes the OS unlock keeps
+  instead of the password text) and `tomSecretsVaultCredentials(compositeKey:)`
+  opening a vault with it. Needs `tom_kdbx_store` 0.2.5.
+
 ## 0.2.7
 
 - The GitHub App sign-in's records (part-key-rotation §3, DP-83, DP-155):

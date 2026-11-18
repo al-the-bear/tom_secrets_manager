@@ -32,14 +32,25 @@ TomSecretsOuterCodec? tomSecretsOuterCodecFor(
     : null;
 
 /// The credentials of a vault with [password] and the bytes of a [keyFile],
-/// either of them optional.
+/// either of them optional; or of its [compositeKey] alone (what the OS
+/// unlock keeps, part-os-unlock), which then takes the place of both.
 Credentials tomSecretsVaultCredentials({
   String? password,
   Uint8List? keyFile,
-}) => Credentials.composite(
-  password == null ? null : ProtectedValue.fromString(password),
-  keyFile,
-);
+  Uint8List? compositeKey,
+}) => compositeKey != null
+    ? Credentials.fromCompositeKey(compositeKey)
+    : Credentials.composite(
+        password == null ? null : ProtectedValue.fromString(password),
+        keyFile,
+      );
+
+/// The composite key of [password] and the bytes of a [keyFile] (32 bytes):
+/// what the OS unlock keeps for a vault instead of the password text
+/// (part-os-unlock, DP-72). It opens the vault with or without the key file
+/// and stays valid across saves; it changes when the vault is re-keyed.
+Uint8List tomSecretsCompositeKey({String? password, Uint8List? keyFile}) =>
+    tomSecretsVaultCredentials(password: password, keyFile: keyFile).getHash();
 
 /// [stored], the file at [locator] as its store keeps it, opened with
 /// [credentials] (and [outerKey] for a `.tsmx` file). Throws

@@ -102,4 +102,42 @@ void main() {
     expect(tomSecretsOuterCodecFor('a.kdbx', null), isNull);
     expect(tomSecretsOuterCodecFor('a.kdbx.tsmx', null), isNotNull);
   });
+
+  test('the composite key (the OS unlock\'s, DP-72) opens a .tsmx made with '
+      'the password and the key file, and a rewrite under it still opens '
+      'with them', () async {
+    final outerKey = TomSecretsRepositoryKey.generate().toBase64();
+    const locator = 'github:al-the-bear/demo-vault/demo.kdbx.tsmx';
+    final stored = await tomSecretsEncodeStored(
+      locator,
+      newTestVault(credentials, 'demo'),
+      outerKey: outerKey,
+    );
+    final composite = tomSecretsCompositeKey(
+      password: 'demo-password',
+      keyFile: keyFile.toBytes(),
+    );
+    expect(composite, hasLength(32));
+    expect(composite, credentials.getHash());
+    final viaComposite = tomSecretsVaultCredentials(compositeKey: composite);
+    final file = await tomSecretsDecodeStored(
+      locator,
+      stored,
+      viaComposite,
+      outerKey: outerKey,
+    );
+    final rewritten = await tomSecretsEncodeStored(
+      locator,
+      file,
+      outerKey: outerKey,
+    );
+    final again = await tomSecretsDecodeStored(
+      locator,
+      rewritten,
+      credentials,
+      outerKey: outerKey,
+    );
+    expect(again.body.rootGroup.name.get(), 'demo');
+    expect(tomSecretsCompositeKey(password: 'demo-password'), isNot(composite));
+  });
 }
