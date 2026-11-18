@@ -45,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.14.0';
+const String tomSecretsServiceVersion = '0.15.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -907,10 +907,12 @@ final class TomSecretsService
       }
     }
 
-    final keyFile = given.keyFile == null
+    // A composite key (an OS unlock) already holds the key file's part.
+    final keyFile = given.keyFile == null && given.compositeKey == null
         ? await read(vault.keyFileHandle)
         : null;
-    final outerKey = vault.fileName.endsWith(tomSecretsOuterSuffix)
+    final outerKey =
+        given.outerKey == null && vault.fileName.endsWith(tomSecretsOuterSuffix)
         ? await read(vault.repositoryKeyHandle)
         : null;
     if (keyFile == null && outerKey == null) return given;
@@ -926,7 +928,10 @@ final class TomSecretsService
       keyFile: keyFileBytes == null
           ? given.keyFile
           : TomProtectedValue.fromBytes(keyFileBytes),
-      outerKey: outerKey == null ? null : TomProtectedValue.of(outerKey),
+      outerKey: outerKey == null
+          ? given.outerKey
+          : TomProtectedValue.of(outerKey),
+      compositeKey: given.compositeKey,
     );
     return keys;
   }
@@ -1214,10 +1219,12 @@ final class TomSecretsService
   /// The `statusReport` members.
   Map<String, Object?> statusReport() => {
     'locked': isLocked,
-    // The protocol's letters (DP-14): (a) never relock, (b) on idle.
+    // The protocol's letters (DP-14): (a) never relock, (b) on idle, (c) on
+    // idle or at the screen lock (part-os-unlock).
     'lockMode': switch (settings.serviceLock.mode) {
       TomSecretsLockMode.never => 'a',
       TomSecretsLockMode.idle => 'b',
+      TomSecretsLockMode.osUnlock => 'c',
     },
     'protocol': 1,
     'service': {'version': tomSecretsServiceVersion, 'start': startedAt},
@@ -2914,7 +2921,10 @@ final class _AdminSession {
     connection = TomSecretsConnection(
       socket,
       onMessage: (m) => unawaited(_message(m)),
-      onClosed: () => service._admins.remove(this),
+      onClosed: () {
+        service._admins.remove(this);
+        _bundleKey?.fillRange(0, _bundleKey!.length, 0);
+      },
     );
     service._admins.add(this);
     connection.send({
@@ -2929,6 +2939,9 @@ final class _AdminSession {
   final TomSecretsService service;
   late final TomSecretsConnection connection;
   final Uint8List _serviceNonce = tomSecretsRandomBytes();
+  // The OS unlock's bundle key of this connection (protocol.md 6.4); null
+  // before `auth` and on a connection that claimed the service.
+  Uint8List? _bundleKey;
   bool authenticated = false;
   bool subscribed = false;
   bool _authenticating = false;
@@ -3057,6 +3070,11 @@ final class _AdminSession {
     }
     service._authFailures = 0;
     authenticated = true;
+    _bundleKey = tomSecretsBundleKey(
+      service._adminKey,
+      _serviceNonce,
+      adminNonce,
+    );
     service.log.info('admin_authed');
     connection.send({
       'op': 'authed',
@@ -3423,8 +3441,109 @@ final class _AdminSession {
     }
   }
 
+  /// `unlock {vault, bundle}` (protocol.md 6.4): the OS unlock's key bundle,
+  /// sealed under this connection's bundle key. While the service is locked
+  /// it unlocks the service, the bundle being the primary's (checked once
+  /// the primary is open: another store's name locks again); unlocked, it
+  /// opens the store [vault] names, as `unlockStore` does.
+  Future<void> _unlockWithBundle(int id, Map<String, Object?> m) async {
+    final vault = m['vault'];
+    final sealed = m['bundle'];
+    if (vault is! String || sealed is! Map) {
+      connection.sendError(id, 'malformed', 'vault and bundle', {
+        'reason': 'bundle',
+      });
+      return;
+    }
+    final key = _bundleKey;
+    if (key == null) {
+      connection.sendError(
+        id,
+        'unsupported',
+        'a connection that claimed the service sends no bundle',
+      );
+      return;
+    }
+    final TomSecretsUnlockBundle bundle;
+    try {
+      final plain = await tomSecretsOpenBundle(
+        bundleKey: key,
+        vault: vault,
+        serviceStart: service.startedAt,
+        bundle: sealed.cast<String, Object?>(),
+      );
+      try {
+        bundle = TomSecretsUnlockBundle.decode(plain);
+      } finally {
+        plain.fillRange(0, plain.length, 0);
+      }
+    } on TomSecretsBundleException {
+      service._authFailures++;
+      service.log.info('unlock_refused', {'reason': 'bad_bundle'});
+      connection.sendError(id, 'denied', 'the key bundle does not open', {
+        'reason': 'bad_bundle',
+      });
+      return;
+    }
+    final keys = TomSecretsHeldKeys.ofBundle(bundle);
+    bundle.dispose();
+    void refusedKey() {
+      service.log.info('unlock_refused', {
+        'reason': 'bad_password',
+        'via': 'bundle',
+      });
+      connection.sendError(
+        id,
+        'denied',
+        'the key bundle no longer opens the vault',
+        {'reason': 'bad_password'},
+      );
+    }
+
+    if (service.isLocked) {
+      try {
+        await service.unlock(keys);
+      } on KdbxInvalidKeyException {
+        // A re-keyed vault: not a failed authentication, the bundle opened.
+        return refusedKey();
+      } on Object catch (e) {
+        service.log.error('unlock_failed', e);
+        connection.sendError(id, 'internal', 'the unlock failed', {
+          'code': e.runtimeType.toString(),
+        });
+        return;
+      }
+      if (service.vaults.primaryName != vault) {
+        await service.lock(reason: 'bundle_vault');
+        connection.sendError(id, 'not_found', 'no primary $vault');
+        return;
+      }
+      service.log.info('unlock', {'via': 'bundle'});
+      connection.send({'op': 'ok', 'id': id});
+      return;
+    }
+    if (vault == service.vaults.primaryName) {
+      keys.dispose();
+      connection.send({'op': 'ok', 'id': id});
+      return;
+    }
+    try {
+      await service.vaults.unlockStore(vault, keys, machine: service.machine);
+      service.log.info('unlock_store', {'store': vault, 'via': 'bundle'});
+      connection.send({'op': 'ok', 'id': id});
+    } on KdbxInvalidKeyException {
+      keys.dispose();
+      refusedKey();
+    } on StateError {
+      keys.dispose();
+      connection.sendError(id, 'not_found', 'no store $vault');
+    }
+  }
+
   Future<void> _request(int id, String op, Map<String, Object?> m) async {
     switch (op) {
+      case 'unlock' when m['bundle'] != null:
+        await _unlockWithBundle(id, m);
       case 'unlock':
         final keys = _keysOf(m);
         if (keys == null) {

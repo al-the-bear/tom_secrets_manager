@@ -18,6 +18,7 @@ import 'package:tom_core_storage/tom_core_storage.dart'
         TomTokenRejectedException,
         TomTokenRequiredException;
 import 'package:tom_crypto/protected_value.dart';
+import 'package:tom_secrets_client/admin.dart' show TomSecretsUnlockBundle;
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'secret_frame.dart';
@@ -592,7 +593,24 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
 final class TomSecretsHeldKeys {
   /// Keys of a [password], a [keyFile] (its bytes) and an [outerKey] (the
   /// repository key, base64).
-  TomSecretsHeldKeys({this.password, this.keyFile, this.outerKey});
+  TomSecretsHeldKeys({
+    this.password,
+    this.keyFile,
+    this.outerKey,
+    this.compositeKey,
+  });
+
+  /// The keys of an OS unlock's bundle (protocol.md 6.4): the composite key
+  /// in place of the password and the key file, and the repository key.
+  factory TomSecretsHeldKeys.ofBundle(TomSecretsUnlockBundle bundle) =>
+      TomSecretsHeldKeys(
+        compositeKey: TomProtectedValue.fromBytes(
+          Uint8List.fromList(bundle.compositeKey),
+        ),
+        outerKey: bundle.outerKey == null
+            ? null
+            : TomProtectedValue.of(bundle.outerKey!),
+      );
 
   /// The keys a request carries: `password` and `keyFile` (base64).
   factory TomSecretsHeldKeys.of({String? password, Uint8List? keyFile}) =>
@@ -624,28 +642,43 @@ final class TomSecretsHeldKeys {
   /// The repository's outer key (base64), or null.
   final TomProtectedValue? outerKey;
 
+  /// The composite key an OS unlock opened the vault with, in place of
+  /// [password] and [keyFile] (32 bytes), or null.
+  final TomProtectedValue? compositeKey;
+
   /// The same keys with [outerKey].
   TomSecretsHeldKeys withOuterKey(TomProtectedValue? outerKey) =>
       TomSecretsHeldKeys(
         password: password,
         keyFile: keyFile,
         outerKey: outerKey,
+        compositeKey: compositeKey,
       );
 
   /// The credentials that open the vault (`Credentials.composite` takes the
-  /// key file's bytes and derives the key itself).
-  Credentials get credentials => Credentials.composite(
-    password?.withRevealed(
-      (b) => ProtectedValue.fromBinary(Uint8List.fromList(b)),
-    ),
-    keyFile?.withRevealed(Uint8List.fromList),
-  );
+  /// key file's bytes and derives the key itself; a composite key is taken
+  /// as it is).
+  Credentials get credentials {
+    final composite = compositeKey;
+    if (composite != null) {
+      return composite.withRevealed(
+        (b) => Credentials.fromCompositeKey(Uint8List.fromList(b)),
+      );
+    }
+    return Credentials.composite(
+      password?.withRevealed(
+        (b) => ProtectedValue.fromBinary(Uint8List.fromList(b)),
+      ),
+      keyFile?.withRevealed(Uint8List.fromList),
+    );
+  }
 
   /// The outer key as the codec takes it.
   String? get outerKeyText => outerKey?.reveal();
 
-  /// The `keys` object of `vaultKeySet`: `password`, `keyFile` (base64) and
-  /// `outerKey` (base64), written into the frame from their bytes.
+  /// The `keys` object of `vaultKeySet`: `password`, `keyFile` (base64),
+  /// `outerKey` (base64) and an OS unlock's `compositeKey` (base64), written
+  /// into the frame from their bytes.
   Map<String, Object?> toWire() => {
     'password': ?(password == null
         ? null
@@ -656,6 +689,9 @@ final class TomSecretsHeldKeys {
     'outerKey': ?(outerKey == null
         ? null
         : TomSecretsSecretSlot.ofText(outerKey!)),
+    'compositeKey': ?(compositeKey == null
+        ? null
+        : TomSecretsSecretSlot.ofBytes(compositeKey!)),
   };
 
   /// Zeroes every key.
@@ -663,6 +699,7 @@ final class TomSecretsHeldKeys {
     password?.dispose();
     keyFile?.dispose();
     outerKey?.dispose();
+    compositeKey?.dispose();
   }
 
   @override

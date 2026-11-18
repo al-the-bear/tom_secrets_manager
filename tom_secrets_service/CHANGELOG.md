@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.15.0
+
+- The OS unlock (part-os-unlock, protocol.md 6.4, decision 38):
+  `unlock {vault, bundle}` opens the sealed key bundle with the admin
+  connection's bundle key (HKDF of the admin key and both nonces): while
+  locked it unlocks the service with the primary's composite key (a primary
+  of another name locks again, `not_found`), unlocked it opens the store it
+  names; a bundle that does not open is `denied` `bad_bundle` and counts as
+  a failed authentication, a composite key that no longer opens the vault
+  (re-keyed) `bad_password`; a connection that claimed the service sends
+  none (`unsupported`). The service then holds the composite key in place
+  of the password (`TomSecretsHeldKeys.compositeKey`, `ofBundle`) and the
+  editing path's `vaultKeySet` carries it as `keys.compositeKey`; the
+  keychain adds no key file to it.
+- Lock mode (c) (`osUnlock`): accepted by `settings.set`, `status` says
+  `c`; it relocks on idle like (b), and the app sends `lock` at the screen
+  lock.
+- Needs `tom_secrets_client` 0.2.9, `tom_secrets_core` 0.2.8,
+  `tom_kdbx_store` 0.2.5.
+
 ## 0.14.0
 
 - "Sign in with GitHub" (part-key-rotation §3, DP-6, DP-83, DP-155,

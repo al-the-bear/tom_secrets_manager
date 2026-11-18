@@ -159,7 +159,7 @@ once where it can be, the rest at the next unlock.
 
 | Setting | Meaning | Default |
 | --- | --- | --- |
-| `serviceLock` | the service's lock policy: `mode` (`never`, `idle`), `idleSeconds`, `maxUnlockedSeconds`, `lockOnSleep` | never relock |
+| `serviceLock` | the service's lock policy: `mode` (`never`, `idle`, `osUnlock`: (c), relock on idle or at the screen lock and unlock with the OS unlock through the app), `idleSeconds`, `maxUnlockedSeconds`, `lockOnSleep` | never relock |
 | `appLock` | the app's lock policy, kept here for the app | idle, 10 minutes |
 | `defaultEnvironment` | the machine's default `env` dimension | none |
 | `servedStores` | the stores this machine serves | every one |
@@ -378,7 +378,7 @@ revokes the old one. Failed authentications delay the next one (1 s, 2 s,
 
 | Requests | What they do |
 | --- | --- |
-| `unlock`, `unlockStore`, `lock`, `reload`, `status`, `shutdown` | the service's lifecycle; `status` lists the stores with their state and source, the keys due (`expiring`), the lock mode and the hardening |
+| `unlock`, `unlockStore`, `lock`, `reload`, `status`, `shutdown` | the service's lifecycle; `unlock` also takes the OS unlock's sealed key bundle (`vault`, `bundle`: the composite key, never the password, protocol.md 6.4); `status` lists the stores with their state and source, the keys due (`expiring`), the lock mode and the hardening |
 | `subscribe` | the events `unlocked`, `locked`, `unlock_needed`, `store_changed`, `store_state`, `key_expiry`, `approval_needed`, `approval_closed`, `rate_limited` |
 | `approve`, `approvals.list`, `approval.issue`, `approval.redeem`, `approvers.cliSwitch` | answering approvals, and command-line approvals on or off |
 | `grants.list`, `grants.add`, `grants.revoke` | the allow list |
