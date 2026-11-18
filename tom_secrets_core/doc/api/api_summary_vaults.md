@@ -41,6 +41,11 @@
   - [TomSecretsUrlMatchLevel](#tomsecretsurlmatchlevel)
   - [TomSecretsSiteUrl](#tomsecretssiteurl)
   - [TomSecretsLoginMatch](#tomsecretsloginmatch)
+  - [TomSecretsSshKeyFormat](#tomsecretssshkeyformat)
+  - [TomSecretsSshKeyInfo](#tomsecretssshkeyinfo)
+  - [TomSecretsSshKeyAlgorithm](#tomsecretssshkeyalgorithm)
+  - [TomSecretsGeneratedSshKey](#tomsecretsgeneratedsshkey)
+  - [TomSecretsKeeAgentSettings](#tomsecretskeeagentsettings)
   - [TomSecretsCharacterClass](#tomsecretscharacterclass)
   - [TomSecretsPasswordPolicy](#tomsecretspasswordpolicy)
   - [TomSecretsPasswordGenerator](#tomsecretspasswordgenerator)
@@ -914,6 +919,54 @@ A login entry matching a page: `entry` (`TomSecretsIndexedEntry`), `matchedUrl` 
 
 ---
 
+### TomSecretsSshKeyFormat
+
+How a private key file is written: `openssh` (`openssh-key-v1`), `pkcs1` (`RSA PRIVATE KEY`), `sec1` (`EC PRIVATE KEY`), `pkcs8`, `pkcs8Encrypted`, `dsa`.
+
+---
+
+### TomSecretsSshKeyInfo
+
+What a private key file says about its key, read without its passphrase.
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `parse(List<int> bytes)` (static) | `TomSecretsSshKeyInfo?` | The key in a private key file, or null when it holds none |
+| `format` | `TomSecretsSshKeyFormat` | How the file is written |
+| `encrypted` | `bool` | Whether the key is encrypted under a passphrase (the entry's `Password`) |
+| `keyType` | `String?` | `ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-nistp256`, ...; null when the file does not say it without its passphrase |
+| `publicKeyBlob` | `Uint8List?` | The public key in SSH's wire form: from an OpenSSH file (encrypted or not), an unencrypted PKCS#1, SEC1 or PKCS#8 RSA/ECDSA key; null otherwise |
+| `bits` | `int?` | RSA's modulus size, the curve's size, 256 for Ed25519 |
+| `comment` | `String?` | The key's comment, when the file carries it unencrypted |
+| `publicKey` | `String?` | The public key as `authorized_keys` writes it |
+| `fingerprint` | `String?` | `SHA256:<base64>`, as `ssh-keygen -l` prints it |
+
+---
+
+### TomSecretsSshKeyAlgorithm
+
+The algorithm of a generated key (DP-179): `ed25519` (the default) or `rsa` (4096 bits, for a tool that needs RSA).
+
+---
+
+### TomSecretsGeneratedSshKey
+
+A generated key: `privateKey` (the OpenSSH private key file, without a passphrase: the vault protects it) and `info`.
+
+---
+
+### TomSecretsKeeAgentSettings
+
+KeePassXC's (and KeeAgent's) per-entry SSH agent settings, the `KeeAgent.settings` attachment: `allowUseOfSshKey`, `addAtDatabaseOpen`, `removeAtDatabaseClose`, `useConfirmConstraintWhenAdding`, `useLifetimeConstraintWhenAdding`, `lifetimeConstraintDuration`, `selectedType` (`attachment` or `file`), `attachmentName`, `saveAttachmentToTempFile`, `fileName`.
+
+| Member | Return Type | Description |
+| --- | --- | --- |
+| `parse(List<int> bytes)` (static) | `TomSecretsKeeAgentSettings?` | The settings from UTF-8 or UTF-16 XML, or null |
+| `toXml()` | `String` | The XML as KeePassXC writes it |
+| `toBytes()` | `Uint8List` | The attachment: UTF-16 little-endian with a byte order mark, as KeeAgent reads it |
+
+---
+
 ### TomSecretsCharacterClass
 
 The character classes a generated password draws from.
@@ -1083,6 +1136,7 @@ A primary vault's further vaults.
 | `tomSecretsProductGroup` | `String` | The root group holding the product's own groups (never resolved into). |
 | `tomSecretsVaultsGroup` | `String` | The subgroup holding the further vaults. |
 | `tomSecretsPublicSuffixListVersion` | `String` | The version of the Public Suffix List the URL matching carries (regenerated with `tool/update_public_suffix_list.py`). |
+| `tomSecretsKeeAgentSettingsName` | `String` | `KeeAgent.settings`, the attachment KeePassXC's SSH agent reads an entry's settings from. |
 
 ### Functions
 
@@ -1102,6 +1156,11 @@ A primary vault's further vaults.
 | `tomSecretsOverlayBinding` | `(String, String)? tomSecretsOverlayBinding(String name)` | The binding an overlay group's `name` stands for (`@host:build-01`), or null when the name is not one. |
 | `tomSecretsBase32Encode` | `String tomSecretsBase32Encode(List<int> bytes)` | RFC 4648 base32 without padding. |
 | `tomSecretsBase32Decode` | `Uint8List? tomSecretsBase32Decode(String text)` | RFC 4648 base32, any case, spaces, dashes and padding ignored; null when it is not base32. |
+| `tomSecretsGenerateSshKey` | `Future<TomSecretsGeneratedSshKey> tomSecretsGenerateSshKey({TomSecretsSshKeyAlgorithm algorithm = TomSecretsSshKeyAlgorithm.ed25519, String comment = '', int rsaBits = 4096, Random? random})` | A new SSH key (DP-179): Ed25519, or RSA 4096; the private key in OpenSSH's format without a passphrase. |
+| `tomSecretsSshKeyOf` | `({String name, Uint8List bytes, TomSecretsSshKeyInfo info})? tomSecretsSshKeyOf(KdbxEntry entry)` | An entry's SSH key: the attachment its `KeeAgent.settings` names, else the first attachment holding a private key. |
+| `tomSecretsWriteSshKey` | `void tomSecretsWriteSshKey(KdbxEntry entry, {required String attachmentName, required Uint8List privateKey, String? passphrase})` | Makes an entry an SSH key entry: `tsm.type` `ssh-key`, the key as a protected attachment, `KeeAgent.settings` naming it, the passphrase in `Password`. |
+| `tomSecretsSshKeyCandidates` | `List<KdbxEntry> tomSecretsSshKeyCandidates(KdbxFile file)` | The entries holding an SSH private key that are not typed `ssh-key`: phase A's notes and KeePassXC's entries. |
+| `tomSecretsMigrateSshKeys` | `List<KdbxEntry> tomSecretsMigrateSshKeys(KdbxFile file)` | Retypes them as SSH key entries (DP-5), each one's old state in its history. |
 | `tomSecretsMatchLogins` | `List<TomSecretsLoginMatch> tomSecretsMatchLogins(Iterable<TomSecretsIndexedEntry> entries, String url, {String? frameUrl})` | The login entries (type `login`, no overlays) whose URLs match the page by their `tsm.urlMatch` rule; with `frameUrl` the frame is matched, only when it is the same site as the page. Ordered: the exact host first, then the last used, then by title (protocol.md 5.7). |
 | `tomSecretsMatchSiteUrl` | `TomSecretsUrlMatchLevel? tomSecretsMatchSiteUrl(TomSecretsSiteUrl entry, TomSecretsSiteUrl page, {TomSecretsUrlMatchRule rule = TomSecretsUrlMatchRule.domain})` | How an entry URL matches a page under a rule, or null; `https` never on `http`, addresses and `localhost` by host and port. |
 | `tomSecretsEntryUrls` | `List<String> tomSecretsEntryUrls(KdbxEntry entry)` | The entry's `URL`, then its `KP2A_URL*` fields in name order; empty ones left out. |

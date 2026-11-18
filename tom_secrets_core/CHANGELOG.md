@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.5
+
+- The typed SSH key (part-structure, DP-5): `tomSecretsWriteSshKey` makes an
+  entry `ssh-key` with the private key as a protected attachment and
+  `KeeAgent.settings` naming it (`TomSecretsKeeAgentSettings`, written as
+  KeePassXC writes it, UTF-16); `tomSecretsSshKeyOf` finds an entry's key.
+- `TomSecretsSshKeyInfo.parse` reads a private key file without its
+  passphrase: OpenSSH (encrypted or not), PKCS#1, SEC1 (named or explicit
+  curves), PKCS#8; the type, the public key as `authorized_keys` writes it,
+  the fingerprint, the size.
+- `tomSecretsGenerateSshKey` (DP-179): Ed25519, or RSA 4096 for a tool that
+  needs RSA, written in OpenSSH's format.
+- `tomSecretsMigrateSshKeys`: phase A's notes holding a key (and KeePassXC's
+  entries) become typed SSH keys, their old state in the history.
+- The 1Password import types an SSH key whose key the export carries.
+
 ## 0.2.4
 
 - URL matching of login entries (part-browser, protocol.md 5.7):

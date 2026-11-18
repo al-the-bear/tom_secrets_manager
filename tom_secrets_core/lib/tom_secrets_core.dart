@@ -35,6 +35,7 @@ export 'src/password_generator.dart';
 export 'src/primary.dart';
 export 'src/resolution.dart';
 export 'src/signed_objects.dart';
+export 'src/ssh_key.dart';
 export 'src/store.dart';
 export 'src/stored_vault.dart';
 export 'src/totp.dart';

@@ -112,6 +112,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | TOTP in three KDBX conventions | `TomSecretsTotp` |
 | Password generator | `TomSecretsPasswordGenerator`, `TomSecretsPasswordPolicy` |
 | URL matching of login entries (the Public Suffix List, `tsm.urlMatch`) | `tomSecretsMatchLogins`, `TomSecretsSiteUrl` |
+| SSH keys: the typed `ssh-key` entry with `KeeAgent.settings`, reading a key file, generating Ed25519 or RSA 4096, retyping phase A's notes | `TomSecretsSshKeyInfo`, `tomSecretsGenerateSshKey`, `tomSecretsWriteSshKey`, `tomSecretsMigrateSshKeys` |
 | The primary vault's list of further vaults | `TomSecretsPrimaryVaults`, `TomSecretsVaultKeys` |
 
 ### Protection
@@ -284,6 +285,18 @@ for (final m in matches) {
   print('${m.title} ${m.userName} ${m.level.name}'); // exactHost before domain
 }
 print(tomSecretsRegistrableDomain('a.example.github.io')); // example.github.io
+```
+
+An SSH key entry (`tsm.type` `ssh-key`) holds the private key as an
+attachment and a `KeeAgent.settings` attachment naming it, as KeePassXC's
+SSH agent reads it; a passphrase, when the key has one, is in `Password`:
+
+```dart
+final key = await tomSecretsGenerateSshKey(comment: 'deploy@example'); // Ed25519
+tomSecretsWriteSshKey(entry, attachmentName: 'id_ed25519', privateKey: key.privateKey);
+print(key.info.publicKey);   // ssh-ed25519 AAAA... deploy@example
+print(key.info.fingerprint); // SHA256:...
+final retyped = tomSecretsMigrateSshKeys(vault); // phase A's notes holding a key
 ```
 
 ### Key files and outer encryption

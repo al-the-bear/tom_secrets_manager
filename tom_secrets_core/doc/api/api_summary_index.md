@@ -74,6 +74,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsUrlMatchLevel` | enum | How closely an entry matches: exact host, domain. | [→](api_summary_vaults.md#tomsecretsurlmatchlevel) |
 | `TomSecretsSiteUrl` | final class | A web URL normalised for matching. | [→](api_summary_vaults.md#tomsecretssiteurl) |
 | `TomSecretsLoginMatch` | final class | A login entry matching a page. | [→](api_summary_vaults.md#tomsecretsloginmatch) |
+| `TomSecretsSshKeyFormat` | enum | How a private key file is written. | [→](api_summary_vaults.md#tomsecretssshkeyformat) |
+| `TomSecretsSshKeyInfo` | final class | A private key file's type, public key and fingerprint. | [→](api_summary_vaults.md#tomsecretssshkeyinfo) |
+| `TomSecretsSshKeyAlgorithm` | enum | Ed25519 or RSA, for a generated key. | [→](api_summary_vaults.md#tomsecretssshkeyalgorithm) |
+| `TomSecretsGeneratedSshKey` | final class | A generated SSH key. | [→](api_summary_vaults.md#tomsecretsgeneratedsshkey) |
+| `TomSecretsKeeAgentSettings` | final class | The `KeeAgent.settings` attachment. | [→](api_summary_vaults.md#tomsecretskeeagentsettings) |
 | `TomSecretsCharacterClass` | enum | The character classes a generated password draws from. | [→](api_summary_vaults.md#tomsecretscharacterclass) |
 | `TomSecretsPasswordPolicy` | final class | What a generated password is made of. | [→](api_summary_vaults.md#tomsecretspasswordpolicy) |
 | `TomSecretsPasswordGenerator` | final class | Generates passwords under a `TomSecretsPasswordPolicy`. | [→](api_summary_vaults.md#tomsecretspasswordgenerator) |
@@ -99,6 +104,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsOverlayBinding` | The binding an overlay group's `name` stands for (`@host:build-01`), or null when the name is not one. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32Encode` | RFC 4648 base32 without padding. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsMatchLogins` | The login entries of a page, in their order. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsGenerateSshKey` | A new SSH key, Ed25519 or RSA 4096. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsSshKeyOf` | An entry's SSH key. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsWriteSshKey` | Makes an entry an SSH key entry. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsSshKeyCandidates` | The untyped entries holding an SSH key. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsMigrateSshKeys` | Retypes them as SSH key entries. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsMatchSiteUrl` | How an entry URL matches a page under a rule. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsEntryUrls` | An entry's `URL` and `KP2A_URL*` fields. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsRegistrableDomain` | The registrable domain after the Public Suffix List. | [→](api_summary_vaults.md#functions) |
@@ -547,6 +557,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsTotpAlgorithm` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotpalgorithm) |
 | `TomSecretsTotpFields` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotpfields) |
 | `TomSecretsLoginMatch` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsloginmatch) |
+| `TomSecretsGeneratedSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsgeneratedsshkey) |
+| `TomSecretsKeeAgentSettings` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretskeeagentsettings) |
+| `TomSecretsSshKeyAlgorithm` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyalgorithm) |
+| `TomSecretsSshKeyFormat` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyformat) |
+| `TomSecretsSshKeyInfo` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyinfo) |
 | `TomSecretsSiteUrl` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssiteurl) |
 | `TomSecretsUrlMatchLevel` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsurlmatchlevel) |
 | `TomSecretsUrlMatchRule` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsurlmatchrule) |
@@ -576,6 +591,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsAsciiHost` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsEntryUrls` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsMatchLogins` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsGenerateSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsMigrateSshKeys` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsSshKeyCandidates` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsSshKeyOf` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsWriteSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsMatchSiteUrl` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsRegistrableDomain` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase64Url` | Import and Export | [→](api_summary_import_export.md#functions) |

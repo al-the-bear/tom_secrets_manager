@@ -30,6 +30,7 @@ import 'dart:typed_data';
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 
 import 'mapping.dart';
+import 'ssh_key.dart';
 import 'passkey.dart';
 import 'totp.dart';
 import 'vault_merge.dart';
@@ -676,8 +677,13 @@ final class _Writer {
     put(TomSecretsEntryFields.type.key, switch (item.kind) {
       TomSecretsImportKind.login => TomSecretsEntryType.login.wireName,
       TomSecretsImportKind.apiToken => TomSecretsEntryType.apiToken.wireName,
-      TomSecretsImportKind.note ||
-      TomSecretsImportKind.sshKey => TomSecretsEntryType.note.wireName,
+      TomSecretsImportKind.note => TomSecretsEntryType.note.wireName,
+      // An SSH key whose key the export carries is typed (phase B, DP-5);
+      // without one it stays a note.
+      TomSecretsImportKind.sshKey =>
+        item.attachments.any((a) => TomSecretsSshKeyInfo.parse(a.bytes) != null)
+            ? TomSecretsEntryType.sshKey.wireName
+            : TomSecretsEntryType.note.wireName,
       TomSecretsImportKind.other => null,
     });
     put(TomSecretsEntryFields.importId(source).key, item.sourceId);
@@ -740,6 +746,19 @@ final class _Writer {
       }
       for (final a in item.attachments) {
         entry.createBinary(isProtected: true, name: a.name, bytes: a.bytes);
+      }
+      if (item.kind == TomSecretsImportKind.sshKey) {
+        // The key as KeePassXC's SSH agent finds it.
+        final key = tomSecretsSshKeyOf(entry);
+        if (key != null) {
+          entry.createBinary(
+            isProtected: false,
+            name: tomSecretsKeeAgentSettingsName,
+            bytes: TomSecretsKeeAgentSettings(
+              attachmentName: key.name,
+            ).toBytes(),
+          );
+        }
       }
       entry.tags.set(_tags());
       final expires = item.expires;

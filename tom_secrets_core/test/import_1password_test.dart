@@ -256,8 +256,8 @@ void main() {
       );
     });
 
-    test('an SSH key is a note with the key attached; a file field is an '
-        'attachment', () {
+    test('an SSH key without a readable key stays a note with the key '
+        'attached; a file field is an attachment', () {
       final ssh = entryAt(vault, personal, 'Demo SSH Key');
       expect(text(ssh, 'tsm.type'), 'note');
       expect(text(ssh, 'tsm.import.1password.category'), 'SSH Keys');
