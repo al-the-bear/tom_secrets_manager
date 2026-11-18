@@ -311,9 +311,10 @@ void main() {
     expect(bad['kind'], 'malformed');
     await service.stop();
 
-    await start();
+    // The new service's hello (on Windows its client token).
+    final second = await start();
     final other = await _Raw.open(demo, transport);
-    await other.hello(service);
+    await other.hello(second);
     final denied = await other.ask({
       'op': 'match',
       'id': 1,

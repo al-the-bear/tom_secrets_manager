@@ -39,6 +39,10 @@ abstract final class TomSecretsMetadataFields {
   /// rotation (ISO 8601). Read for the primary (part-key-rotation); a
   /// further vault's date is the Expires of its entry in the primary.
   static const keysDue = KdbxKey('tsm.keys-due');
+
+  /// `true`: every signature the ssh-agent makes with a key of this vault
+  /// is confirmed by the user (part-os-integration).
+  static const sshConfirm = KdbxKey('tsm.ssh-confirm');
 }
 
 /// What a vault is for (BP-25).
@@ -102,6 +106,7 @@ final class TomSecretsMetadata {
     Map<String, String> binding = const {},
     this.configYaml,
     this.keysDue,
+    this.sshConfirm = false,
   }) : binding = Map.unmodifiable(binding);
 
   /// The metadata of a file without a metadata entry: no binding, kind
@@ -158,6 +163,7 @@ final class TomSecretsMetadata {
           DateTime.tryParse(due)?.toUtc() ??
               (throw TomSecretsMetadataException('tsm.keys-due is "$due"')),
       },
+      sshConfirm: text(TomSecretsMetadataFields.sshConfirm) == 'true',
     );
   }
 
@@ -183,6 +189,30 @@ final class TomSecretsMetadata {
   /// (`tsm.keys-due`), or null. The primary's is reminded of; a further
   /// vault's date is the Expires of its entry in the primary.
   final DateTime? keysDue;
+
+  /// Whether the ssh-agent confirms every signature with a key of this
+  /// vault (`tsm.ssh-confirm`).
+  final bool sshConfirm;
+
+  /// This metadata with the members given replaced.
+  TomSecretsMetadata copyWith({
+    String? store,
+    TomSecretsVaultKind? kind,
+    String? purpose,
+    Map<String, String>? binding,
+    String? configYaml,
+    DateTime? keysDue,
+    bool? sshConfirm,
+  }) => TomSecretsMetadata(
+    format: format,
+    store: store ?? this.store,
+    kind: kind ?? this.kind,
+    purpose: purpose ?? this.purpose,
+    binding: binding ?? this.binding,
+    configYaml: configYaml ?? this.configYaml,
+    keysDue: keysDue ?? this.keysDue,
+    sshConfirm: sshConfirm ?? this.sshConfirm,
+  );
 
   /// The shared configuration of `tsm.config`, or null when absent.
   TomSecretsConfig? get config =>
@@ -214,6 +244,7 @@ final class TomSecretsMetadata {
       );
       set(TomSecretsMetadataFields.config, configYaml);
       set(TomSecretsMetadataFields.keysDue, keysDue?.toUtc().toIso8601String());
+      set(TomSecretsMetadataFields.sshConfirm, sshConfirm ? 'true' : null);
     });
   }
 }

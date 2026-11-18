@@ -86,13 +86,20 @@ final class TomSecretsSystemPeerMeasurer implements TomSecretsPeerMeasurer {
     if (peer == null) {
       return const TomSecretsPeerRefused('unidentifiable', 'no peer pid');
     }
+    return measureProcess(peer.pid, uid: peer.uid);
+  }
+
+  /// The measurement of process [pid] (a named pipe's client, Windows'
+  /// `GetNamedPipeClientProcessId`), whose OS user is [uid] when the
+  /// transport told it.
+  TomSecretsPeerMeasurement measureProcess(int pid, {Object? uid}) {
     final own = tomSecretsOwnUid();
-    if (peer.uid != null && own != null && peer.uid != own) {
+    if (uid != null && own != null && uid != own) {
       return const TomSecretsPeerRefused('other_user');
     }
-    final before = tomSecretsStartTimeOf(peer.pid);
-    final process = tomSecretsProcessInfo(peer.pid);
-    final after = tomSecretsStartTimeOf(peer.pid);
+    final before = tomSecretsStartTimeOf(pid);
+    final process = tomSecretsProcessInfo(pid);
+    final after = tomSecretsStartTimeOf(pid);
     if (process == null || before == null || before != after) {
       return const TomSecretsPeerRefused('unidentifiable', 'process');
     }

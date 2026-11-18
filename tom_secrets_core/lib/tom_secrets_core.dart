@@ -8,6 +8,7 @@ library;
 
 export 'src/approval_code.dart';
 export 'src/approval_link.dart';
+export 'src/bcrypt_pbkdf.dart';
 export 'src/compaction.dart';
 export 'src/config.dart';
 export 'src/device_records.dart';
@@ -35,7 +36,9 @@ export 'src/password_generator.dart';
 export 'src/primary.dart';
 export 'src/resolution.dart';
 export 'src/signed_objects.dart';
+export 'src/ssh_agent.dart';
 export 'src/ssh_key.dart';
+export 'src/ssh_private_key.dart';
 export 'src/store.dart';
 export 'src/stored_vault.dart';
 export 'src/totp.dart';

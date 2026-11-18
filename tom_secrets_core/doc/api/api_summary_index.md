@@ -78,6 +78,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsSshKeyInfo` | final class | A private key file's type, public key and fingerprint. | [→](api_summary_vaults.md#tomsecretssshkeyinfo) |
 | `TomSecretsSshKeyAlgorithm` | enum | Ed25519 or RSA, for a generated key. | [→](api_summary_vaults.md#tomsecretssshkeyalgorithm) |
 | `TomSecretsGeneratedSshKey` | final class | A generated SSH key. | [→](api_summary_vaults.md#tomsecretsgeneratedsshkey) |
+| `TomSecretsSshAgentServing` | enum | Whether the ssh-agent serves an entry's key, and why not. | [→](api_summary_vaults.md#tomsecretssshagentserving) |
+| `TomSecretsSshPrivateKey` | final class | A decoded private key the agent signs with. | [→](api_summary_vaults.md#tomsecretssshprivatekey) |
+| `TomSecretsSshKeyException` | final class | A key file that cannot be used. | [→](api_summary_vaults.md#tomsecretssshkeyexception) |
+| `TomSecretsSshAgentConnection` | final class | One connection of the SSH agent protocol. | [→](api_summary_vaults.md#tomsecretssshagentconnection) |
+| `TomSecretsSshGrantSecret` | final class | An agent grant's secret: keys, hosts, forwarding. | [→](api_summary_vaults.md#tomsecretssshgrantsecret) |
 | `TomSecretsKeeAgentSettings` | final class | The `KeeAgent.settings` attachment. | [→](api_summary_vaults.md#tomsecretskeeagentsettings) |
 | `TomSecretsCharacterClass` | enum | The character classes a generated password draws from. | [→](api_summary_vaults.md#tomsecretscharacterclass) |
 | `TomSecretsPasswordPolicy` | final class | What a generated password is made of. | [→](api_summary_vaults.md#tomsecretspasswordpolicy) |
@@ -109,6 +114,13 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsWriteSshKey` | Makes an entry an SSH key entry. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsSshKeyCandidates` | The untyped entries holding an SSH key. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsMigrateSshKeys` | Retypes them as SSH key entries. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsSshAgentStateOf` | Whether the agent serves an entry's key. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsKeeAgentSettingsOf` | An entry's KeeAgent settings. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsWriteKeeAgentSettings` | Writes an entry's KeeAgent settings. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsSshVerify` | Whether an SSH signature verifies. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsSshFingerprint` | A public key's `SHA256:` fingerprint. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsKnownHostNames` | The names `known_hosts` lists for a host key. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsBcryptPbkdf` | OpenBSD's `bcrypt_pbkdf`. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsMatchSiteUrl` | How an entry URL matches a page under a rule. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsEntryUrls` | An entry's `URL` and `KP2A_URL*` fields. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsRegistrableDomain` | The registrable domain after the Public Suffix List. | [→](api_summary_vaults.md#functions) |
@@ -558,6 +570,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsTotpFields` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotpfields) |
 | `TomSecretsLoginMatch` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsloginmatch) |
 | `TomSecretsGeneratedSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsgeneratedsshkey) |
+| `TomSecretsSshAgentConnection` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshagentconnection) |
+| `TomSecretsSshAgentServing` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshagentserving) |
+| `TomSecretsSshGrantSecret` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshgrantsecret) |
+| `TomSecretsSshKeyException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyexception) |
+| `TomSecretsSshPrivateKey` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshprivatekey) |
 | `TomSecretsKeeAgentSettings` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretskeeagentsettings) |
 | `TomSecretsSshKeyAlgorithm` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyalgorithm) |
 | `TomSecretsSshKeyFormat` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyformat) |

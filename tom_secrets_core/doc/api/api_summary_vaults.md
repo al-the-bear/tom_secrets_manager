@@ -46,6 +46,11 @@
   - [TomSecretsSshKeyAlgorithm](#tomsecretssshkeyalgorithm)
   - [TomSecretsGeneratedSshKey](#tomsecretsgeneratedsshkey)
   - [TomSecretsKeeAgentSettings](#tomsecretskeeagentsettings)
+  - [TomSecretsSshAgentServing](#tomsecretssshagentserving)
+  - [TomSecretsSshPrivateKey](#tomsecretssshprivatekey)
+  - [TomSecretsSshKeyException](#tomsecretssshkeyexception)
+  - [TomSecretsSshAgentConnection](#tomsecretssshagentconnection)
+  - [TomSecretsSshGrantSecret](#tomsecretssshgrantsecret)
   - [TomSecretsCharacterClass](#tomsecretscharacterclass)
   - [TomSecretsPasswordPolicy](#tomsecretspasswordpolicy)
   - [TomSecretsPasswordGenerator](#tomsecretspasswordgenerator)
@@ -60,7 +65,7 @@
 
 The vaults and resolution module covers what a vault is to the product and how a secret reference resolves: the shared configuration `tsm.config` with its dimensions and stores, vault locators (`file:`, `github:`, `git:`), the metadata entry `.tom-secrets`, the product's conventions on standard KDBX fields (flat key, entry type, attachments, passkey fields), new vaults keyed through Argon2id, stores indexed with their overlays, the resolver with its rank vectors and its explanation, TOTP codes in the three KDBX conventions, the password generator and the primary vault's list of further vaults.
 
-Source files: `lib/src/config.dart`, `lib/src/locator.dart`, `lib/src/metadata.dart`, `lib/src/mapping.dart`, `lib/src/new_vault.dart`, `lib/src/store.dart`, `lib/src/resolution.dart`, `lib/src/totp.dart`, `lib/src/password_generator.dart`, `lib/src/primary.dart`.
+Source files: `lib/src/config.dart`, `lib/src/locator.dart`, `lib/src/metadata.dart`, `lib/src/mapping.dart`, `lib/src/new_vault.dart`, `lib/src/store.dart`, `lib/src/resolution.dart`, `lib/src/totp.dart`, `lib/src/password_generator.dart`, `lib/src/primary.dart`, `lib/src/url_match.dart`, `lib/src/ssh_key.dart`, `lib/src/ssh_private_key.dart`, `lib/src/ssh_agent.dart`, `lib/src/bcrypt_pbkdf.dart`.
 
 ---
 
@@ -399,6 +404,7 @@ The field names of the metadata entry.
 | `dimensions` | `KdbxKey` | The file binding, `env=prod;region=eu`. |
 | `config` | `KdbxKey` | The shared configuration (primary vault only). |
 | `keysDue` | `KdbxKey` | When this vault's own key file and repository key are due for rotation (ISO 8601). Read for the primary; a further vault's date is the Expires of its entry in the primary. |
+| `sshConfirm` | `KdbxKey` | `tsm.ssh-confirm`: `true` when every ssh-agent signature with a key of this vault is confirmed. |
 
 ---
 
@@ -448,7 +454,7 @@ The content of a metadata entry.
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsMetadata({format, store, kind, purpose, binding, configYaml, keysDue})` | — | Metadata with these members. |
+| `TomSecretsMetadata({format, store, kind, purpose, binding, configYaml, keysDue, sshConfirm = false})` | — | Metadata with these members. |
 | `TomSecretsMetadata.absent()` | factory | The metadata of a file without a metadata entry: no binding, kind `personal`, the store name from the file name. |
 | `TomSecretsMetadata.read(file)` | factory | The metadata entry of `file` (`.tom-secrets` in the root group), or `TomSecretsMetadata.absent` when it has none. |
 
@@ -463,6 +469,7 @@ The content of a metadata entry.
 | `binding` | `Map<String, String>` | The file binding: every entry of the file carries these bindings. |
 | `configYaml` | `String?` | `tsm.config` as written, or null (only the primary vault has one). |
 | `keysDue` | `DateTime?` | When the vault's own key file and repository key are due for rotation (`tsm.keys-due`), or null. The primary's is reminded of; a further vault's date is the Expires of its entry in the primary. |
+| `sshConfirm` | `bool` | Whether the ssh-agent confirms every signature with a key of this vault (`tsm.ssh-confirm`). |
 | `config` | `TomSecretsConfig?` | The shared configuration of `tsm.config`, or null when absent. |
 
 #### Methods
@@ -470,6 +477,7 @@ The content of a metadata entry.
 | Method | Return Type | Description |
 | --- | --- | --- |
 | `writeTo(file)` | `void` | Writes this metadata into `file`'s metadata entry, creating it when the file has none. |
+| `copyWith({store, kind, purpose, binding, configYaml, keysDue, sshConfirm})` | `TomSecretsMetadata` | This metadata with the members given replaced. |
 
 ---
 
@@ -964,6 +972,60 @@ KeePassXC's (and KeeAgent's) per-entry SSH agent settings, the `KeeAgent.setting
 | `parse(List<int> bytes)` (static) | `TomSecretsKeeAgentSettings?` | The settings from UTF-8 or UTF-16 XML, or null |
 | `toXml()` | `String` | The XML as KeePassXC writes it |
 | `toBytes()` | `Uint8List` | The attachment: UTF-16 little-endian with a byte order mark, as KeeAgent reads it |
+| `copyWith({allowUseOfSshKey, addAtDatabaseOpen, useConfirmConstraintWhenAdding})` | `TomSecretsKeeAgentSettings` | These settings with the flags given replaced |
+
+---
+
+### TomSecretsSshAgentServing
+
+Whether the ssh-agent serves an entry's key: `served`, `notSshKey`, `noKey`, `notAllowed` (KeeAgent's "allow" off), `notAdded` (KeeAgent's "add when the vault opens" off), `keyFileOutside` (the key is a file outside the vault), `unsupported` (DSA, security keys), `passphraseMissing` (an encrypted key without a `Password`).
+
+---
+
+### TomSecretsSshPrivateKey
+
+A decoded private key as the agent signs with it.
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `decode(List<int> file, {String? passphrase})` (static) | `Future<TomSecretsSshPrivateKey>` | The key of a private key file: OpenSSH (unencrypted, or `bcrypt_pbkdf` with `aes{128,192,256}-ctr`, `aes{128,192,256}-cbc`, `aes{128,256}-gcm@openssh.com`), PEM PKCS#1 / SEC1 (also `DEK-Info` AES-CBC or DES-EDE3-CBC), PKCS#8 (also PBES2 with PBKDF2 and AES-CBC). Throws `TomSecretsSshKeyException` |
+| `keyType` | `String` | `ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-nistp256` / `384` / `521` |
+| `publicKeyBlob` | `Uint8List` | The public key in SSH's wire form |
+| `comment` | `String` | The comment the file carries, or empty |
+| `sign(List<int> data, {int flags = 0})` | `Future<Uint8List>` | SSH's signature blob: Ed25519; ECDSA with the curve's SHA-2 and RFC 6979 nonces; RSA with `TomSecretsSshSignFlags.rsaSha256` or `rsaSha512` only (SHA-1 throws `StateError`) |
+| `dispose()` | `void` | Forgets the key (the Ed25519 seed zeroed) |
+
+---
+
+### TomSecretsSshKeyException
+
+A key file that cannot be used: `problem` (`TomSecretsSshKeyProblem`: `malformed`, `passphraseNeeded`, `wrongPassphrase`, `unsupported`) and `detail` (the type, cipher or OID; never key material).
+
+---
+
+### TomSecretsSshAgentConnection
+
+One connection of the SSH agent protocol (draft-miller-ssh-agent) over a `TomSecretsSshAgentBackend` (`identities(bindings)`, `sign(request)`): `REQUEST_IDENTITIES`, `SIGN_REQUEST`, `session-bind@openssh.com` (the host key's signature of the session id checked; no binding after one for authentication; at most 16); everything else `FAILURE`. A user authentication on a bound connection must name the last binding's session (and, host-bound, its host key). `TomSecretsSshAgentFramer` splits a byte stream into messages (at most 256 KiB) and frames answers.
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `handle(Uint8List message)` | `Future<Uint8List>` | The answer to one message (without its length) |
+| `bindings` | `List<TomSecretsSshBinding>` | The connection's `session-bind`s: `hostKey`, `sessionId`, `forwarded`, `hostKeyFingerprint` |
+
+`TomSecretsSshSignRequest` carries `publicKeyBlob`, `data`, `flags`, `bindings`, `purpose` (`TomSecretsSshSignPurpose`: `userAuth`, `sshSig`, `other`), `namespace` (an `SSHSIG`'s), `destination` (the last binding), `forwarded` (an earlier binding was) and `keyFingerprint`.
+
+---
+
+### TomSecretsSshGrantSecret
+
+An agent grant's `secret` (protocol.md 7.6): `ssh-key [host <fingerprint>[,…]] [forward] <target>`.
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsSshGrantSecret(target, {hosts, forward})` | constructor | Keys of `target` (a canonical reference, `store <name>` or `all`), for `hosts` (empty: any) and with `forward` |
+| `parse(String secret)` (static) | `TomSecretsSshGrantSecret?` | The agent secret, or null when `secret` is none |
+| `text` | `String` | As written into the grant |
+| `valid` | `bool` | Forwarding only for one key and named hosts |
 
 ---
 
@@ -1161,6 +1223,13 @@ A primary vault's further vaults.
 | `tomSecretsWriteSshKey` | `void tomSecretsWriteSshKey(KdbxEntry entry, {required String attachmentName, required Uint8List privateKey, String? passphrase})` | Makes an entry an SSH key entry: `tsm.type` `ssh-key`, the key as a protected attachment, `KeeAgent.settings` naming it, the passphrase in `Password`. |
 | `tomSecretsSshKeyCandidates` | `List<KdbxEntry> tomSecretsSshKeyCandidates(KdbxFile file)` | The entries holding an SSH private key that are not typed `ssh-key`: phase A's notes and KeePassXC's entries. |
 | `tomSecretsMigrateSshKeys` | `List<KdbxEntry> tomSecretsMigrateSshKeys(KdbxFile file)` | Retypes them as SSH key entries (DP-5), each one's old state in its history. |
+| `tomSecretsKeeAgentSettingsOf` | `TomSecretsKeeAgentSettings? tomSecretsKeeAgentSettingsOf(KdbxEntry entry)` | An entry's `KeeAgent.settings`, or null. |
+| `tomSecretsWriteKeeAgentSettings` | `void tomSecretsWriteKeeAgentSettings(KdbxEntry entry, TomSecretsKeeAgentSettings settings)` | Writes an entry's `KeeAgent.settings`, its old state in its history. |
+| `tomSecretsSshAgentStateOf` | `({TomSecretsSshAgentServing state, ({String name, Uint8List bytes, TomSecretsSshKeyInfo info})? key, bool confirm}) tomSecretsSshAgentStateOf(KdbxEntry entry)` | Whether the agent serves the entry's key, the key, and whether KeeAgent asks to confirm each use. |
+| `tomSecretsSshVerify` | `Future<bool> tomSecretsSshVerify(List<int> publicKeyBlob, List<int> signature, List<int> data)` | Whether an SSH signature blob verifies (Ed25519, ECDSA, `rsa-sha2-256` / `-512`); used for `session-bind`. |
+| `tomSecretsSshFingerprint` | `String tomSecretsSshFingerprint(List<int> blob)` | `SHA256:<base64>` of a public key. |
+| `tomSecretsKnownHostNames` | `List<String> tomSecretsKnownHostNames(String text, List<int> hostKey)` | The plain names `known_hosts` lists for a host key (hashed, revoked and wildcard lines left out). |
+| `tomSecretsBcryptPbkdf` | `Uint8List tomSecretsBcryptPbkdf(List<int> passphrase, List<int> salt, int length, int rounds)` | OpenBSD's `bcrypt_pbkdf`, the KDF of encrypted OpenSSH keys. |
 | `tomSecretsMatchLogins` | `List<TomSecretsLoginMatch> tomSecretsMatchLogins(Iterable<TomSecretsIndexedEntry> entries, String url, {String? frameUrl})` | The login entries (type `login`, no overlays) whose URLs match the page by their `tsm.urlMatch` rule; with `frameUrl` the frame is matched, only when it is the same site as the page. Ordered: the exact host first, then the last used, then by title (protocol.md 5.7). |
 | `tomSecretsMatchSiteUrl` | `TomSecretsUrlMatchLevel? tomSecretsMatchSiteUrl(TomSecretsSiteUrl entry, TomSecretsSiteUrl page, {TomSecretsUrlMatchRule rule = TomSecretsUrlMatchRule.domain})` | How an entry URL matches a page under a rule, or null; `https` never on `http`, addresses and `localhost` by host and port. |
 | `tomSecretsEntryUrls` | `List<String> tomSecretsEntryUrls(KdbxEntry entry)` | The entry's `URL`, then its `KP2A_URL*` fields in name order; empty ones left out. |

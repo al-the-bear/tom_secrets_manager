@@ -175,6 +175,8 @@ final class Demo {
     TomSecretsRateLimitSettings rateLimits =
         const TomSecretsRateLimitSettings(),
     DateTime Function()? rateLimitClock,
+    String? knownHostsFile,
+    String agentPipe = TomSecretsRuntime.agentPipe,
   }) async {
     final service = await TomSecretsService.launch(
       TomSecretsServiceConfig(
@@ -205,6 +207,8 @@ final class Demo {
         approverLinkRetry: approverLinkRetry,
         rateLimits: rateLimits,
         rateLimitClock: rateLimitClock,
+        knownHostsFile: knownHostsFile,
+        agentPipe: agentPipe,
       ),
     );
     addTearDown(service.stop);

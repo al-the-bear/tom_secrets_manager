@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.12.0
+
+- The ssh-agent (part-os-integration, DP-48, DP-49, protocol.md 7.6): a
+  third endpoint, `agent.sock` on Linux and macOS and the named pipe
+  `\\.\pipe\tsm-ssh-agent` on Windows (FFI, overlapped I/O, the
+  client's process from `GetNamedPipeClientProcessId`), named in
+  `service.json` and `status` as `agent`. It lists and signs with the
+  vaults' `ssh-key` entries; its peers are measured as clients are.
+- Agent grants: the secret `ssh-key [host <fingerprints>] [forward]
+  <target>`, matched per destination host (`session-bind`) and forwarding;
+  a forwarded request without a forwarding grant is refused without a
+  prompt; a forwarded one with it, and a key or vault marked to confirm, is
+  confirmed each time (`approval_needed.confirmOnly`, answered `once` or
+  `never`). `approval_needed.ssh` names the key, the destination (with its
+  `known_hosts` names) and the purpose.
+- `approve` takes `sshHost` (a lasting agent grant only for the
+  destination) and `withParent` (the subject `exe-from <parent> =>
+  <exe>`, e.g. ssh started by git); `grants.add` takes both forms.
+- Locked, the agent lists the keys kept with their grants
+  (`agent_keys.json`) and a signature waits for an unlock.
+- The audit record has `ssh`.
+- `TomSecretsSystemPeerMeasurer.measureProcess` measures a process by its
+  id.
+- On `tom_secrets_client` ^0.2.6.
+
 ## 0.11.8
 
 - The phase-B client messages as features under protocol 1 (protocol.md

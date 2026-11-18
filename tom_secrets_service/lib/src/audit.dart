@@ -31,6 +31,7 @@ final class TomSecretsAuditRecord {
     this.grantId,
     this.approver,
     this.entries = const [],
+    this.ssh,
   });
 
   /// When.
@@ -57,6 +58,10 @@ final class TomSecretsAuditRecord {
   /// The resolved entries' UUIDs.
   final List<String> entries;
 
+  /// An ssh-agent signature's key, destination and purpose
+  /// (`TomSecretsSshUse.toJson`), or null.
+  final Map<String, Object?>? ssh;
+
   /// The record as `audit.query` answers it.
   Map<String, Object?> toJson() => {
     'time': time.toUtc().toIso8601String(),
@@ -67,6 +72,7 @@ final class TomSecretsAuditRecord {
     'grantId': ?grantId,
     'approver': ?approver,
     if (entries.isNotEmpty) 'entries': entries,
+    'ssh': ?ssh,
   };
 
   /// From [toJson].
@@ -80,6 +86,7 @@ final class TomSecretsAuditRecord {
         grantId: json['grantId'] as String?,
         approver: json['approver'] as String?,
         entries: ((json['entries'] as List?) ?? const []).cast(),
+        ssh: (json['ssh'] as Map?)?.cast(),
       );
 }
 

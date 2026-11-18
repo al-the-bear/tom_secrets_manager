@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.6
+
+- The agent's side of SSH (part-os-integration, DP-48, DP-49):
+  `TomSecretsSshPrivateKey.decode` reads a private key file with its
+  passphrase (OpenSSH `openssh-key-v1` unencrypted or under `bcrypt_pbkdf`
+  with AES-CTR, -CBC or -GCM; PEM PKCS#1 and SEC1, also `DEK-Info`-encrypted
+  with AES-CBC or DES-EDE3-CBC; PKCS#8, also PBES2-encrypted) and signs as
+  SSH does (Ed25519; ECDSA P-256/P-384/P-521 with RFC 6979 nonces;
+  `rsa-sha2-256` / `rsa-sha2-512`, never SHA-1); `tomSecretsSshVerify`
+  checks a signature; `tomSecretsBcryptPbkdf` is OpenBSD's KDF.
+- The agent protocol (draft-miller-ssh-agent): `TomSecretsSshAgentFramer`,
+  `TomSecretsSshAgentConnection` over a `TomSecretsSshAgentBackend`
+  (identities, signatures, `session-bind@openssh.com` checked and recorded,
+  a user authentication on a bound connection checked against its session,
+  everything else refused), `TomSecretsSshSignRequest` with its destination,
+  forwarding and purpose (`userauth`, `sshsig` with its namespace).
+- `TomSecretsSshGrantSecret`: an agent grant's secret, `ssh-key [host
+  <fingerprints>] [forward] <target>`; `tomSecretsSshAgentStateOf`: whether
+  the agent serves an entry's key and why not, and whether each use is
+  confirmed; `tomSecretsKnownHostNames`; `tomSecretsSshFingerprint`.
+- `TomSecretsKeeAgentSettings.copyWith`, `tomSecretsKeeAgentSettingsOf`,
+  `tomSecretsWriteKeeAgentSettings`.
+- The vault setting `tsm.ssh-confirm` (`TomSecretsMetadata.sshConfirm`,
+  `copyWith`): every agent signature with a key of the vault is confirmed.
+- PKCS#8 EC keys with explicit curve parameters (LibreSSL's `ssh-keygen -m
+  PKCS8`) are read.
+
 ## 0.2.5
 
 - The typed SSH key (part-structure, DP-5): `tomSecretsWriteSshKey` makes an

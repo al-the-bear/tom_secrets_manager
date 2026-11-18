@@ -113,6 +113,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | Password generator | `TomSecretsPasswordGenerator`, `TomSecretsPasswordPolicy` |
 | URL matching of login entries (the Public Suffix List, `tsm.urlMatch`) | `tomSecretsMatchLogins`, `TomSecretsSiteUrl` |
 | SSH keys: the typed `ssh-key` entry with `KeeAgent.settings`, reading a key file, generating Ed25519 or RSA 4096, retyping phase A's notes | `TomSecretsSshKeyInfo`, `tomSecretsGenerateSshKey`, `tomSecretsWriteSshKey`, `tomSecretsMigrateSshKeys` |
+| The ssh-agent's side of SSH: private keys decoded with their passphrase and signing, the agent protocol with `session-bind`, agent grants per host and forwarding, what the agent serves | `TomSecretsSshPrivateKey`, `TomSecretsSshAgentConnection`, `TomSecretsSshGrantSecret`, `tomSecretsSshAgentStateOf` |
 | The primary vault's list of further vaults | `TomSecretsPrimaryVaults`, `TomSecretsVaultKeys` |
 
 ### Protection
@@ -297,6 +298,22 @@ tomSecretsWriteSshKey(entry, attachmentName: 'id_ed25519', privateKey: key.priva
 print(key.info.publicKey);   // ssh-ed25519 AAAA... deploy@example
 print(key.info.fingerprint); // SHA256:...
 final retyped = tomSecretsMigrateSshKeys(vault); // phase A's notes holding a key
+```
+
+The service's ssh-agent signs with such a key without it leaving the
+service: the key is decoded with its passphrase, and the agent protocol is a
+connection over a backend that decides each signature:
+
+```dart
+final private = await TomSecretsSshPrivateKey.decode(
+  key.privateKey,
+  passphrase: entry.getString(KdbxKeyCommon.PASSWORD)?.getText(),
+);
+final signature = await private.sign(data); // ssh-ed25519 signature blob
+private.dispose();
+
+final connection = TomSecretsSshAgentConnection(backend); // one per socket
+socket.add(TomSecretsSshAgentFramer.frame(await connection.handle(message)));
 ```
 
 ### Key files and outer encryption

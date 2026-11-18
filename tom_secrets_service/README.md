@@ -201,6 +201,7 @@ single-instance lock, released by the OS when the process dies;
 | --- | --- | --- |
 | client | `client.sock` | a localhost TCP port in `client.port`, the per-start token in `client.token` |
 | admin | `admin.sock` | a localhost TCP port in `admin.port` |
+| ssh-agent [B] | `agent.sock` | the named pipe `\\.\pipe\tsm-ssh-agent` |
 
 The client endpoint answers `hello` with `welcome`, then `get` and `getMany`
 (1 to 256 references), each resolved through `tom_secrets_core`. While the
@@ -228,6 +229,38 @@ service is unlocked, or `locked` when the approval timeout passes.
   holding an `allow` grant; with no app attached `unavailable` (`no_app`).
 - Any other client asking `match` or `propose` gets `denied`
   (`not_allowed_op`).
+
+### The ssh-agent
+
+The service is an ssh-agent too (part-os-integration, DP-48, protocol.md
+7.6): `ssh`, `git`, `scp` and `rsync` reach it through `SSH_AUTH_SOCK`
+or `IdentityAgent` (the endpoint in the table above; `service.json` and
+`status` name it as `agent`), and it signs with the vaults' `ssh-key`
+entries without a private key leaving the service.
+
+- Every connection's peer is measured as a client's is; on Windows the pipe
+  (served through FFI, its ACL the user's and SYSTEM's) gives the client's
+  process id.
+- It lists the keys the vaults serve (KeeAgent's settings allow the agent
+  and add the key at open; a key it reads, its passphrase in `Password`),
+  less those a `never` grant refuses the client; a forwarded connection
+  only the keys a grant lets it use forwarded.
+- A signature is decided by the agent grants (`ssh-key …` secrets: one key,
+  a vault's keys or all, optionally only for destination hosts by their host
+  key, and `forward`), else by the approvers, who see the key, the
+  destination (its host key and its `known_hosts` names) and the purpose
+  (`userauth`, `sshsig` with its namespace). A forwarded request without a
+  forwarding grant is refused without a prompt; with one, and for a key
+  KeeAgent or the vault (`tsm.ssh-confirm`) marks, each signature is
+  confirmed (`confirmOnly`) (DP-49). RSA signs with SHA-2 only.
+- Locked, it lists the public keys kept with the grants that cover them
+  (`agent_keys.json` in the data directory) and a signature waits for an
+  unlock up to the approval timeout.
+- Every decision is in the audit log with the key and the destination.
+- `ADD_IDENTITY`, `REMOVE_*`, `LOCK` and `UNLOCK` are refused: keys are
+  added in the app, and the agent locks with the service.
+- `TomSecretsServiceConfig.sshAgent` switches it off, `agentPipe` names
+  another pipe (tests), `knownHostsFile` the `known_hosts` read for names.
 
 ### Peer identity
 
@@ -533,14 +566,17 @@ session) the service never locks itself, the maximum unlocked time included.
 
 ## Status
 
-Version 0.11.4. The suite runs with `testkit :test` from the package folder.
+Version 0.12.0. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real
 client process, approvals, grants, client tokens, the approval link and the
 approver's links, pairing and the pairing mode, key rotation, and the
 `github:` vaults with the offline cache, the refresh and the key-expiry
-reminders against `tom_github_api`'s in-memory GitHub. Some suites run only
+reminders against `tom_github_api`'s in-memory GitHub, and the ssh-agent
+driven by OpenSSH's own tools (`ssh-add`, `ssh-keygen -Y sign`, a
+user-level `sshd` for the per-host grants and a forwarded agent; on Windows
+Win32-OpenSSH over the pipe). Some suites run only
 on their platform: the Unix-socket service tests on macOS and Linux, the
 Windows tests on Windows.
 

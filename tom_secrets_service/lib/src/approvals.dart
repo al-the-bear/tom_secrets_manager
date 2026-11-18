@@ -72,6 +72,8 @@ final class TomSecretsApprovalAnswer {
     this.folder,
     this.pin,
     this.clientToken,
+    this.sshHost = false,
+    this.withParent = false,
   });
 
   /// The decision.
@@ -92,17 +94,41 @@ final class TomSecretsApprovalAnswer {
   /// The client token the approving app issued for an `always` of a request
   /// with `wantClientToken` (32 bytes, base64; protocol.md 7.4).
   final String? clientToken;
+
+  /// For an ssh-agent prompt: the lasting grant holds only for the
+  /// request's destination host (its host key).
+  final bool sshHost;
+
+  /// The lasting grant names the client together with its parent process's
+  /// executable (`exe-from`; ssh started by git, for example).
+  final bool withParent;
 }
 
 /// A request that went to the approvers.
 final class _Waiting {
-  _Waiting(this.approvalId, this.batch, this.items, this.key, this.code);
+  _Waiting(
+    this.approvalId,
+    this.batch,
+    this.items,
+    this.key,
+    this.code, {
+    this.confirmOnly = false,
+    this.grantId,
+  });
 
   final String approvalId;
   final TomSecretsAccessBatch batch;
   final List<TomSecretsAccessRequest> items;
   final String key;
   final String? code;
+
+  /// An ssh-agent signature a grant allows that the user confirms each time
+  /// (forwarded, or the key or vault asks): answered `once` or `never`,
+  /// never written as a grant.
+  final bool confirmOnly;
+
+  /// The grant behind a [confirmOnly] prompt.
+  final String? grantId;
   final Completer<List<TomSecretsAccess>> done = Completer();
   final Set<String> redeemedTokens = {};
   int badTokens = 0;
@@ -125,6 +151,8 @@ final class _Waiting {
     if (_remote(batch.identity)) 'hostHint': 'remote',
     'approvalCode': ?code,
     if (wantsToken) 'wantClientToken': true,
+    if (batch.ssh case final ssh?) 'ssh': ssh.toJson(),
+    if (confirmOnly) 'confirmOnly': true,
   };
 
   /// Whether the client asked for a client token.
@@ -162,10 +190,41 @@ String tomSecretsGrantSubject(
   if (_base(i.exe) == 'tsm' && i.args.isNotEmpty && i.args.first == 'run') {
     return 'tsm-command ${i.args.join(' ')}';
   }
+  final parent = i.parent?['exe'];
+  if (a.withParent && i.kind == 'exe' && parent is String) {
+    return 'exe-from $parent => ${i.exe}';
+  }
   return switch (i.kind) {
     'script' => 'script ${i.interpreter} ${i.script}',
     'interpreter' => 'interpreter ${i.exe}',
     _ => 'exe ${i.exe}',
+  };
+}
+
+/// The secrets a lasting answer [a] writes grants for: of a value request
+/// with [refs] (canonical) resolved in [stores], its references, stores or
+/// `all`; of an ssh-agent request ([ssh], `approval_needed.ssh`) the agent
+/// secret of the key, its vault or all keys, limited to the destination
+/// host when [TomSecretsApprovalAnswer.sshHost] asks and the request has one.
+Set<String> tomSecretsGrantSecrets(
+  TomSecretsApprovalAnswer a, {
+  required List<String> refs,
+  required List<String> stores,
+  Map<String, Object?>? ssh,
+}) {
+  final targets = switch (a.secret) {
+    'all' => {'all'},
+    'store' => {for (final s in stores) 'store $s'},
+    _ => {...refs},
+  };
+  if (ssh == null) return targets;
+  final host = ssh['host'];
+  return {
+    for (final t in targets)
+      TomSecretsSshGrantSecret(
+        t,
+        hosts: a.sshHost && host is String ? [host] : const [],
+      ).text,
   };
 }
 
@@ -352,6 +411,7 @@ final class TomSecretsApprovals
   }
 
   static int _subjectRank(String subject) => switch (subject.split(' ').first) {
+    'exe-from' => 4,
     'exe' || 'script' || 'exe-token' || 'tsm-command' => 3,
     'folder' => 2,
     'interpreter' => 1,
@@ -379,6 +439,14 @@ final class TomSecretsApprovals
     switch (kind) {
       case 'exe':
         return identity.kind == 'exe' && identity.exe == rest;
+      case 'exe-from':
+        // `exe-from <parent> => <exe>`: the executable started by that
+        // parent.
+        final cut = rest.indexOf(' => ');
+        return cut > 0 &&
+            identity.kind == 'exe' &&
+            identity.exe == rest.substring(cut + 4) &&
+            identity.parent?['exe'] == rest.substring(0, cut);
       case 'script':
         return identity.kind == 'script' &&
             rest == '${identity.interpreter} ${identity.script}';
@@ -432,7 +500,9 @@ final class TomSecretsApprovals
     TomSecretsIdentity identity,
     TomSecretsAccessRequest item, {
     String? clientTokenId,
+    TomSecretsSshUse? ssh,
   }) async {
+    if (ssh != null) return _matchSsh(identity, item, ssh);
     TomSecretsGrant? best;
     var bestRank = -1;
     for (final g in grants) {
@@ -449,6 +519,51 @@ final class TomSecretsApprovals
       final secretRank = _secretRank(g.secret, item);
       if (secretRank == 0) continue;
       final rank = _subjectRank(g.subject) * 10 + secretRank;
+      if (rank > bestRank ||
+          (rank == bestRank &&
+              g.decision == 'never' &&
+              best?.decision != 'never')) {
+        if (g.decision == 'allow' && !await _pinHolds(g, identity)) continue;
+        best = g;
+        bestRank = rank;
+      }
+    }
+    return best;
+  }
+
+  /// The agent grant (`ssh-key ...`) that decides the ssh-agent's use of
+  /// [item]'s key: the most specific subject, then the most specific key
+  /// (the key, its vault, all), then a grant limited to the destination
+  /// before one for any host; `never` beats `allow` at equal rank. A grant
+  /// limited to hosts decides only for a request bound to one of them, and a
+  /// forwarded request only an `allow` that permits forwarding.
+  Future<TomSecretsGrant?> _matchSsh(
+    TomSecretsIdentity identity,
+    TomSecretsAccessRequest item,
+    TomSecretsSshUse ssh,
+  ) async {
+    TomSecretsGrant? best;
+    var bestRank = -1;
+    for (final g in grants) {
+      final secret = TomSecretsSshGrantSecret.parse(g.secret);
+      if (secret == null || !secret.valid) continue;
+      if (!identity.complete &&
+          !(g.subject.startsWith('exe ') &&
+              const TomSecretsInterpreters().ruleFor(identity.exe) == null)) {
+        continue;
+      }
+      if (!subjectMatches(g.subject, identity)) continue;
+      final secretRank = _secretRank(secret.target, item);
+      if (secretRank == 0) continue;
+      if (secret.hosts.isNotEmpty &&
+          !secret.hosts.contains(ssh.hostKeyFingerprint)) {
+        continue;
+      }
+      if (ssh.forwarded && g.decision == 'allow' && !secret.forward) continue;
+      final rank =
+          _subjectRank(g.subject) * 100 +
+          secretRank * 10 +
+          (secret.hosts.isEmpty ? 0 : 1);
       if (rank > bestRank ||
           (rank == bestRank &&
               g.decision == 'never' &&
@@ -549,6 +664,7 @@ final class TomSecretsApprovals
 
   @override
   Future<List<TomSecretsAccess>> check(TomSecretsAccessBatch batch) async {
+    if (batch.ssh != null) return [await _checkSsh(batch)];
     final identity = batch.identity;
     final clientTokenId = await _clientTokenOf(batch);
     final decisions = List<TomSecretsAccess?>.filled(batch.items.length, null);
@@ -579,6 +695,41 @@ final class TomSecretsApprovals
     return result;
   }
 
+  /// An ssh-agent request (part-os-integration, DP-49): a `never` grant
+  /// refuses; a forwarded request without an agent grant that permits
+  /// forwarding is refused without a prompt; an `allow` grant answers, but
+  /// a forwarded request, or a key or vault that asks for it, is confirmed
+  /// each time (`confirmOnly`); without a grant the approvers are asked.
+  /// A listing ([TomSecretsSshUse.listing]) only consults the grants.
+  Future<TomSecretsAccess> _checkSsh(TomSecretsAccessBatch batch) async {
+    final ssh = batch.ssh!;
+    final item = batch.items.single;
+    final grant = await match(batch.identity, item, ssh: ssh);
+    if (ssh.listing) {
+      return grant?.decision == 'never'
+          ? TomSecretsAccessDenied('never', grantId: grant!.id)
+          : TomSecretsAccessAllowed(grantId: grant?.id);
+    }
+    final TomSecretsAccess decision;
+    if (grant?.decision == 'never') {
+      decision = TomSecretsAccessDenied('never', grantId: grant!.id);
+    } else if (ssh.forwarded && grant == null) {
+      decision = const TomSecretsAccessDenied('forwarding');
+    } else if (grant != null && !ssh.forwarded && !ssh.confirm) {
+      decision = TomSecretsAccessAllowed(grantId: grant.id);
+    } else {
+      decision = (await _ask(
+        batch,
+        [item],
+        confirmOnly: grant != null,
+        grantId: grant?.id,
+      )).single;
+    }
+    if (grant != null) _lastUsed[grant.id] = DateTime.now().toUtc();
+    _auditBatch(batch, [decision]);
+    return decision;
+  }
+
   void _auditBatch(TomSecretsAccessBatch batch, List<TomSecretsAccess> out) {
     final audit = service.audit;
     if (audit == null) return;
@@ -606,6 +757,7 @@ final class TomSecretsApprovals
           entries: [
             tomSecretsUuidHex(batch.items[i].resolution.entry.entry.uuid),
           ],
+          ssh: batch.ssh?.toJson(),
         ),
       );
     }
@@ -613,8 +765,10 @@ final class TomSecretsApprovals
 
   Future<List<TomSecretsAccess>> _ask(
     TomSecretsAccessBatch batch,
-    List<TomSecretsAccessRequest> items,
-  ) {
+    List<TomSecretsAccessRequest> items, {
+    bool confirmOnly = false,
+    String? grantId,
+  }) {
     final identity = batch.identity;
     List<TomSecretsAccess> all(TomSecretsAccess a) => [
       for (final _ in items) a,
@@ -640,7 +794,10 @@ final class TomSecretsApprovals
     // One pending prompt per identity and reference: a repeat joins it.
     for (final w in _waiting.values) {
       final wRefs = [for (final i in w.items) _canonical(i.reference)]..sort();
-      if (w.key == key && _sameList(wRefs, refs)) {
+      if (w.key == key &&
+          _sameList(wRefs, refs) &&
+          w.confirmOnly == confirmOnly &&
+          (w.batch.ssh == null) == (batch.ssh == null)) {
         _progress(batch, w);
         return w.done.future;
       }
@@ -663,7 +820,15 @@ final class TomSecretsApprovals
         : tomSecretsApprovalCode(service.host, approvalId, identity.toJson(), [
             for (final i in items) i.reference,
           ]);
-    final waiting = _Waiting(approvalId, batch, items, key, code);
+    final waiting = _Waiting(
+      approvalId,
+      batch,
+      items,
+      key,
+      code,
+      confirmOnly: confirmOnly,
+      grantId: grantId,
+    );
     _waiting[approvalId] = waiting;
     var limit = connected
         ? service.settings.approvalTimeout
@@ -761,6 +926,14 @@ final class TomSecretsApprovals
   }) async {
     final w = _waiting[approvalId];
     if (w == null) throw StateError('no prompt $approvalId');
+    if (w.confirmOnly) {
+      // A confirmation: this signature only, nothing written.
+      if (answer.decision != 'once' && answer.decision != 'never') {
+        throw ArgumentError('a confirmation is answered once or never');
+      }
+      _answer(w, answer);
+      return;
+    }
     if (!tomSecretsDecisions.contains(answer.decision) ||
         !const ['ref', 'store', 'all'].contains(answer.secret) ||
         (answer.decision == 'folder' && answer.folder == null)) {
@@ -790,6 +963,7 @@ final class TomSecretsApprovals
             ? TomSecretsAccessAllowed(
                 approver: answer.approver,
                 clientToken: answer.clientToken,
+                grantId: w.grantId,
               )
             : const TomSecretsAccessDenied('refused'),
     ]);
@@ -862,11 +1036,12 @@ final class TomSecretsApprovals
     final subject = clientTokenId == null
         ? tomSecretsGrantSubject(identity, a)
         : 'exe-token ${identity.exe} $clientTokenId';
-    final secrets = switch (a.secret) {
-      'all' => {'all'},
-      'store' => {for (final i in w.items) 'store ${i.resolution.entry.store}'},
-      _ => {for (final i in w.items) _canonical(i.reference)},
-    };
+    final secrets = tomSecretsGrantSecrets(
+      a,
+      refs: [for (final i in w.items) _canonical(i.reference)],
+      stores: [for (final i in w.items) i.resolution.entry.store],
+      ssh: w.batch.ssh?.toJson(),
+    );
     // Scripts are pinned by default, executables by path only (DP-18).
     final pin = a.pin ?? (identity.kind == 'script' ? 'hash' : 'off');
     for (final secret in secrets) {

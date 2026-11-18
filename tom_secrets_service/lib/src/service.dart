@@ -24,6 +24,7 @@ import 'package:tom_crypto/protected_value.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'access.dart';
+import 'agent.dart';
 import 'approvals.dart';
 import 'approver_links.dart';
 import 'audit.dart';
@@ -43,7 +44,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.11.0';
+const String tomSecretsServiceVersion = '0.12.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -75,7 +76,11 @@ final class TomSecretsServiceConfig {
     this.approverLinkRetry = const Duration(seconds: 5),
     this.rateLimits = const TomSecretsRateLimitSettings(),
     this.rateLimitClock,
-  }) : clock = clock ?? DateTime.now,
+    this.sshAgent = true,
+    this.agentPipe = TomSecretsRuntime.agentPipe,
+    String? knownHostsFile,
+  }) : knownHostsFile = knownHostsFile ?? tomSecretsDefaultKnownHosts(),
+       clock = clock ?? DateTime.now,
        peerMeasurer = peerMeasurer ?? TomSecretsSystemPeerMeasurer(),
        idleSource = idleSource ?? tomSecretsSystemIdleSource(),
        host = host ?? bootstrap.host ?? tomSecretsDefaultHost(),
@@ -177,6 +182,26 @@ final class TomSecretsServiceConfig {
 
   /// The clock the rate limits run on (tests); null: the system clock.
   final DateTime Function()? rateLimitClock;
+
+  /// Whether the ssh-agent endpoint is offered (part-os-integration).
+  final bool sshAgent;
+
+  /// The ssh-agent's named pipe on Windows; one name per machine, so tests
+  /// that run services side by side give each its own.
+  final String agentPipe;
+
+  /// The user's `known_hosts`, read for the names of a destination in an
+  /// agent prompt; null: none.
+  final String? knownHostsFile;
+}
+
+/// `~/.ssh/known_hosts` of this user, or null when no home is set.
+String? tomSecretsDefaultKnownHosts() {
+  final home =
+      Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+  if (home == null || home.isEmpty) return null;
+  final sep = Platform.pathSeparator;
+  return '$home$sep.ssh${sep}known_hosts';
 }
 
 /// The executables that may administer a service started from
@@ -243,7 +268,8 @@ const List<String> tomSecretsServiceFeatures = [
 const int tomSecretsFileChunkSize = 256 * 1024;
 
 /// A running service.
-final class TomSecretsService implements TomSecretsApprovalHost {
+final class TomSecretsService
+    implements TomSecretsApprovalHost, TomSecretsAgentHost {
   TomSecretsService._(this.config) : _adminKey = config.adminKey;
 
   /// Starts the service: prepares and locks the runtime directory, checks
@@ -357,6 +383,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   Future<void> get done => _done.future;
 
   /// Whether the service is locked.
+  @override
   bool get isLocked => !_vaults.isUnlocked;
 
   /// The device settings (defaults while locked).
@@ -404,6 +431,20 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     }
     _clientServer!.listen((socket) => _ClientSession(this, socket));
     _adminServer!.listen((socket) => _AdminSession(this, socket));
+    if (config.sshAgent) {
+      // The agent is an extra: a start goes on without it (another process
+      // holds the pipe, a socket path too long), and says so in the log.
+      try {
+        switch (runtime.transport) {
+          case TomSecretsTransport.unix:
+            await _agent.listenSocket(runtime.agentSocket);
+          case TomSecretsTransport.tcp:
+            await _agent.listenPipe(config.agentPipe);
+        }
+      } on Object catch (e) {
+        config.log.error('agent_unavailable', e);
+      }
+    }
     Map<String, Object?> endpoint(ServerSocket server, String socket) =>
         runtime.transport == TomSecretsTransport.unix
         ? {'socket': socket}
@@ -412,13 +453,49 @@ final class TomSecretsService implements TomSecretsApprovalHost {
       start: startedAt,
       client: endpoint(_clientServer!, runtime.clientSocket),
       admin: endpoint(_adminServer!, runtime.adminSocket),
+      agent: _agent.endpoint,
     );
   }
 
   Future<void> _closeServers() async {
     await _clientServer?.close();
     await _adminServer?.close();
+    await _agent.close();
   }
+
+  // ── The ssh-agent (part-os-integration) ─────────────────────────────────
+
+  late final TomSecretsSshAgent _agent = TomSecretsSshAgent(this);
+
+  /// The agent's endpoint as `service.json` names it (`{socket}` or
+  /// `{pipe}`), or null when it is not offered.
+  Map<String, Object?>? get agentEndpoint => _agent.endpoint;
+
+  @override
+  bool askUnlock(TomSecretsIdentity identity) {
+    if (!_hasSubscribers) return false;
+    _emit({'op': 'unlock_needed', 'identity': identity.toJson()});
+    return true;
+  }
+
+  @override
+  Duration get approvalTimeout => settings.approvalTimeout;
+
+  @override
+  TomSecretsResolver? get resolver => _vaults.resolver;
+
+  @override
+  TomSecretsAccessPolicy? get agentPolicy => config.policy ?? _approvals;
+
+  @override
+  TomSecretsPeerMeasurer get peerMeasurer => config.peerMeasurer;
+
+  @override
+  String get agentKeysFile =>
+      '${config.bootstrap.dataDirectory}${Platform.pathSeparator}agent_keys.json';
+
+  @override
+  String? get knownHostsFile => config.knownHostsFile;
 
   /// Unlocks with [keys] (the master password and key file, which the
   /// service holds masked while unlocked): opens the primary, the device
@@ -963,6 +1040,7 @@ final class TomSecretsService implements TomSecretsApprovalHost {
   }
 
   /// Waits up to [timeout] for an unlock; whether the service is unlocked.
+  @override
   Future<bool> waitUnlocked(Duration timeout) async {
     if (!isLocked) return true;
     try {
@@ -1009,6 +1087,8 @@ final class TomSecretsService implements TomSecretsApprovalHost {
     'expiring': [for (final k in expiring) k.toJson()],
     'admins': _admins.where((a) => a.authenticated).length,
     'hardening': _hardening,
+    // [B] The ssh-agent's endpoint, when it runs (part-os-integration).
+    'agent': ?_agent.endpoint,
   };
 
   /// Writes the grants' last use now (the timer, the lock).
@@ -2750,10 +2830,14 @@ final class _AdminSession {
         final decision = m['decision'];
         final secret = m['secret'];
         final clientToken = m['clientToken'];
+        final sshHost = m['sshHost'] ?? false;
+        final withParent = m['withParent'] ?? false;
         if (approvalId is! String ||
             decision is! String ||
             secret is! String ||
-            (clientToken != null && clientToken is! String)) {
+            (clientToken != null && clientToken is! String) ||
+            sshHost is! bool ||
+            withParent is! bool) {
           return malformed('approve');
         }
         final answer = TomSecretsApprovalAnswer(
@@ -2764,6 +2848,8 @@ final class _AdminSession {
           approver: service.trust.device,
           // The app made the token (DP-20); this device signs its grant.
           clientToken: clientToken as String?,
+          sshHost: sshHost,
+          withParent: withParent,
         );
         try {
           // A paired host's prompt goes back over its approval link.
@@ -2837,15 +2923,21 @@ final class _AdminSession {
         final spec = grant.cast<String, Object?>();
         final subject = spec['subject'];
         final secret = spec['secret'];
+        final ssh = secret is String
+            ? TomSecretsSshGrantSecret.parse(secret)
+            : null;
+        bool target(String t) =>
+            t == 'all' || t.startsWith('store ') || _parses(t);
         if (spec['host'] is! String ||
             subject is! String ||
-            !RegExp(
-              r'^(exe|script|interpreter|folder|tsm-command) \S',
-            ).hasMatch(subject) ||
+            (!RegExp(
+                  r'^(exe|script|interpreter|folder|tsm-command) \S',
+                ).hasMatch(subject) &&
+                !RegExp(r'^exe-from \S.* => \S').hasMatch(subject)) ||
             secret is! String ||
-            !(secret == 'all' ||
-                secret.startsWith('store ') ||
-                _parses(secret)) ||
+            (secret.startsWith(TomSecretsSshGrantSecret.prefix)
+                ? ssh == null || !ssh.valid || !target(ssh.target)
+                : !target(secret)) ||
             !const ['allow', 'never'].contains(spec['decision'])) {
           return malformed('grant');
         }
@@ -2860,9 +2952,13 @@ final class _AdminSession {
         await approvals.addGrant({
           'host': spec['host'],
           'subject': subject,
-          'secret': secret == 'all' || secret.startsWith('store ')
-              ? secret
-              : TomSecretReference.parse(secret).canonical,
+          'secret': ssh != null
+              ? TomSecretsSshGrantSecret(
+                  _canonicalTarget(ssh.target),
+                  hosts: ssh.hosts,
+                  forward: ssh.forward,
+                ).text
+              : _canonicalTarget(secret),
           'decision': spec['decision'],
           'pin': ?pin,
         });
@@ -2914,6 +3010,13 @@ final class _AdminSession {
         });
     }
   }
+
+  /// A grant's secret target as written: `all` and `store <name>` as they
+  /// are, a reference canonical.
+  static String _canonicalTarget(String t) =>
+      t == 'all' || t.startsWith('store ')
+      ? t
+      : TomSecretReference.parse(t).canonical;
 
   static bool _parses(String ref) {
     try {

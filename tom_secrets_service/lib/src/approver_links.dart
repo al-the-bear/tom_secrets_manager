@@ -148,6 +148,19 @@ final class TomSecretsApproverLinks {
     if (link == null || event == null) {
       throw StateError('no prompt $qualified');
     }
+    if (event['confirmOnly'] == true) {
+      // An ssh-agent confirmation: this signature only (part-os-integration).
+      if (answer.decision != 'once' && answer.decision != 'never') {
+        throw ArgumentError('a confirmation is answered once or never');
+      }
+      await link.request({
+        'op': 'approve',
+        'approvalId': approvalId,
+        'decision': answer.decision,
+        'secret': answer.secret,
+      });
+      return;
+    }
     if (!tomSecretsDecisions.contains(answer.decision) ||
         !const ['ref', 'store', 'all'].contains(answer.secret) ||
         (answer.decision == 'folder' && answer.folder == null)) {
@@ -181,14 +194,15 @@ final class TomSecretsApproverLinks {
     final subject = tokenId == null
         ? tomSecretsGrantSubject(identity, answer)
         : 'exe-token ${identity.exe} $tokenId';
-    final secrets = switch (answer.secret) {
-      'all' => {'all'},
-      'store' => {
+    final secrets = tomSecretsGrantSecrets(
+      answer,
+      refs: [for (final r in (event['refs'] as List? ?? const [])) '$r'],
+      stores: [
         for (final r in (event['resolved'] as List? ?? const []).cast<Map>())
-          'store ${r['store']}',
-      },
-      _ => {for (final r in (event['refs'] as List? ?? const [])) '$r'},
-    };
+          '${r['store']}',
+      ],
+      ssh: (event['ssh'] as Map?)?.cast<String, Object?>(),
+    );
     final pin = answer.pin ?? (identity.kind == 'script' ? 'hash' : 'off');
     final grants = [
       for (final secret in secrets)

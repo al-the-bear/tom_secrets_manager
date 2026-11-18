@@ -39,6 +39,71 @@ final class TomSecretsAccessRequest {
   final TomSecretsIdentity identity;
 }
 
+/// What an ssh-agent request is about (part-os-integration): shown in the
+/// prompt, matched against an agent grant's hosts and forwarding, and
+/// audited.
+final class TomSecretsSshUse {
+  /// A use of the key [keyFingerprint].
+  const TomSecretsSshUse({
+    required this.keyFingerprint,
+    required this.keyType,
+    required this.forwarded,
+    required this.purpose,
+    this.title,
+    this.hostKeyFingerprint,
+    this.hostNames = const [],
+    this.namespace,
+    this.confirm = false,
+    this.listing = false,
+  });
+
+  /// The key's fingerprint (`SHA256:...`).
+  final String keyFingerprint;
+
+  /// The key's type (`ssh-ed25519`, ...).
+  final String keyType;
+
+  /// The entry's title.
+  final String? title;
+
+  /// The destination's host key fingerprint (the connection's last
+  /// `session-bind`), or null on an unbound connection.
+  final String? hostKeyFingerprint;
+
+  /// The destination's names from `known_hosts`, when it lists them.
+  final List<String> hostNames;
+
+  /// Whether the request came over a forwarded agent connection.
+  final bool forwarded;
+
+  /// `userauth`, `sshsig` or `other`.
+  final String purpose;
+
+  /// The `SSHSIG` namespace (`git`, `file`, ...).
+  final String? namespace;
+
+  /// Whether every signature with the key is confirmed (KeeAgent's flag, or
+  /// the vault's `tsm.ssh-confirm`).
+  final bool confirm;
+
+  /// Whether this only decides whether the key is listed
+  /// (`REQUEST_IDENTITIES`): matched against the grants, never prompted or
+  /// audited.
+  final bool listing;
+
+  /// As `approval_needed` and the audit record carry it.
+  Map<String, Object?> toJson() => {
+    'key': keyFingerprint,
+    'keyType': keyType,
+    'title': ?title,
+    'host': ?hostKeyFingerprint,
+    if (hostNames.isNotEmpty) 'hostNames': hostNames,
+    'forwarded': forwarded,
+    'purpose': purpose,
+    'namespace': ?namespace,
+  };
+}
+
 /// A client request's resolved items, decided together: one prompt for a
 /// whole `getMany` (protocol.md 7.2, `once` answers the whole batch).
 final class TomSecretsAccessBatch {
@@ -50,6 +115,7 @@ final class TomSecretsAccessBatch {
     this.onProgress,
     this.timeout,
     this.clientTokenHash,
+    this.ssh,
   });
 
   /// The client as measured.
@@ -70,6 +136,10 @@ final class TomSecretsAccessBatch {
   /// The hash of the client token the connection's `hello` carried
   /// (protocol.md 7.4), or null.
   final String? clientTokenHash;
+
+  /// An ssh-agent request's use of its key (one item), or null for a value
+  /// request. Only agent grants (`ssh-key ...`) decide it.
+  final TomSecretsSshUse? ssh;
 }
 
 /// A policy's answer.
