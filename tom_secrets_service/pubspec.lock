@@ -501,10 +501,10 @@ packages:
     dependency: "direct dev"
     description:
       name: tom_kdbx_store
-      sha256: d377cff5d111ef0c0bc7773077e9e3c4334ad79bf71da99f536cd4160e4ded38
+      sha256: "958fdd0a9caa608434af3d7b1ce698c6fdbe7184efa51883dfe93c4177f9adf2"
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.4"
+    version: "0.2.5"
   tom_kpasslib:
     dependency: transitive
     description:
@@ -525,17 +525,17 @@ packages:
     dependency: "direct main"
     description:
       name: tom_secrets_client
-      sha256: a844ac4627be159bec27f8bed19c6a098e90b8a03d111d2e53d4c511ff12c55f
+      sha256: c693f85e2dd88dab2e095461c18bff58f05cb98d0aab71dd264a586da9a29390
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.6"
+    version: "0.2.9"
   tom_secrets_core:
     dependency: "direct main"
     description:
       path: "../tom_secrets_core"
       relative: true
     source: path
-    version: "0.2.7"
+    version: "0.2.8"
   typed_data:
     dependency: transitive
     description:
