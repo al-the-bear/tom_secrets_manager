@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
+import 'package:tom_core_storage/settings.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 import 'package:tom_secrets_service/tom_secrets_service.dart';
 
@@ -176,5 +177,97 @@ void main() {
     demo.idle.idle = Duration.zero;
     await admin.unlockWithBundle('primary', bundleOf(primaryPassword));
     expect(service.isLocked, isFalse);
+  });
+
+  test('after an OS unlock the app opens and saves the primary with its '
+      'composite key; keys with one are refused for a further vault', () async {
+    final (_, _, admin) = await started();
+    await admin.unlockWithBundle('primary', bundleOf(primaryPassword));
+    final set = await admin.request('vaultKeys', {
+      'stores': ['primary'],
+    });
+    final keys = (((set['stores'] as List).single as Map)['keys'] as Map)
+        .cast<String, Object?>();
+    final file = await admin.request('vaultFile', {'store': 'primary'});
+    final opened = await tomSecretsDecodeStored(
+      file['location'] as String,
+      base64.decode(file['bytes'] as String),
+      tomSecretsVaultCredentials(
+        compositeKey: base64.decode(keys['compositeKey']! as String),
+      ),
+    );
+    opened.body.rootGroup.addEntry(
+      KdbxEntry.create(opened, opened.body.rootGroup)..label = 'Added',
+    );
+    final bytes = await tomSecretsEncodeStored(
+      file['location'] as String,
+      opened,
+    );
+    await admin.request('save', {
+      'store': 'primary',
+      'bytes': base64.encode(bytes),
+      'baseRevision': file['revision'],
+      'keys': {'compositeKey': keys['compositeKey']},
+    });
+    // Still opens with the password: the composite key is the same key.
+    final saved = await admin.request('vaultFile', {'store': 'primary'});
+    final back = await tomSecretsDecodeStored(
+      saved['location'] as String,
+      base64.decode(saved['bytes'] as String),
+      tomSecretsVaultCredentials(password: primaryPassword),
+    );
+    expect(back.body.rootGroup.entries.map((e) => e.label), contains('Added'));
+    await expectLater(
+      admin.request('save', {
+        'store': 'team',
+        'bytes': saved['bytes'],
+        'keys': {'compositeKey': keys['compositeKey']},
+      }),
+      throwsA(
+        isA<TomSecretsAdminException>()
+            .having((e) => e.kind, 'kind', 'malformed')
+            .having((e) => e.details['reason'], 'reason', 'keys'),
+      ),
+    );
+  });
+
+  test('a primary with a key file in the keychain: the bundle carries the '
+      'composite key alone, the service keeps the key file beside it for '
+      'the editing path', () async {
+    final demo = await Demo.create();
+    final keychain = TomInMemorySecretStore();
+    final keyFile = TomSecretsKeyFile.generate();
+    final primary = await KdbxFormat().read(
+      File(demo.primaryPath).readAsBytesSync(),
+      Credentials(ProtectedValue.fromString(primaryPassword)),
+    );
+    primary.credentials = keyFile.credentials(primaryPassword);
+    File(demo.primaryPath).writeAsBytesSync(await primary.save());
+    await keychain.write(
+      TomSecretsVaultLocator.parse('file:${demo.primaryPath}').keyFileHandle,
+      base64.encode(keyFile.toBytes()),
+    );
+    await demo.start(keychain: keychain);
+    final admin = await TomSecretsAdminClient.connect(
+      demo.runtime(),
+      demo.adminKey,
+    );
+    addTearDown(admin.close);
+    await admin.unlockWithBundle(
+      'primary',
+      TomSecretsUnlockBundle(
+        compositeKey: tomSecretsCompositeKey(
+          password: primaryPassword,
+          keyFile: keyFile.toBytes(),
+        ),
+      ),
+    );
+    final set = await admin.request('vaultKeys', {
+      'stores': ['primary'],
+    });
+    final keys = ((set['stores'] as List).single as Map)['keys'] as Map;
+    expect(base64.decode(keys['keyFile']! as String), keyFile.toBytes());
+    expect(keys['compositeKey'], isNotNull);
+    expect(keys.containsKey('password'), isFalse);
   });
 }

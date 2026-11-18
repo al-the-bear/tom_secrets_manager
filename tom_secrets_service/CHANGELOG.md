@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.1
+
+- After an OS unlock the app edits with the primary's composite key: the
+  primary's `keys` of `save` and `vault.move` take `compositeKey` (base64, 32
+  bytes) in place of `password` and `keyFile` (`keyFile` may come beside it
+  for the keychain); a further vault's keys still need the password. The
+  service keeps the keychain's key file beside the composite key, so
+  `vaultKeys` still names it (pairing, the emergency sheet, a new vault
+  sharing it), while the composite key opens the vault.
+
 ## 0.15.0
 
 - The OS unlock (part-os-unlock, protocol.md 6.4, decision 38):

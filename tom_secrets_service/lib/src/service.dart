@@ -45,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.15.0';
+const String tomSecretsServiceVersion = '0.15.1';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -907,8 +907,11 @@ final class TomSecretsService
       }
     }
 
-    // A composite key (an OS unlock) already holds the key file's part.
-    final keyFile = given.keyFile == null && given.compositeKey == null
+    // A composite key (an OS unlock) already holds the key file's part; the
+    // key file is still kept beside it, for the editing path's `vaultKeys`
+    // (pairing, the emergency sheet, a new vault sharing it), while the
+    // composite key opens the vault.
+    final keyFile = given.keyFile == null
         ? await read(vault.keyFileHandle)
         : null;
     final outerKey =
@@ -2039,8 +2042,38 @@ TomSecretsHeldKeys? _keysOf(Map<String, Object?> m) {
 /// The primary's new keys a re-keyed `save` carries (`keys`, protocol.md
 /// 6.4): `password`, `keyFile` (base64) and `outerKey` (a repository key,
 /// base64); null when they cannot be read.
-TomSecretsHeldKeys? _newKeysOf(Map<String, Object?> m) {
-  final keys = _keysOf(m);
+///
+/// With [allowComposite] (the primary's own keys of `save` and `vault.move`)
+/// `compositeKey` (32 bytes, base64) may take the place of `password` and
+/// `keyFile`: a service unlocked by an OS unlock holds no password, and the
+/// app hands back what it was given (protocol.md 6.4); `keyFile` may still
+/// come with it, for the keychain.
+TomSecretsHeldKeys? _newKeysOf(
+  Map<String, Object?> m, {
+  bool allowComposite = false,
+}) {
+  final composite = m['compositeKey'];
+  TomSecretsHeldKeys? keys;
+  if (allowComposite && composite != null) {
+    final keyFile = m['keyFile'];
+    if (composite is! String || (keyFile != null && keyFile is! String)) {
+      return null;
+    }
+    try {
+      final bytes = base64.decode(composite);
+      if (bytes.length != 32) return null;
+      keys = TomSecretsHeldKeys(
+        compositeKey: TomProtectedValue.fromBytes(bytes),
+        keyFile: keyFile == null
+            ? null
+            : TomProtectedValue.fromBytes(base64.decode(keyFile as String)),
+      );
+    } on FormatException {
+      return null;
+    }
+  } else {
+    keys = _keysOf(m);
+  }
   final outerKey = m['outerKey'];
   if (keys == null) return null;
   if (outerKey == null) return keys;
@@ -3753,7 +3786,10 @@ final class _AdminSession {
         }
         final wireKeys = m['keys'];
         final newKeys = wireKeys is Map
-            ? _newKeysOf(wireKeys.cast<String, Object?>())
+            ? _newKeysOf(
+                wireKeys.cast<String, Object?>(),
+                allowComposite: store == service.vaults.primaryName,
+              )
             : null;
         if (wireKeys != null && newKeys == null) {
           connection.sendError(
@@ -3972,7 +4008,10 @@ final class _AdminSession {
           connection.sendError(id, 'locked', 'unlock the service first');
           return;
         }
-        final newKeys = _newKeysOf(wireKeys.cast<String, Object?>());
+        final newKeys = _newKeysOf(
+          wireKeys.cast<String, Object?>(),
+          allowComposite: store == service.vaults.primaryName,
+        );
         final Uint8List stored;
         try {
           stored = base64.decode(bytes);
