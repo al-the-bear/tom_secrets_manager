@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.9
+
+- The health report (part-password-manager, DP-39, DP-179):
+  `tomSecretsHealthReport` lists weak passwords (`tomSecretsPasswordStrength`,
+  zxcvbn with the entry's own words), reused ones across the vaults given,
+  old ones (`tomSecretsPasswordChanged`, from the history; one year by
+  default, `TomSecretsHealthPolicy`), entries expiring within 30 days or
+  expired, short SSH keys (`TomSecretsKeyStrength`: RSA below 3072 bits,
+  curves below 256, DSA) and breached passwords. `TomSecretsBreachCheck`
+  asks the Have I Been Pwned range API with the SHA-1 prefix only and
+  `Add-Padding: true`, caching counts per hash in memory; `tsm.breachCheck`
+  `off` keeps an entry out (`tomSecretsSetBreachCheckExcluded`). New
+  dependency: `zxcvbn` (MIT).
+
 ## 0.2.8
 
 - The OS unlock (part-os-unlock, DP-72): lock mode (c)

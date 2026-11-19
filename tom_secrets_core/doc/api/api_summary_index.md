@@ -82,6 +82,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsSshPrivateKey` | final class | A decoded private key the agent signs with. | [→](api_summary_vaults.md#tomsecretssshprivatekey) |
 | `TomSecretsSshKeyException` | final class | A key file that cannot be used. | [→](api_summary_vaults.md#tomsecretssshkeyexception) |
 | `TomSecretsSshAgentConnection` | final class | One connection of the SSH agent protocol. | [→](api_summary_vaults.md#tomsecretssshagentconnection) |
+| `TomSecretsSshAgentIdentity` | final class | A key the agent offers. | [→](api_summary_vaults.md#tomsecretssshagentconnection) |
+| `TomSecretsSshAgentMessage` | abstract final class | The agent protocol's message numbers. | [→](api_summary_vaults.md#tomsecretssshagentmessage) |
 | `TomSecretsSshGrantSecret` | final class | An agent grant's secret: keys, hosts, forwarding. | [→](api_summary_vaults.md#tomsecretssshgrantsecret) |
 | `TomSecretsKeeAgentSettings` | final class | The `KeeAgent.settings` attachment. | [→](api_summary_vaults.md#tomsecretskeeagentsettings) |
 | `TomSecretsCharacterClass` | enum | The character classes a generated password draws from. | [→](api_summary_vaults.md#tomsecretscharacterclass) |
@@ -90,6 +92,15 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsVaultFields` | abstract final class | The fields of a vault entry. | [→](api_summary_vaults.md#tomsecretsvaultfields) |
 | `TomSecretsVaultKeys` | final class | What the primary keeps about one further vault. | [→](api_summary_vaults.md#tomsecretsvaultkeys) |
 | `TomSecretsPrimaryVaults` | final class | A primary vault's further vaults. | [→](api_summary_vaults.md#tomsecretsprimaryvaults) |
+| `TomSecretsHealthIssue` | enum | What the health report flags. | [→](api_summary_vaults.md#tomsecretshealthissue) |
+| `TomSecretsHealthPolicy` | final class | The report's thresholds. | [→](api_summary_vaults.md#tomsecretshealthpolicy) |
+| `TomSecretsPasswordStrength` | final class | How guessable a password is (zxcvbn). | [→](api_summary_vaults.md#tomsecretspasswordstrength) |
+| `TomSecretsKeyStrength` | abstract final class | Today's minimum key lengths (DP-179). | [→](api_summary_vaults.md#tomsecretskeystrength) |
+| `TomSecretsHealthEntry` | final class | An entry the health report reads. | [→](api_summary_vaults.md#tomsecretshealthentry) |
+| `TomSecretsHealthFinding` | final class | One flag of the health report. | [→](api_summary_vaults.md#tomsecretshealthfinding) |
+| `TomSecretsHealthReport` | final class | The health report: its findings by issue, then by store and title. | [→](api_summary_vaults.md#tomsecretshealthreport) |
+| `TomSecretsBreachCheck` | final class | The breach check over the Have I Been Pwned range API: only a password's five-character SHA-1 prefix leaves the device, with `Add-Padding: true`; counts cached per hash in memory. | [→](api_summary_vaults.md#tomsecretsbreachcheck) |
+| `TomSecretsBreachCheckException` | final class | The breach check could not ask. | [→](api_summary_vaults.md#tomsecretsbreachcheckexception) |
 
 ### Functions
 
@@ -126,6 +137,13 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsRegistrableDomain` | The registrable domain after the Public Suffix List. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsAsciiHost` | A host lower-case with punycode labels. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32Decode` | RFC 4648 base32, any case, spaces, dashes and padding ignored; null when it is not base32. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsPasswordStrength` | The strength of `password` (zxcvbn, its first 100 characters); `userInputs` are words it should not be built from (the entry's title, user name, site). | [→](api_summary_vaults.md#functions) |
+| `tomSecretsBreachCheckExcluded` | Whether an entry is kept out of the breach check (`tsm.breachCheck` `off`). | [→](api_summary_vaults.md#functions) |
+| `tomSecretsSetBreachCheckExcluded` | Keeps an entry out of the breach check, or lets it in again; its old state in its history. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsPasswordOf` | An entry's password, or null when it has none. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsPasswordChanged` | When an entry's current password was set, read from its history. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsPasswordHash` | The SHA-1 of a password in upper-case hex, as the range API compares it; kept in memory only. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsHealthReport` | The health report: weak, reused, old and breached login passwords, expiring entries, short SSH keys. | [→](api_summary_vaults.md#functions) |
 
 ### Global Variables
 
@@ -143,6 +161,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsAmbiguousCharacters` | `String` | The characters `TomSecretsPasswordPolicy.excludeAmbiguous` leaves out, because they are easily confused when read or typed. | [→](api_summary_vaults.md#constants) |
 | `tomSecretsProductGroup` | `String` | The root group holding the product's own groups (never resolved into). | [→](api_summary_vaults.md#constants) |
 | `tomSecretsVaultsGroup` | `String` | The subgroup holding the further vaults. | [→](api_summary_vaults.md#constants) |
+| `tomSecretsStrengthMaxLength` | `int` | The longest prefix of a password the strength estimator reads (100). | [→](api_summary_vaults.md#constants) |
+| `tomSecretsBreachCheckField` | `KdbxKey` | `tsm.breachCheck`, the field that keeps an entry out of the breach check (`off`). | [→](api_summary_vaults.md#constants) |
+| `tomSecretsSshAgentMaxMessage` | `int` | The largest message the agent reads, 256 KiB. | [→](api_summary_vaults.md#constants) |
+| `tomSecretsSshAgentMaxBindings` | `int` | At most this many `session-bind`s per connection, 16. | [→](api_summary_vaults.md#constants) |
+| `tomSecretsSshAgentKeyTypes` | `Set<String>` | The key types the agent signs with. | [→](api_summary_vaults.md#constants) |
 
 ---
 
@@ -451,6 +474,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsBranchCompacted` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsbranchcompacted) |
 | `TomSecretsBranchMove` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsbranchmove) |
 | `TomSecretsBranchRewritten` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsbranchrewritten) |
+| `TomSecretsBreachCheck` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsbreachcheck) |
+| `TomSecretsBreachCheckException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsbreachcheckexception) |
 | `TomSecretsCachedVault` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretscachedvault) |
 | `TomSecretsCharacterClass` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretscharacterclass) |
 | `TomSecretsClientTokenRecord` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsclienttokenrecord) |
@@ -483,6 +508,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsFirstRunProblem` | First Run and Device Settings | [→](api_summary_device.md#tomsecretsfirstrunproblem) |
 | `TomSecretsFirstRunResult` | First Run and Device Settings | [→](api_summary_device.md#tomsecretsfirstrunresult) |
 | `TomSecretsFirstRunSetup` | First Run and Device Settings | [→](api_summary_device.md#tomsecretsfirstrunsetup) |
+| `TomSecretsGeneratedSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsgeneratedsshkey) |
 | `TomSecretsGitCommitReader` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsgitcommitreader) |
 | `TomSecretsGitHubCommitReader` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsgithubcommitreader) |
 | `TomSecretsGitHubLocation` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsgithublocation) |
@@ -490,6 +516,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsGitHubRepositoryCheck` | First Run and Device Settings | [→](api_summary_device.md#tomsecretsgithubrepositorycheck) |
 | `TomSecretsGitLocator` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsgitlocator) |
 | `TomSecretsGrantsGroup` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsgrantsgroup) |
+| `TomSecretsHealthEntry` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretshealthentry) |
+| `TomSecretsHealthFinding` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretshealthfinding) |
+| `TomSecretsHealthIssue` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretshealthissue) |
+| `TomSecretsHealthPolicy` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretshealthpolicy) |
+| `TomSecretsHealthReport` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretshealthreport) |
 | `TomSecretsHistoryRewritten` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretshistoryrewritten) |
 | `TomSecretsImportAttachment` | Import and Export | [→](api_summary_import_export.md#tomsecretsimportattachment) |
 | `TomSecretsImportAttachmentSize` | Import and Export | [→](api_summary_import_export.md#tomsecretsimportattachmentsize) |
@@ -506,8 +537,10 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsImportTarget` | Import and Export | [→](api_summary_import_export.md#tomsecretsimporttarget) |
 | `TomSecretsImportVault` | Import and Export | [→](api_summary_import_export.md#tomsecretsimportvault) |
 | `TomSecretsIndexedEntry` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsindexedentry) |
+| `TomSecretsKeeAgentSettings` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretskeeagentsettings) |
 | `TomSecretsKeyFile` | Key Files and Outer Encryption | [→](api_summary_protection.md#tomsecretskeyfile) |
 | `TomSecretsKeyFileException` | Key Files and Outer Encryption | [→](api_summary_protection.md#tomsecretskeyfileexception) |
+| `TomSecretsKeyStrength` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretskeystrength) |
 | `TomSecretsLinkCipher` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretslinkcipher) |
 | `TomSecretsLinkException` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretslinkexception) |
 | `TomSecretsLinkFrameReader` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretslinkframereader) |
@@ -522,6 +555,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsLocatorException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretslocatorexception) |
 | `TomSecretsLockMode` | First Run and Device Settings | [→](api_summary_device.md#tomsecretslockmode) |
 | `TomSecretsLockPolicy` | First Run and Device Settings | [→](api_summary_device.md#tomsecretslockpolicy) |
+| `TomSecretsLoginMatch` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsloginmatch) |
 | `TomSecretsMachine` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsmachine) |
 | `TomSecretsMergeResult` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsmergeresult) |
 | `TomSecretsMetadata` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsmetadata) |
@@ -548,6 +582,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsPasskeyFields` | Import and Export | [→](api_summary_import_export.md#tomsecretspasskeyfields) |
 | `TomSecretsPasswordGenerator` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretspasswordgenerator) |
 | `TomSecretsPasswordPolicy` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretspasswordpolicy) |
+| `TomSecretsPasswordStrength` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretspasswordstrength) |
 | `TomSecretsPlainCodec` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsplaincodec) |
 | `TomSecretsPrimaryVaults` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsprimaryvaults) |
 | `TomSecretsRankedCandidate` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsrankedcandidate) |
@@ -559,9 +594,20 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsResolver` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsresolver) |
 | `TomSecretsSignedKind` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssignedkind) |
 | `TomSecretsSignedLabels` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssignedlabels) |
+| `TomSecretsSiteUrl` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssiteurl) |
 | `TomSecretsSocketChannel` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssocketchannel) |
 | `TomSecretsSpake2` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsspake2) |
 | `TomSecretsSpake2Keys` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsspake2keys) |
+| `TomSecretsSshAgentConnection` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshagentconnection) |
+| `TomSecretsSshAgentIdentity` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshagentconnection) |
+| `TomSecretsSshAgentMessage` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshagentmessage) |
+| `TomSecretsSshAgentServing` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshagentserving) |
+| `TomSecretsSshGrantSecret` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshgrantsecret) |
+| `TomSecretsSshKeyAlgorithm` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyalgorithm) |
+| `TomSecretsSshKeyException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyexception) |
+| `TomSecretsSshKeyFormat` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyformat) |
+| `TomSecretsSshKeyInfo` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyinfo) |
+| `TomSecretsSshPrivateKey` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshprivatekey) |
 | `TomSecretsStore` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsstore) |
 | `TomSecretsStoreLocation` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsstorelocation) |
 | `TomSecretsStoreSpec` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsstorespec) |
@@ -570,21 +616,9 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsTotp` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotp) |
 | `TomSecretsTotpAlgorithm` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotpalgorithm) |
 | `TomSecretsTotpFields` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotpfields) |
-| `TomSecretsLoginMatch` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsloginmatch) |
-| `TomSecretsGeneratedSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsgeneratedsshkey) |
-| `TomSecretsSshAgentConnection` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshagentconnection) |
-| `TomSecretsSshAgentServing` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshagentserving) |
-| `TomSecretsSshGrantSecret` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshgrantsecret) |
-| `TomSecretsSshKeyException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyexception) |
-| `TomSecretsSshPrivateKey` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshprivatekey) |
-| `TomSecretsKeeAgentSettings` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretskeeagentsettings) |
-| `TomSecretsSshKeyAlgorithm` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyalgorithm) |
-| `TomSecretsSshKeyFormat` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyformat) |
-| `TomSecretsSshKeyInfo` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssshkeyinfo) |
-| `TomSecretsSiteUrl` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssiteurl) |
+| `TomSecretsTrust` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretstrust) |
 | `TomSecretsUrlMatchLevel` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsurlmatchlevel) |
 | `TomSecretsUrlMatchRule` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsurlmatchrule) |
-| `TomSecretsTrust` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretstrust) |
 | `TomSecretsVaultCodec` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsvaultcodec) |
 | `TomSecretsVaultConflict` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsvaultconflict) |
 | `TomSecretsVaultFields` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsvaultfields) |
@@ -604,21 +638,13 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsAcceptKeyChange` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsApprovalCode` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsApproverKeyId` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsAsciiHost` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsBase32Decode` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32Encode` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
-| `tomSecretsAsciiHost` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
-| `tomSecretsEntryUrls` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
-| `tomSecretsMatchLogins` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
-| `tomSecretsGenerateSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
-| `tomSecretsMigrateSshKeys` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
-| `tomSecretsSshKeyCandidates` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
-| `tomSecretsSshKeyOf` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
-| `tomSecretsWriteSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
-| `tomSecretsMatchSiteUrl` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
-| `tomSecretsRegistrableDomain` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase64Url` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsBlobId` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
+| `tomSecretsBreachCheckExcluded` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsClassifyMove` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsClientTokenHash` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsClientTokenId` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
@@ -627,17 +653,21 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsCompactionFiles` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsCompactionMessage` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsCompactionSettingsOf` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
+| `tomSecretsCompositeKey` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
 | `tomSecretsConflictsOf` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsDecodeBase64` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsDecodeStored` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
 | `tomSecretsDefaultHost` | First Run and Device Settings | [→](api_summary_device.md#functions) |
 | `tomSecretsDeviceCommitter` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsEncodeStored` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
+| `tomSecretsEntryUrls` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsExportEnpassJson` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsGenerateSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsGitHubRemote` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsGitHubTokenExpiryHandle` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsGitHubTokenHandle` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsGivePairing` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsHealthReport` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsHkdf` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsImport` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsImportCategoryField` | Import and Export | [→](api_summary_import_export.md#functions) |
@@ -655,8 +685,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsLp` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsLpList` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsLps` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsMatchLogins` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsMatchSiteUrl` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsMergeVaults` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsMetadataEntry` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsMigrateSshKeys` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsNewVault` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsNoiseHkdf` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsNormalizeCode` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
@@ -673,6 +706,10 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsParsePairingAddress` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsParseTokenExpiration` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsPasskeyPem` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsPasswordChanged` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsPasswordHash` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsPasswordOf` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsPasswordStrength` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsPinText` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRead1PasswordCsv` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsRead1Pux` | Import and Export | [→](api_summary_import_export.md#functions) |
@@ -682,16 +719,20 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsReceivePairingAt` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsReceivePairingForSetup` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRedeemToken` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsRegistrableDomain` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsRepositoryKeyHandle` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsRequestDigest` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsSameText` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsSetBreachCheckExcluded` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsSettleConflicts` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsSignedBytes` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsSshKeyCandidates` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsSshKeyOf` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsUuidFromHex` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsUuidHex` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsVaultCredentials` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
-| `tomSecretsCompositeKey` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
 | `tomSecretsVerifiedBy` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsWriteSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 
 ---
 
@@ -700,6 +741,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | Name | Module | Link |
 | --- | --- | --- |
 | `tomSecretsAmbiguousCharacters` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsBreachCheckField` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsBuiltInDimensions` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsCompactedFromTrailer` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsCompactionConfigPath` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
@@ -741,6 +783,10 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsProductGroup` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsRetentionTrailer` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsSignedFields` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsSshAgentKeyTypes` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsSshAgentMaxBindings` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsSshAgentMaxMessage` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsStrengthMaxLength` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsTokenExpirationHeader` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsTrustGroup` | First Run and Device Settings | [→](api_summary_device.md#constants) |
 | `tomSecretsVaultsGroup` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |

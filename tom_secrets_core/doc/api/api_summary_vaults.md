@@ -50,6 +50,7 @@
   - [TomSecretsSshPrivateKey](#tomsecretssshprivatekey)
   - [TomSecretsSshKeyException](#tomsecretssshkeyexception)
   - [TomSecretsSshAgentConnection](#tomsecretssshagentconnection)
+  - [TomSecretsSshAgentMessage](#tomsecretssshagentmessage)
   - [TomSecretsSshGrantSecret](#tomsecretssshgrantsecret)
   - [TomSecretsCharacterClass](#tomsecretscharacterclass)
   - [TomSecretsPasswordPolicy](#tomsecretspasswordpolicy)
@@ -57,15 +58,24 @@
   - [TomSecretsVaultFields](#tomsecretsvaultfields)
   - [TomSecretsVaultKeys](#tomsecretsvaultkeys)
   - [TomSecretsPrimaryVaults](#tomsecretsprimaryvaults)
+  - [TomSecretsHealthIssue](#tomsecretshealthissue)
+  - [TomSecretsHealthPolicy](#tomsecretshealthpolicy)
+  - [TomSecretsPasswordStrength](#tomsecretspasswordstrength)
+  - [TomSecretsKeyStrength](#tomsecretskeystrength)
+  - [TomSecretsHealthEntry](#tomsecretshealthentry)
+  - [TomSecretsHealthFinding](#tomsecretshealthfinding)
+  - [TomSecretsHealthReport](#tomsecretshealthreport)
+  - [TomSecretsBreachCheck](#tomsecretsbreachcheck)
+  - [TomSecretsBreachCheckException](#tomsecretsbreachcheckexception)
 - [Global Functions and Constants](#global-functions-and-constants)
 
 ---
 
 ## Overview
 
-The vaults and resolution module covers what a vault is to the product and how a secret reference resolves: the shared configuration `tsm.config` with its dimensions and stores, vault locators (`file:`, `github:`, `git:`), the metadata entry `.tom-secrets`, the product's conventions on standard KDBX fields (flat key, entry type, attachments, passkey fields), new vaults keyed through Argon2id, stores indexed with their overlays, the resolver with its rank vectors and its explanation, TOTP codes in the three KDBX conventions, the password generator and the primary vault's list of further vaults.
+The vaults and resolution module covers what a vault is to the product and how a secret reference resolves: the shared configuration `tsm.config` with its dimensions and stores, vault locators (`file:`, `github:`, `git:`), the metadata entry `.tom-secrets`, the product's conventions on standard KDBX fields (flat key, entry type, attachments, passkey fields), new vaults keyed through Argon2id, stores indexed with their overlays, the resolver with its rank vectors and its explanation, TOTP codes in the three KDBX conventions, the password generator, the health report with its breach check, and the primary vault's list of further vaults.
 
-Source files: `lib/src/config.dart`, `lib/src/locator.dart`, `lib/src/metadata.dart`, `lib/src/mapping.dart`, `lib/src/new_vault.dart`, `lib/src/store.dart`, `lib/src/resolution.dart`, `lib/src/totp.dart`, `lib/src/password_generator.dart`, `lib/src/primary.dart`, `lib/src/url_match.dart`, `lib/src/ssh_key.dart`, `lib/src/ssh_private_key.dart`, `lib/src/ssh_agent.dart`, `lib/src/bcrypt_pbkdf.dart`.
+Source files: `lib/src/config.dart`, `lib/src/locator.dart`, `lib/src/metadata.dart`, `lib/src/mapping.dart`, `lib/src/new_vault.dart`, `lib/src/store.dart`, `lib/src/resolution.dart`, `lib/src/totp.dart`, `lib/src/password_generator.dart`, `lib/src/primary.dart`, `lib/src/url_match.dart`, `lib/src/ssh_key.dart`, `lib/src/ssh_private_key.dart`, `lib/src/ssh_agent.dart`, `lib/src/bcrypt_pbkdf.dart`, `lib/src/health.dart`.
 
 ---
 
@@ -110,7 +120,16 @@ Object
 ├── TomSecretsPasswordGenerator
 ├── TomSecretsVaultFields
 ├── TomSecretsVaultKeys
-└── TomSecretsPrimaryVaults
+├── TomSecretsPrimaryVaults
+├── TomSecretsHealthIssue (enum)
+├── TomSecretsHealthPolicy
+├── TomSecretsPasswordStrength
+├── TomSecretsKeyStrength
+├── TomSecretsHealthEntry
+├── TomSecretsHealthFinding
+├── TomSecretsHealthReport
+├── TomSecretsBreachCheck
+└── TomSecretsBreachCheckException
 ```
 
 ---
@@ -499,6 +518,7 @@ The field names the product reserves (`tsm.` prefix) and the foreign conventions
 | `importPrefix` | `String` | The prefix of an import origin, `tsm.import.<source>.id`. |
 | `passkeyPrefix` | `String` | The passkey fields KeePassXC writes; never served on the client endpoint. |
 | `extraUrlPrefix` | `String` | The extra URL fields for autofill. |
+| `urlMatch` | `KdbxKey` | How the entry's URLs match a web page: `domain` (the default), `host`, `exact` or `never`. |
 | `totp` | `String` | The virtual field: the current TOTP code. |
 | `attachmentPrefix` | `String` | The prefix of an attachment field, `attachment:<name>`. |
 
@@ -1013,8 +1033,31 @@ One connection of the SSH agent protocol (draft-miller-ssh-agent) over a `TomSec
 | --- | --- | --- |
 | `handle(Uint8List message)` | `Future<Uint8List>` | The answer to one message (without its length) |
 | `bindings` | `List<TomSecretsSshBinding>` | The connection's `session-bind`s: `hostKey`, `sessionId`, `forwarded`, `hostKeyFingerprint` |
+| `backend` | `TomSecretsSshAgentBackend` | The backend |
+
+`TomSecretsSshAgentIdentity(publicKeyBlob, comment)` is a key the agent offers: its public key in SSH's wire form and its comment (shown by `ssh-add -l`).
 
 `TomSecretsSshSignRequest` carries `publicKeyBlob`, `data`, `flags`, `bindings`, `purpose` (`TomSecretsSshSignPurpose`: `userAuth`, `sshSig`, `other`), `namespace` (an `SSHSIG`'s), `destination` (the last binding), `forwarded` (an earlier binding was) and `keyFingerprint`.
+
+---
+
+### TomSecretsSshAgentMessage
+
+The agent protocol's message numbers.
+
+**Kind:** `abstract final class`
+
+#### Static Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `failure` | `int` | `SSH_AGENT_FAILURE` (5). |
+| `success` | `int` | `SSH_AGENT_SUCCESS` (6). |
+| `requestIdentities` | `int` | `SSH_AGENTC_REQUEST_IDENTITIES` (11). |
+| `identitiesAnswer` | `int` | `SSH_AGENT_IDENTITIES_ANSWER` (12). |
+| `signRequest` | `int` | `SSH_AGENTC_SIGN_REQUEST` (13). |
+| `signResponse` | `int` | `SSH_AGENT_SIGN_RESPONSE` (14). |
+| `extension` | `int` | `SSH_AGENTC_EXTENSION` (27). |
 
 ---
 
@@ -1028,6 +1071,7 @@ An agent grant's `secret` (protocol.md 7.6): `ssh-key [host <fingerprint>[,…]]
 | `parse(String secret)` (static) | `TomSecretsSshGrantSecret?` | The agent secret, or null when `secret` is none |
 | `text` | `String` | As written into the grant |
 | `valid` | `bool` | Forwarding only for one key and named hosts |
+| `prefix` (static) | `String` | `ssh-key `, the prefix of an agent grant's secret |
 
 ---
 
@@ -1181,6 +1225,217 @@ A primary vault's further vaults.
 
 ---
 
+### TomSecretsHealthIssue
+
+What the health report flags.
+
+**Kind:** `enum`
+
+#### Values
+
+| Value | Description |
+| --- | --- |
+| `weak` | A password an attacker guesses quickly. |
+| `reused` | A password two or more entries share. |
+| `old` | A password unchanged for longer than the policy's age. |
+| `expiring` | An entry that expires soon, or has expired. |
+| `shortKey` | A key shorter than today's guidance (DP-179). |
+| `breached` | A password found in known breaches. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `label` | `String` | The heading the Health screen shows. |
+
+---
+
+### TomSecretsHealthPolicy
+
+The report's thresholds.
+
+**Kind:** `final class`
+
+#### Constructors
+
+| Constructor | Kind | Description |
+| --- | --- | --- |
+| `TomSecretsHealthPolicy({oldAfter, expiringWithin})` | `const` | Passwords count as old after `oldAfter` (one year); entries as expiring within `expiringWithin` (30 days) of their Expires time. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `oldAfter` | `Duration` | The age after which a password counts as old. |
+| `expiringWithin` | `Duration` | How long before its Expires time an entry counts as expiring. |
+
+---
+
+### TomSecretsPasswordStrength
+
+How guessable a password is (zxcvbn).
+
+**Kind:** `final class`
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `score` | `int` | zxcvbn's score, 0 (guessed at once) to 4. |
+| `guessesLog10` | `double` | The estimated guesses, as a power of ten. |
+| `warning` | `String?` | What makes it guessable, when zxcvbn names it. |
+| `weak` | `bool` | Whether the report flags it: a score below 3. |
+
+---
+
+### TomSecretsKeyStrength
+
+Today's minimum key lengths (DP-179).
+
+**Kind:** `abstract final class`
+
+#### Static Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `rsaMinimumBits` | `int` | 3072: RSA below it is flagged. |
+| `ecMinimumBits` | `int` | 256: an elliptic curve below it is flagged. |
+
+#### Static Methods
+
+| Method | Return Type | Description |
+| --- | --- | --- |
+| `shortness(keyType, bits)` | `String?` | Why a key of an SSH key type and size is short (DSA always), or null when it passes or its length cannot be read. |
+
+---
+
+### TomSecretsHealthEntry
+
+An entry the health report reads.
+
+**Kind:** `final class`
+
+#### Constructors
+
+| Constructor | Kind | Description |
+| --- | --- | --- |
+| `TomSecretsHealthEntry(store, entry)` | `const` | `entry` of the vault `store`. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `store` | `String` | The store. |
+| `entry` | `KdbxEntry` | The entry. |
+| `type` | `TomSecretsEntryType` | Its type. |
+| `password` | `String?` | Its password when it is a login with one, else null. |
+
+---
+
+### TomSecretsHealthFinding
+
+One flag of the health report.
+
+**Kind:** `final class`
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `issue` | `TomSecretsHealthIssue` | What is flagged. |
+| `store` | `String` | The entry's store. |
+| `entry` | `KdbxEntry` | The entry. |
+| `detail` | `String` | Why, for the user; never a value. |
+
+---
+
+### TomSecretsHealthReport
+
+The health report: its findings by issue, then by store and title.
+
+**Kind:** `final class`
+
+#### Static Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `empty` | `TomSecretsHealthReport` | The empty report. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `findings` | `List<TomSecretsHealthFinding>` | Every finding. |
+| `checkedPasswords` | `int` | How many login passwords were checked. |
+| `healthy` | `bool` | Whether nothing is flagged. |
+
+#### Methods
+
+| Method | Return Type | Description |
+| --- | --- | --- |
+| `of(issue)` | `List<TomSecretsHealthFinding>` | The findings of `issue`. |
+
+---
+
+### TomSecretsBreachCheck
+
+The breach check over the Have I Been Pwned range API: only a password's five-character SHA-1 prefix leaves the device, with `Add-Padding: true`; counts cached per hash in memory.
+
+**Kind:** `final class`
+
+#### Constructors
+
+| Constructor | Kind | Description |
+| --- | --- | --- |
+| `TomSecretsBreachCheck({client, endpoint, parallel = 4, userAgent})` | — | A check over `client` (default a new one) against `endpoint` (default `defaultEndpoint`), at most `parallel` requests at a time. |
+
+#### Static Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `defaultEndpoint` | `Uri` | `https://api.pwnedpasswords.com/range/`. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `endpoint` | `Uri` | Where the prefixes are sent (`<endpoint><prefix>`). |
+| `parallel` | `int` | How many requests run at once. |
+| `userAgent` | `String` | The `User-Agent` the API asks for. |
+
+#### Methods
+
+| Method | Return Type | Description |
+| --- | --- | --- |
+| `cached(password)` | `int?` | How often `password` was seen, when asked already; else null. |
+| `count(password)` | `Future<int>` | How often `password` was seen in breaches. |
+| `countAll(passwords)` | `Future<Map<String, int>>` | How often each was seen, one request per prefix not asked before; a failed request throws `TomSecretsBreachCheckException`. |
+| `close()` | `void` | Closes the client it made. |
+
+#### Static Methods
+
+| Method | Return Type | Description |
+| --- | --- | --- |
+| `parseRange(body)` | `Map<String, int>` | The suffixes of a range answer with their counts, the padding lines (count 0) left out. |
+
+---
+
+### TomSecretsBreachCheckException
+
+The breach check could not ask.
+
+**Kind:** `final class`
+
+**Implements:** `Exception`
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `message` | `String` | What went wrong. |
+
+---
+
 ## Global Functions and Constants
 
 ### Constants
@@ -1201,6 +1456,11 @@ A primary vault's further vaults.
 | `tomSecretsVaultsGroup` | `String` | The subgroup holding the further vaults. |
 | `tomSecretsPublicSuffixListVersion` | `String` | The version of the Public Suffix List the URL matching carries (regenerated with `tool/update_public_suffix_list.py`). |
 | `tomSecretsKeeAgentSettingsName` | `String` | `KeeAgent.settings`, the attachment KeePassXC's SSH agent reads an entry's settings from. |
+| `tomSecretsStrengthMaxLength` | `int` | The longest prefix of a password the strength estimator reads (100). |
+| `tomSecretsBreachCheckField` | `KdbxKey` | `tsm.breachCheck`, the field that keeps an entry out of the breach check (`off`). |
+| `tomSecretsSshAgentMaxMessage` | `int` | The largest message the agent reads, 256 KiB (OpenSSH's `AGENT_MAX_LEN`). |
+| `tomSecretsSshAgentMaxBindings` | `int` | At most this many `session-bind`s per connection, 16 (OpenSSH's `AGENT_MAX_SESSION_IDS`). |
+| `tomSecretsSshAgentKeyTypes` | `Set<String>` | The key types the agent signs with. |
 
 ### Functions
 
@@ -1237,3 +1497,10 @@ A primary vault's further vaults.
 | `tomSecretsEntryUrls` | `List<String> tomSecretsEntryUrls(KdbxEntry entry)` | The entry's `URL`, then its `KP2A_URL*` fields in name order; empty ones left out. |
 | `tomSecretsRegistrableDomain` | `String? tomSecretsRegistrableDomain(String host)` | The registrable domain of an ASCII host after the Public Suffix List (both sections), or null for a public suffix. |
 | `tomSecretsAsciiHost` | `String tomSecretsAsciiHost(String host)` | The host lower-case, a trailing dot dropped, non-ASCII labels as punycode (RFC 3492), an IPv6 address without brackets. |
+| `tomSecretsPasswordStrength` | `TomSecretsPasswordStrength tomSecretsPasswordStrength(String password, {List<String> userInputs = const []})` | The strength of `password` (zxcvbn, its first 100 characters); `userInputs` are words it should not be built from (the entry's title, user name, site). |
+| `tomSecretsBreachCheckExcluded` | `bool tomSecretsBreachCheckExcluded(KdbxEntry entry)` | Whether an entry is kept out of the breach check (`tsm.breachCheck` `off`). |
+| `tomSecretsSetBreachCheckExcluded` | `void tomSecretsSetBreachCheckExcluded(KdbxEntry entry, bool excluded)` | Keeps an entry out of the breach check, or lets it in again; its old state in its history. |
+| `tomSecretsPasswordOf` | `String? tomSecretsPasswordOf(KdbxEntry entry)` | An entry's password, or null when it has none. |
+| `tomSecretsPasswordChanged` | `DateTime? tomSecretsPasswordChanged(KdbxEntry entry)` | When an entry's current password was set, read from its history. |
+| `tomSecretsPasswordHash` | `String tomSecretsPasswordHash(String password)` | The SHA-1 of a password in upper-case hex, as the range API compares it; kept in memory only. |
+| `tomSecretsHealthReport` | `TomSecretsHealthReport tomSecretsHealthReport(Iterable<TomSecretsHealthEntry> entries, {required DateTime now, TomSecretsHealthPolicy policy = const TomSecretsHealthPolicy(), int? Function(TomSecretsHealthEntry entry, String password)? breachCount})` | The health report: weak, reused, old and breached login passwords, expiring entries, short SSH keys. |
