@@ -332,10 +332,7 @@ void main() {
     test(
       'KeePassXC counts the imported passkeys',
       () async {
-        final dir = Directory(
-          '${Directory.current.path}/testlog/scratch_enpass_kxc',
-        )..createSync(recursive: true);
-        addTearDown(() => dir.deleteSync(recursive: true));
+        final dir = scratch('enpass_kxc');
         final path = '${dir.path}/vault.kdbx';
         File(path).writeAsBytesSync(await file.save());
         final process = await Process.start(keepassxcApp, [

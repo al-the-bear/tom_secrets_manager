@@ -436,7 +436,14 @@ void main() {
         File(demo.teamPath).readAsBytesSync(),
         tomSecretsVaultCredentials(password: teamPassword),
       );
-      final work = _login(team, 'Mail work', 'https://mail.example.com/work');
+      // Used long ago: the candidates are ordered by last use (5.7), so it
+      // comes after Mail whether or not both were made in the same second.
+      final work = _login(
+        team,
+        'Mail work',
+        'https://mail.example.com/work',
+        used: DateTime.utc(2020),
+      );
       File(demo.teamPath).writeAsBytesSync(await team.save());
       return 'team/~${tomSecretsUuidHex(work.uuid)}';
     }

@@ -4,8 +4,23 @@
 /// Builds demo vaults in memory (demo data under a demo key; no real secret).
 library;
 
+import 'dart:io';
+
+import 'package:test/test.dart';
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
+
+/// A new scratch folder `testlog/scratch_<name>_<random>` of this test,
+/// deleted at its teardown. Each call has its own folder, so runs of the
+/// package's tests at the same time (two sessions, or the CI beside a
+/// developer) never share one.
+Directory scratch(String name) {
+  final parent = Directory('${Directory.current.path}/testlog')
+    ..createSync(recursive: true);
+  final dir = parent.createTempSync('scratch_${name}_');
+  addTearDown(() => dir.deleteSync(recursive: true));
+  return dir;
+}
 
 /// The demo key every test file is written with.
 final demoCredentials = Credentials(ProtectedValue.fromString('demo-key'));

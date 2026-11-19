@@ -46,14 +46,6 @@ KdbxFile demoVault() {
   return v.file;
 }
 
-Directory scratch(String name) {
-  final dir = Directory('${Directory.current.path}/testlog/scratch_$name');
-  if (dir.existsSync()) dir.deleteSync(recursive: true);
-  dir.createSync(recursive: true);
-  addTearDown(() => dir.deleteSync(recursive: true));
-  return dir;
-}
-
 /// A commit on [branch] of [repository] writing [files], made [daysAgo]
 /// days before [now] by [who].
 Future<GitObjectId> commitAt(

@@ -66,14 +66,6 @@ KdbxFile demoVault() {
   return v.file;
 }
 
-Directory scratch(String name) {
-  final dir = Directory('${Directory.current.path}/testlog/scratch_$name');
-  if (dir.existsSync()) dir.deleteSync(recursive: true);
-  dir.createSync(recursive: true);
-  addTearDown(() => dir.deleteSync(recursive: true));
-  return dir;
-}
-
 void main() {
   group('the cache directory', () {
     test('a file is kept as stored, under <owner>/<repository>/<path>, with '
