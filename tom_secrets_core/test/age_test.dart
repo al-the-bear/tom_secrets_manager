@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 // The age v1 file format (part-sharing, DP-63, DP-177): the reader against
-// every hybrid vector of the age testkit (fixtures/age, C2SP CCTV at the
-// commit SOURCE.json names, each file's SHA-256 pinned), the writer by
-// round trips (empty, one chunk, exactly one chunk, several, armoured,
-// several recipients) and its refusals. The files filippo.io/age v1.3.2
+// every hybrid and scrypt vector of the age testkit (fixtures/age and
+// fixtures/age_scrypt, C2SP CCTV at the commit SOURCE.json names, each
+// file's SHA-256 pinned), the writer by round trips (empty, one chunk,
+// exactly one chunk, several, armoured, several recipients, a passphrase)
+// and its refusals. The files filippo.io/age v1.3.2
 // reads and writes are checked by hand once per change (README, Status).
 
 import 'dart:convert';
@@ -15,8 +16,6 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
-
-const _dir = 'test/fixtures/age';
 
 /// One testkit vector: its header fields and the file.
 final class _Vector {
@@ -46,6 +45,7 @@ final class _Vector {
 
   String get expect => fields['expect']!.single;
   List<String> get identities => fields['identity'] ?? const [];
+  List<String> get passphrases => fields['passphrase'] ?? const [];
   String? get payloadHash => fields['payload']?.single;
 }
 
@@ -54,18 +54,24 @@ Matcher _failure(TomSecretsAgeFailure reason) => throwsA(
 );
 
 void main() {
-  group('the age testkit (hybrid vectors)', () {
+  _testkit('hybrid', 'test/fixtures/age', 19);
+  _testkit('scrypt', 'test/fixtures/age_scrypt', 26);
+  _writer();
+}
+
+void _testkit(String kind, String dir, int count) {
+  group('the age testkit ($kind vectors)', () {
     final source =
-        jsonDecode(File('$_dir/SOURCE.json').readAsStringSync())
+        jsonDecode(File('$dir/SOURCE.json').readAsStringSync())
             as Map<String, dynamic>;
     final digests = (source['sha256'] as Map).cast<String, String>();
     final files = [
-      for (final f in Directory(_dir).listSync().whereType<File>())
+      for (final f in Directory(dir).listSync().whereType<File>())
         if (!f.path.endsWith('SOURCE.json')) f,
     ]..sort((a, b) => a.path.compareTo(b.path));
 
     test('the vectors are the pinned files', () {
-      expect(files, hasLength(19));
+      expect(files, hasLength(count));
       for (final f in files) {
         final name = f.uri.pathSegments.last;
         expect(sha256.convert(f.readAsBytesSync()).toString(), digests[name]);
@@ -96,6 +102,9 @@ void main() {
             identities.add(c);
           }
         }
+        for (final p in vector.passphrases) {
+          identities.add(TomSecretsAgePassphraseIdentity(p));
+        }
         addTearDown(() {
           for (final k in keys) {
             k.dispose();
@@ -114,7 +123,9 @@ void main() {
       });
     }
   });
+}
 
+void _writer() {
   group('the writer', () {
     late TomSecretsMemberKey alice;
     late TomSecretsMemberKey bob;
@@ -239,6 +250,76 @@ void main() {
         );
       },
     );
+
+    test('under a passphrase: one scrypt stanza, read with the passphrase; '
+        'the work factor, a wrong passphrase', () async {
+      final file = await tomSecretsAgeEncryptPassphrase(
+        utf8.encode('for whoever has the passphrase'),
+        'correct horse battery',
+        workFactor: 10,
+      );
+      final text = latin1.decode(file);
+      expect(
+        RegExp(
+          '^-> scrypt [A-Za-z0-9+/]{22} 10\$',
+          multiLine: true,
+        ).allMatches(text),
+        hasLength(1),
+      );
+      expect(tomSecretsAgeIsPassphrase(file), isTrue);
+      expect(
+        tomSecretsAgeIsPassphrase(utf8.encode(tomSecretsAgeArmor(file))),
+        isTrue,
+      );
+      expect(
+        utf8.decode(
+          await tomSecretsAgeDecrypt(file, [
+            TomSecretsAgeHybridIdentity(alice),
+            const TomSecretsAgePassphraseIdentity('correct horse battery'),
+          ]),
+        ),
+        'for whoever has the passphrase',
+      );
+      await expectLater(
+        tomSecretsAgeDecrypt(file, [
+          const TomSecretsAgePassphraseIdentity('wrong'),
+        ]),
+        _failure(TomSecretsAgeFailure.noMatch),
+      );
+      await expectLater(
+        tomSecretsAgeDecrypt(file, [
+          const TomSecretsAgePassphraseIdentity(
+            'correct horse battery',
+            maxWorkFactor: 9,
+          ),
+        ]),
+        _failure(TomSecretsAgeFailure.header),
+      );
+      final member = await tomSecretsAgeEncrypt(utf8.encode('x'), [
+        alice.recipient,
+      ]);
+      expect(tomSecretsAgeIsPassphrase(member), isFalse);
+      expect(
+        () => tomSecretsAgeEncryptPassphrase(const [1], 'p', workFactor: 23),
+        throwsArgumentError,
+      );
+    });
+
+    test('a passphrase file at the default work factor (18)', () async {
+      final file = await tomSecretsAgeEncryptPassphrase(
+        utf8.encode('demo'),
+        'demo passphrase',
+      );
+      expect(latin1.decode(file), contains(' 18\n'));
+      expect(
+        utf8.decode(
+          await tomSecretsAgeDecrypt(file, [
+            const TomSecretsAgePassphraseIdentity('demo passphrase'),
+          ]),
+        ),
+        'demo',
+      );
+    });
 
     test('not an age file', () async {
       await expectLater(

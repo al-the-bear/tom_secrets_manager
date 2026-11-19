@@ -489,9 +489,7 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
   /// The path of the file [name] in the folder of [vault]'s file; a name
   /// with a path in it is refused.
   static String _besidePath(TomSecretsGitHubLocator vault, String name) {
-    if (name.isEmpty || name.contains('/')) {
-      throw ArgumentError.value(name, 'name', 'not a file name');
-    }
+    tomSecretsBesidePath(name);
     final slash = vault.path.lastIndexOf('/');
     return slash < 0 ? name : '${vault.path.substring(0, slash + 1)}$name';
   }
@@ -562,6 +560,80 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
       moving: 'the branch moved meanwhile; write again',
     );
     return tomSecretsBlobId(bytes);
+  }
+
+  /// Lists the files below [folder] beside [locator]'s file at the branch's
+  /// head (one recursive tree read through the REST API).
+  @override
+  Future<Map<String, String>> listBeside(String locator, String folder) async {
+    final vault = _parse(locator);
+    final prefix = '${_besidePath(vault, folder)}/';
+    final base = _besidePath(vault, 'x');
+    final dir = base.substring(0, base.length - 1);
+    final tree = await _headTree(vault);
+    return {
+      for (final e in tree.entries)
+        if (e.path.startsWith(prefix) && e.type == 'blob')
+          e.path.substring(dir.length): e.sha,
+    };
+  }
+
+  /// Deletes [paths] beside [locator]'s file in one commit, those still
+  /// there at the head.
+  @override
+  Future<void> deleteBeside(String locator, List<String> paths) async {
+    final vault = _parse(locator);
+    final tree = await _headTree(vault);
+    final present = <String, String>{
+      for (final p in paths)
+        if (tree.entries
+                .where((e) => e.path == _besidePath(vault, p))
+                .firstOrNull
+            case final e?)
+          e.path: e.sha,
+    };
+    if (present.isEmpty) return;
+    await _commitTree(
+      vault,
+      writes: const {},
+      deletes: present.keys.toSet(),
+      expected: present,
+      refusals: {
+        for (final p in present.keys)
+          p: ('the file $p has moved since it was read', 'stale_base'),
+      },
+      message: 'tsm: ${present.length} inbox file(s) removed from $device',
+      moving: 'the branch moved meanwhile; delete again',
+    );
+  }
+
+  /// The recursive tree of [vault]'s branch head.
+  Future<GitHubTree> _headTree(TomSecretsGitHubLocator vault) async {
+    final (git, branch) = await _git(vault);
+    try {
+      final head = await git.getRef(
+        owner: vault.owner,
+        repo: vault.repository,
+        ref: 'heads/$branch',
+      );
+      final commit = await git.getCommit(
+        owner: vault.owner,
+        repo: vault.repository,
+        sha: head.sha,
+      );
+      return await git.getTree(
+        owner: vault.owner,
+        repo: vault.repository,
+        sha: commit.treeSha,
+        recursive: true,
+      );
+    } on GitHubAuthException {
+      throw const TomTokenRejectedException(
+        'github',
+        TomGitHubStorage.host,
+        'GitHub refused the token',
+      );
+    }
   }
 
   /// The git API of [vault]'s repository with its token, and its branch.

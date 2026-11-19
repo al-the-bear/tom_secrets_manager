@@ -201,13 +201,26 @@ abstract interface class TomSecretsVaultOpener {
   });
 
   /// **[C]** The file [name] beside the vault at [locator] (in its folder,
-  /// a shared vault's recipients file, part-sharing) and its revision (its
-  /// git blob id), or null when there is none. Throws the storage's
-  /// failure when the remote cannot be reached or refuses the token.
+  /// a shared vault's recipients file, part-sharing; or a path below that
+  /// folder, `inbox/<member-id>/<package>`) and its revision (its git blob
+  /// id), or null when there is none. Throws the storage's failure when the
+  /// remote cannot be reached or refuses the token.
   Future<({Uint8List bytes, String revision})?> readBeside(
     String locator,
     String name,
   );
+
+  /// **[C]** The files below the folder [folder] beside the vault at
+  /// [locator] (e.g. `inbox`, part-sharing's inbox folders), at any depth:
+  /// each one's path relative to the vault's folder (`/` between segments)
+  /// with its revision. Empty when there is no such folder.
+  Future<Map<String, String>> listBeside(String locator, String folder);
+
+  /// **[C]** Deletes the files [paths] (relative to the vault's folder, as
+  /// [listBeside] answers them); a `github:` vault in one commit. A path
+  /// that is not there is skipped. Refused (`denied`, `branch_moving`) when
+  /// the branch moved during the write.
+  Future<void> deleteBeside(String locator, List<String> paths);
 
   /// **[C]** Writes [bytes] as the file [name] beside the vault at
   /// [locator]; a `github:` vault in one commit on the branch. Refused
@@ -393,6 +406,14 @@ final class TomSecretsLocatorOpener implements TomSecretsVaultOpener {
   ).writeBeside(locator, name, bytes, baseRevision: baseRevision);
 
   @override
+  Future<Map<String, String>> listBeside(String locator, String folder) =>
+      _for(locator).listBeside(locator, folder);
+
+  @override
+  Future<void> deleteBeside(String locator, List<String> paths) =>
+      _for(locator).deleteBeside(locator, paths);
+
+  @override
   Future<TomSecretsOpenedVault> move(
     String from,
     String to,
@@ -512,13 +533,34 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
     await temp.rename(path);
   }
 
-  /// The path of the file [name] in the folder of the vault at [locator];
-  /// a name with a path in it is refused.
-  static String _besidePath(String locator, String name) {
-    if (name.isEmpty || name.contains('/') || name.contains(r'\')) {
-      throw ArgumentError.value(name, 'name', 'not a file name');
+  /// The path of [name] (a file name, or a relative path below the vault's
+  /// folder) in the folder of the vault at [locator].
+  static String _besidePath(String locator, String name) =>
+      '${File(_path(locator)).parent.path}${Platform.pathSeparator}'
+      '${tomSecretsBesidePath(name).replaceAll('/', Platform.pathSeparator)}';
+
+  @override
+  Future<Map<String, String>> listBeside(String locator, String folder) async {
+    final dir = Directory(_besidePath(locator, folder));
+    if (!dir.existsSync()) return const {};
+    final base = File(_path(locator)).parent.path;
+    final out = <String, String>{};
+    await for (final f in dir.list(recursive: true, followLinks: false)) {
+      if (f is! File || f.path.endsWith('.tmp')) continue;
+      final relative = f.path
+          .substring(base.length + 1)
+          .replaceAll(Platform.pathSeparator, '/');
+      out[relative] = tomSecretsBlobId(await f.readAsBytes());
     }
-    return '${File(_path(locator)).parent.path}${Platform.pathSeparator}$name';
+    return out;
+  }
+
+  @override
+  Future<void> deleteBeside(String locator, List<String> paths) async {
+    for (final p in paths) {
+      final f = File(_besidePath(locator, p));
+      if (f.existsSync()) await f.delete();
+    }
   }
 
   @override
@@ -551,6 +593,7 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
         reason: 'stale_base',
       );
     }
+    await file.parent.create(recursive: true);
     await _writeFile(path, bytes);
     return tomSecretsBlobId(bytes);
   }
@@ -2605,4 +2648,16 @@ final class TomSecretsVaultSet {
     _machine = null;
     _resolver = null;
   }
+}
+
+/// **[C]** [name] checked as a path beside a vault: a file name, or
+/// segments below the vault's folder joined by `/` (`inbox/<id>/<file>`);
+/// an empty segment, `.`, `..` or a backslash is refused.
+String tomSecretsBesidePath(String name) {
+  final segments = name.split('/');
+  if (name.contains(r'\') ||
+      segments.any((s) => s.isEmpty || s == '.' || s == '..')) {
+    throw ArgumentError.value(name, 'name', 'not a path beside the vault');
+  }
+  return name;
 }

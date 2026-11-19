@@ -11,6 +11,11 @@
 ///   other people's classical keys. A file is written to hybrid recipients
 ///   or to classical ones, never both: `age` refuses the mix, since it would
 ///   lose the post-quantum protection.
+/// - **A passphrase:** the `scrypt` recipient (a 16-byte salt, the work
+///   factor log2 N, r = 8, p = 1; the key from scrypt over the salt
+///   `age-encryption.org/v1/scrypt` || salt), alone in its file; symmetric,
+///   so a quantum computer does not weaken it. The reader refuses a work
+///   factor above 22, as `age` does.
 /// - **The file:** the header (`age-encryption.org/v1`, one stanza per
 ///   recipient, the HMAC-SHA256 under a key derived from the 16-byte file
 ///   key), then a 16-byte nonce and the payload in 64 KiB ChaCha20-Poly1305
@@ -19,16 +24,18 @@
 ///   64 characters, `-----END AGE ENCRYPTED FILE-----`, for a package
 ///   pasted into a message.
 ///
-/// The reader is checked against the age testkit's hybrid vectors (C2SP
-/// CCTV), the writer against `filippo.io/age`.
+/// The reader is checked against the age testkit's hybrid and scrypt
+/// vectors (C2SP CCTV), the writer against `filippo.io/age`.
 library;
 
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:cryptography/cryptography.dart';
+import 'package:pointycastle/export.dart' as pc;
 import 'package:tom_pqc/tom_pqc.dart';
 
 import 'member_keys.dart';
@@ -82,6 +89,23 @@ final class TomSecretsAgeHybridIdentity extends TomSecretsAgeIdentity {
   final TomSecretsMemberKey key;
 }
 
+/// A passphrase as an `age` identity: opens a file written with the
+/// `scrypt` recipient. A work factor above [maxWorkFactor] is refused
+/// (`header`) before anything is computed.
+final class TomSecretsAgePassphraseIdentity extends TomSecretsAgeIdentity {
+  /// [passphrase] as an identity.
+  const TomSecretsAgePassphraseIdentity(
+    this.passphrase, {
+    this.maxWorkFactor = tomSecretsAgeMaxWorkFactor,
+  });
+
+  /// The passphrase.
+  final String passphrase;
+
+  /// The highest work factor (log2 N) it computes.
+  final int maxWorkFactor;
+}
+
 /// A classical `age` identity, `AGE-SECRET-KEY-1…` (X25519): the product
 /// makes none, but reads a file written to one (another person's export
 /// opened with their key, the testkit). [dispose] zeroes it.
@@ -101,6 +125,8 @@ final class TomSecretsAgeX25519Identity extends TomSecretsAgeIdentity {
 const _version = 'age-encryption.org/v1';
 const _hybridType = 'mlkem768x25519';
 const _x25519Type = 'X25519';
+const _scryptType = 'scrypt';
+const _scryptLabel = 'age-encryption.org/v1/scrypt';
 const _hybridInfo = 'age-encryption.org/mlkem768x25519';
 const _x25519Info = 'age-encryption.org/v1/X25519';
 const _chunk = 64 * 1024;
@@ -113,6 +139,75 @@ final _x25519 = X25519();
 
 Uint8List _randomBytes(int n) =>
     Uint8List.fromList([for (var i = 0; i < n; i++) _random.nextInt(256)]);
+
+/// The work factor (log2 N) a passphrase file is written with: `age`'s own
+/// (about a second on a desktop).
+const tomSecretsAgeDefaultWorkFactor = 18;
+
+/// The highest work factor (log2 N) the reader computes, as `age`.
+const tomSecretsAgeMaxWorkFactor = 22;
+
+/// [plaintext] encrypted under [passphrase] as an `age` v1 file with the
+/// one `scrypt` recipient, [workFactor] its log2 N (1 to 22).
+Future<Uint8List> tomSecretsAgeEncryptPassphrase(
+  List<int> plaintext,
+  String passphrase, {
+  int workFactor = tomSecretsAgeDefaultWorkFactor,
+}) async {
+  if (workFactor < 1 || workFactor > tomSecretsAgeMaxWorkFactor) {
+    throw ArgumentError.value(workFactor, 'workFactor', 'not 1 to 22');
+  }
+  final salt = _randomBytes(16);
+  return _encrypt(plaintext, (fileKey) async {
+    final key = await _scrypt(passphrase, salt, workFactor);
+    try {
+      final box = await _aead.encrypt(
+        fileKey,
+        secretKey: SecretKey(key),
+        nonce: Uint8List(12),
+      );
+      return [
+        (
+          [_scryptType, _base64(salt), '$workFactor'],
+          Uint8List.fromList([...box.cipherText, ...box.mac.bytes]),
+        ),
+      ];
+    } finally {
+      key.fillRange(0, key.length, 0);
+    }
+  });
+}
+
+/// Whether the `age` file [file] (binary or armoured) is written under a
+/// passphrase (its one stanza is `scrypt`), so a reader asks for one.
+bool tomSecretsAgeIsPassphrase(List<int> file) {
+  try {
+    var bytes = Uint8List.fromList(file);
+    if (tomSecretsIsAgeArmor(bytes)) bytes = tomSecretsAgeDearmor(bytes);
+    final header = _Header.parse(bytes);
+    return header.stanzas.length == 1 &&
+        header.stanzas.single.args.first == _scryptType;
+  } on TomSecretsAgeException {
+    return false;
+  }
+}
+
+/// scrypt (RFC 7914) of [passphrase] with `age`'s salt, r = 8, p = 1, a
+/// 32-byte key; computed in another isolate, so a work factor of 18 (256
+/// MiB, seconds) does not stop the caller's event loop.
+Future<Uint8List> _scrypt(String passphrase, List<int> salt, int logN) {
+  final fullSalt = Uint8List.fromList([...ascii.encode(_scryptLabel), ...salt]);
+  return Isolate.run(() {
+    final input = Uint8List.fromList(utf8.encode(passphrase));
+    try {
+      final kdf = pc.Scrypt()
+        ..init(pc.ScryptParameters(1 << logN, 8, 1, 32, fullSalt));
+      return kdf.process(input);
+    } finally {
+      input.fillRange(0, input.length, 0);
+    }
+  });
+}
 
 /// [plaintext] encrypted to [recipients] as an `age` v1 file: all hybrid
 /// (member keys) or all classical. Throws [TomSecretsAgeException]
@@ -135,13 +230,26 @@ Future<Uint8List> tomSecretsAgeEncrypt(
       'protection against a quantum computer',
     );
   }
+  return _encrypt(plaintext, (fileKey) async {
+    return [
+      for (final r in recipients)
+        r.isHybrid
+            ? await _wrapHybrid(r, fileKey)
+            : await _wrapX25519(r, fileKey),
+    ];
+  });
+}
+
+/// Writes [plaintext] as an `age` file whose stanzas [stanzas] makes from
+/// the file key.
+Future<Uint8List> _encrypt(
+  List<int> plaintext,
+  Future<List<(List<String>, Uint8List)>> Function(Uint8List fileKey) stanzas,
+) async {
   final fileKey = _randomBytes(16);
   try {
     final header = StringBuffer('$_version\n');
-    for (final r in recipients) {
-      final (args, body) = r.isHybrid
-          ? await _wrapHybrid(r, fileKey)
-          : await _wrapX25519(r, fileKey);
+    for (final (args, body) in await stanzas(fileKey)) {
       header.write('-> ${args.join(' ')}\n');
       header.write(_wrappedBase64(body));
     }
@@ -198,6 +306,12 @@ Future<Uint8List> tomSecretsAgeDecrypt(
 ) async {
   if (tomSecretsIsAgeArmor(file)) file = tomSecretsAgeDearmor(file);
   final header = _Header.parse(file);
+  if (header.stanzas.length > 1 &&
+      header.stanzas.any((s) => s.args.first == _scryptType)) {
+    // As age: a passphrase file has no other recipient, else anyone with
+    // the other key could change the file under the passphrase.
+    throw _headerFailure('an scrypt recipient must be the only one');
+  }
   Uint8List? fileKey;
   for (final identity in identities) {
     fileKey = await _unwrap(header.stanzas, identity);
@@ -504,6 +618,32 @@ Future<Uint8List?> _unwrap(
         ss.fillRange(0, ss.length, 0);
         final opened = await _open(k, nonce, s.body);
         k.fillRange(0, k.length, 0);
+        if (opened != null) return opened;
+      }
+      return null;
+    case TomSecretsAgePassphraseIdentity(
+      :final passphrase,
+      :final maxWorkFactor,
+    ):
+      for (final s in stanzas.where((s) => s.args.first == _scryptType)) {
+        if (s.args.length != 3) {
+          throw _headerFailure('an scrypt stanza without salt and work factor');
+        }
+        final salt = _canonicalBase64(s.args[1]);
+        if (salt == null || salt.length != 16) {
+          throw _headerFailure('a malformed scrypt salt');
+        }
+        final factor = s.args[2];
+        if (!RegExp(r'^[1-9][0-9]?$').hasMatch(factor) ||
+            int.parse(factor) > maxWorkFactor) {
+          throw _headerFailure('an scrypt work factor of $factor');
+        }
+        if (s.body.length != 32) {
+          throw _headerFailure('an scrypt body of ${s.body.length}');
+        }
+        final key = await _scrypt(passphrase, salt, int.parse(factor));
+        final opened = await _open(key, Uint8List(12), s.body);
+        key.fillRange(0, key.length, 0);
         if (opened != null) return opened;
       }
       return null;
