@@ -36,6 +36,7 @@ import 'member_keys.dart';
 import 'metadata.dart';
 import 'new_vault.dart';
 import 'outer.dart';
+import 'rotation.dart' show tomSecretsKeyId;
 import 'stored_vault.dart';
 
 /// The format of a recipients file's plaintext.
@@ -212,6 +213,43 @@ final class TomSecretsSharedVaultKeys {
       outer: repositoryKey != null,
     );
   }
+
+  /// The same keys without the recipient [recipient] (part-key-rotation:
+  /// a member's old key dropped at the finish of its rotation, the same
+  /// person still a member under the new one). Refused when it is no member
+  /// or would leave none. The vault is not re-keyed: use [withoutMember]
+  /// to remove a person.
+  TomSecretsSharedVaultKeys withoutRecipient(TomSecretsAgeRecipient recipient) {
+    if (!hasMember(recipient)) {
+      throw const TomSecretsSharedVaultException(
+        TomSecretsSharedVaultFailure.members,
+        'the key is not a member of the vault',
+      );
+    }
+    final next = [
+      for (final m in members)
+        if (m.recipient != recipient) m,
+    ];
+    tomSecretsCheckSharedVaultMembers(next);
+    return TomSecretsSharedVaultKeys._(
+      vault: vault,
+      keyFile: Uint8List.fromList(keyFile),
+      repositoryKey: repositoryKey,
+      members: next,
+    );
+  }
+
+  /// New keys for the same members (part-key-rotation: a shared vault's key
+  /// rotated without removing anyone); the vault is to be re-keyed to them.
+  TomSecretsSharedVaultKeys rotated() => TomSecretsSharedVaultKeys.generate(
+    vault,
+    members: members,
+    outer: repositoryKey != null,
+  );
+
+  /// The id of the key file (`tomSecretsKeyId`), as a rotation record names
+  /// it.
+  String get keyId => tomSecretsKeyId(keyFile);
 
   /// The plaintext of the recipients file.
   Map<String, Object?> toJson() => {

@@ -402,7 +402,7 @@ revokes the old one. Failed authentications delay the next one (1 s, 2 s,
 | `keys.rotate` | this device's approver and link key pairs rotated (manager app only): what the old approver key signed is signed again, the key-change statement written into the vault for every host it approves for, both sent over the approval link at once; the previous link key is kept for 14 days for the peers not reached |
 | `vault.create` | a further vault created (manager app only): the app's new file written where it lives (a `file:` vault at its path, a `github:` vault in one commit), then listed in the primary with its keys, its repository's token when it brings one and its due date, and served |
 | `vault.move` | a store's outer encryption added or removed: the vault moved to its locator with `.kdbx.tsmx` or `.kdbx`, the new file written before the old one is removed, a `github:` vault in one commit |
-| `vault.recipients`, `vault.recipients.set` | a shared vault's recipients file `<vault>.keys.age` beside it (manager app only, part-sharing): read by store, or by location with the token the request brings (joining a vault not listed yet); written alone over the revision read (a member added). `vault.create` takes it for a new shared vault opened by a key file alone, and a re-keyed `save` writes it with the vault in one commit (a member removed). The service never opens the file: only a member's app holds the member key |
+| `vault.recipients`, `vault.recipients.set` | a shared vault's recipients file `<vault>.keys.age` beside it (manager app only, part-sharing): read by store, or by location with the token the request brings (joining a vault not listed yet); written alone over the revision read (a member added). `vault.create` takes it for a new shared vault opened by a key file alone, and a re-keyed `save` writes it with the vault in one commit (a member removed). The service never opens the file: only a member's app holds the member key. A vault whose current file no longer opens with the keys held (another device re-keyed it) is served read-only from the copy under its old key (`needs_unlock`, `source` `cache`, `keyChanged`), saves refused (`key_changed`), until the primary lists the new keys |
 
 ### The editing path
 
@@ -602,7 +602,7 @@ session) the service never locks itself, the maximum unlocked time included.
 
 ## Status
 
-Version 0.17.0. The suite runs with `testkit :test` from the package folder.
+Version 0.18.0. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real

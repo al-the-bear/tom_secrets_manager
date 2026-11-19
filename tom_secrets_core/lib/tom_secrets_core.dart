@@ -43,6 +43,7 @@ export 'src/passkey.dart';
 export 'src/password_generator.dart';
 export 'src/primary.dart';
 export 'src/resolution.dart';
+export 'src/rotation.dart';
 export 'src/shared_vault.dart';
 export 'src/signed_objects.dart';
 export 'src/ssh_agent.dart';

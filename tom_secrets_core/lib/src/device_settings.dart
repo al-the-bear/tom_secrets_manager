@@ -164,6 +164,7 @@ final class TomSecretsDeviceSettings {
     this.keyPairAgeMonths = 24,
     this.primaryKeyAgeMonths = tomSecretsPrimaryKeyMonths,
     this.vaultKeyAgeMonths = 12,
+    this.memberKeyAgeMonths = 24,
   });
 
   /// From the stored JSON; a value missing takes its default.
@@ -204,6 +205,7 @@ final class TomSecretsDeviceSettings {
       keyPairAgeMonths: intOf('keyPairAgeMonths', d.keyPairAgeMonths),
       primaryKeyAgeMonths: intOf('primaryKeyAgeMonths', d.primaryKeyAgeMonths),
       vaultKeyAgeMonths: intOf('vaultKeyAgeMonths', d.vaultKeyAgeMonths),
+      memberKeyAgeMonths: intOf('memberKeyAgeMonths', d.memberKeyAgeMonths),
     );
   }
 
@@ -257,6 +259,10 @@ final class TomSecretsDeviceSettings {
   /// gets, in months (DP-85: 12).
   final int vaultKeyAgeMonths;
 
+  /// **[C]** The rotation age of the user's member key, in months (DP-85:
+  /// 24), counted from its `member-key` entry's creation.
+  final int memberKeyAgeMonths;
+
   /// The JSON kept in the container.
   Map<String, Object?> toJson() => {
     'serviceLock': serviceLock.toJson(),
@@ -274,6 +280,7 @@ final class TomSecretsDeviceSettings {
     'keyPairAgeMonths': keyPairAgeMonths,
     'primaryKeyAgeMonths': primaryKeyAgeMonths,
     'vaultKeyAgeMonths': vaultKeyAgeMonths,
+    'memberKeyAgeMonths': memberKeyAgeMonths,
   };
 }
 

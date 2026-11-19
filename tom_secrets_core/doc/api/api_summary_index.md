@@ -347,6 +347,10 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsSharedVaultFailure` | enum | Why a shared vault's keys could not be read or written. | [→](api_summary_sharing.md#tomsecretssharedvaultfailure) |
 | `TomSecretsSharedVaultException` | final class | A refused recipients file or member change. | [→](api_summary_sharing.md#tomsecretssharedvaultexception) |
 | `TomSecretsSharedVaultKeys` | final class | What a shared vault's recipients file holds: the vault's keys (a key file, a repository key when outer encrypted) and its members. | [→](api_summary_sharing.md#tomsecretssharedvaultkeys) |
+| `TomSecretsRotationKind` | enum | The kind of key a rotation replaces. | [→](api_summary_sharing.md#tomsecretsrotationkind) |
+| `TomSecretsRotationException` | final class | A rotation that cannot start or go on. | [→](api_summary_sharing.md#tomsecretsrotationexception) |
+| `TomSecretsRotation` | final class | One rotation record: its kind and target, the old and new key ids, when it started and switched, when its migration period ends, who started it, who is still to take up the new key. | [→](api_summary_sharing.md#tomsecretsrotation) |
+| `TomSecretsRotations` | final class | The rotation records of a vault (the primary, or a shared vault): the group `.tom-secrets/rotations`; the record is the lock, one rotation per target. | [→](api_summary_sharing.md#tomsecretsrotations) |
 
 ### Functions
 
@@ -406,6 +410,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsReadRecipientsFile` | The keys of the recipients file `file`, opened with `memberKey`; throws `TomSecretsSharedVaultException` (`notAMember`, `malformed`) or `TomSecretsAgeException` for a broken file. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRecipientsFileName` | The recipients file beside the vault file `fileName` (`team.kdbx`, `team.kdbx.tsmx` → `team.keys.age`). | [→](api_summary_sharing.md#functions) |
 | `tomSecretsNewSharedVault` | A new shared vault `name` (kind `shared`) opened by `keys`' key file alone. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsKeyId` | The key id of `bytes` (a key file's, a repository key's): the first 8 bytes of their SHA-256 in hex. | [→](api_summary_sharing.md#functions) |
 
 ### Global Variables
 
@@ -423,6 +428,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsDevicesGroup` | `String` | The subgroup of the product group holding the device records. | [→](api_summary_sharing.md#constants) |
 | `tomSecretsSharedVaultKeysFormat` | `String` | The format of a recipients file's plaintext: `tsm-shared-vault-keys/1`. | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRecipientsSuffix` | `String` | The suffix of a recipients file, after the vault's name: `.keys.age`. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsRotationsGroup` | `String` | The subgroup of the product group holding the rotation records: `rotations`. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsRotationPeriod` | `Duration` | The default migration period of a rotation: 14 days (DP-85). | [→](api_summary_sharing.md#constants) |
 
 ---
 
@@ -702,6 +709,10 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsResolution` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsresolution) |
 | `TomSecretsResolveException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsresolveexception) |
 | `TomSecretsResolver` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsresolver) |
+| `TomSecretsRotation` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrotation) |
+| `TomSecretsRotationException` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrotationexception) |
+| `TomSecretsRotationKind` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrotationkind) |
+| `TomSecretsRotations` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrotations) |
 | `TomSecretsSharedVaultException` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedvaultexception) |
 | `TomSecretsSharedVaultFailure` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedvaultfailure) |
 | `TomSecretsSharedVaultKeys` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedvaultkeys) |
@@ -819,6 +830,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsIsReservedName` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsIsToken` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsKeyFileHandle` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsKeyId` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsKeysDue` | First Run and Device Settings | [→](api_summary_device.md#functions) |
 | `tomSecretsLinkFrame` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsLinkRekey` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
@@ -948,6 +960,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsProductGroup` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsRecipientsSuffix` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRetentionTrailer` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
+| `tomSecretsRotationPeriod` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsRotationsGroup` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsSharedVaultKeysFormat` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsSharingGroup` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsSignedFields` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |

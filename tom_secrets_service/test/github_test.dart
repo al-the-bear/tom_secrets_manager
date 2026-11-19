@@ -415,6 +415,91 @@ void main() {
     expect(await get('team/Api/Token'), 'token-2');
   });
 
+  test('the key changed on another device (part-key-rotation, the '
+      'migration period): the copy under the old key is served read-only, '
+      'also after a new unlock from the offline cache; once the primary '
+      'lists the new key the store is current and writable again', () async {
+    final service = await start();
+    // Another member re-keys `team` on GitHub.
+    final team =
+        await KdbxFormat().read(
+            server.bytesAt(_repo, 'team.kdbx')!,
+            _pw(teamPassword),
+          )
+          ..credentials = _pw('team-demo-pw-2');
+    await put(_team, team);
+    final rekeyed = server.bytesAt(_repo, 'team.kdbx')!;
+
+    await service.refresh(force: true);
+    var status = stores(service)['team']!;
+    expect(status['state'], 'needs_unlock');
+    expect(status['source'], 'cache');
+    expect(status['keyChanged'], isTrue);
+    expect(await get('team/Api/Token'), 'token-1', reason: 'read-only copy');
+    final held = await admin.request('vaultFile', {'store': 'team'});
+    final refusal = await refused(
+      admin.request('save', {
+        'store': 'team',
+        'bytes': held['bytes'],
+        'baseRevision': held['revision'],
+      }),
+    );
+    expect(refusal.kind, 'needs_unlock');
+    expect(refusal.details['reason'], 'key_changed');
+    expect(
+      server.bytesAt(_repo, 'team.kdbx'),
+      rekeyed,
+      reason: 'nothing written under the old key',
+    );
+
+    // A new unlock: the current file does not open, the offline copy does.
+    await admin.request('lock');
+    await admin.unlock(primaryPassword);
+    status = stores(service)['team']!;
+    expect(status['keyChanged'], isTrue);
+    expect(status['source'], 'cache');
+    expect(await get('team/Api/Token'), 'token-1');
+
+    // The new key listed in the primary: current and writable.
+    final primaryFile = await admin.request('vaultFile', {'store': 'primary'});
+    final primary = await KdbxFormat().read(
+      base64.decode(primaryFile['bytes'] as String),
+      _pw(primaryPassword),
+    );
+    final vaults = TomSecretsPrimaryVaults(primary);
+    final old = vaults.byName('team')!;
+    vaults.put(
+      TomSecretsVaultKeys(
+        name: old.name,
+        locator: old.locator,
+        password: 'team-demo-pw-2',
+      ),
+    );
+    await admin.request('save', {
+      'store': 'primary',
+      'bytes': base64.encode(await primary.save()),
+      'baseRevision': primaryFile['revision'],
+    });
+    await service.refresh(force: true);
+    status = stores(service)['team']!;
+    expect(status['state'], 'current');
+    expect(status.containsKey('keyChanged'), isFalse);
+    final current = await admin.request('vaultFile', {'store': 'team'});
+    final edited = await KdbxFormat().read(
+      base64.decode(current['bytes'] as String),
+      _pw('team-demo-pw-2'),
+    );
+    edited.body.rootGroup.addEntry(
+      KdbxEntry.create(edited, edited.body.rootGroup)
+        ..setString(KdbxKeyCommon.TITLE, PlainValue('after the switch')),
+    );
+    await admin.request('save', {
+      'store': 'team',
+      'bytes': base64.encode(await edited.save()),
+      'baseRevision': current['revision'],
+    });
+  });
+
   test('GitHub unreachable: the stores are served from the copy held '
       '(offline, source cache), the admins are told, reload answers '
       'offline, the fetch backs off 1, 2, 4 minutes; back online all is '
@@ -542,50 +627,39 @@ void main() {
     },
   );
 
-  test(
-    'a file whose key changed goes to needs_unlock and leaves the index; '
-    'a vault the primary lists anew is opened, one it drops is dropped',
-    () async {
-      final service = await start();
-      events.clear();
-      await put(_team, _vault('team', 'rotated-pw', {'Api/Token': 'token-9'}));
-      await service.refresh(force: true);
-      expect(stores(service)['team']!['state'], 'needs_unlock');
-      await settle();
-      expect(ofOp('store_state').single, {
-        'op': 'store_state',
-        'store': 'team',
-        'state': 'needs_unlock',
-        'source': 'github',
-        'notPushed': 0,
-      });
-      final client = await TomSecretsClient.connect(
-        clientName: 'demo-client',
-        environment: demo.clientEnvironment(),
-      );
-      addTearDown(client.close);
-      await expectLater(
-        client.get('team/Api/Token'),
-        throwsA(isA<TomSecretsClientException>()),
-      );
+  test('a file whose key changed goes to needs_unlock, its copy under the old '
+      'key served read-only (keyChanged); a vault the primary lists anew is '
+      'opened, one it drops is dropped', () async {
+    final service = await start();
+    events.clear();
+    await put(_team, _vault('team', 'rotated-pw', {'Api/Token': 'token-9'}));
+    await service.refresh(force: true);
+    expect(stores(service)['team']!['state'], 'needs_unlock');
+    await settle();
+    expect(ofOp('store_state').single, {
+      'op': 'store_state',
+      'store': 'team',
+      'state': 'needs_unlock',
+      'source': 'cache',
+      'fetchedAt': now.toIso8601String(),
+      'notPushed': 0,
+      'keyChanged': true,
+    });
+    // The copy under the old key is still read (decision 41).
+    expect(await get('team/Api/Token'), 'token-1');
 
-      // The primary now lists the rotated password and drops `other`.
-      final primary = primaryVault(withOther: false);
-      TomSecretsPrimaryVaults(primary, primaryLocator: _primary).put(
-        TomSecretsVaultKeys(
-          name: 'team',
-          locator: _team,
-          password: 'rotated-pw',
-        ),
-      );
-      await put(_primary, primary);
-      final report = await service.refresh(force: true);
-      expect(report.reopened, containsAll(['primary', 'team']));
-      expect(stores(service).keys, ['primary', 'team']);
-      expect(stores(service)['team']!['state'], 'current');
-      expect(await get('team/Api/Token'), 'token-9');
-    },
-  );
+    // The primary now lists the rotated password and drops `other`.
+    final primary = primaryVault(withOther: false);
+    TomSecretsPrimaryVaults(primary, primaryLocator: _primary).put(
+      TomSecretsVaultKeys(name: 'team', locator: _team, password: 'rotated-pw'),
+    );
+    await put(_primary, primary);
+    final report = await service.refresh(force: true);
+    expect(report.reopened, containsAll(['primary', 'team']));
+    expect(stores(service).keys, ['primary', 'team']);
+    expect(stores(service)['team']!['state'], 'current');
+    expect(await get('team/Api/Token'), 'token-9');
+  });
 
   test('file: vaults are refreshed too: a file changed on the disk is '
       'reopened', () async {

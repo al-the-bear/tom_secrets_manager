@@ -124,18 +124,39 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
     final vault = _parse(locator);
     final repository = _repository(vault);
     repository.watch.servedOffline = false;
-    final unit = await TomSecretsVaultUnit.open(
-      locator: locator,
-      storage: repository.storage,
-      credentials: credentials,
-      device: device,
-      codec: _codec(vault, outerKey),
-      cache: cacheDirectory != null && _useCache()
-          ? TomSecretsOfflineCache(Directory(cacheDirectory!))
-          : null,
-      history: await repository.history(vault.branch),
-      clock: () => _clock().toUtc(),
-    );
+    final cache = cacheDirectory != null && _useCache()
+        ? TomSecretsOfflineCache(Directory(cacheDirectory!))
+        : null;
+    final TomSecretsVaultUnit unit;
+    try {
+      unit = await TomSecretsVaultUnit.open(
+        locator: locator,
+        storage: repository.storage,
+        credentials: credentials,
+        device: device,
+        codec: _codec(vault, outerKey),
+        cache: cache,
+        history: await repository.history(vault.branch),
+        clock: () => _clock().toUtc(),
+      );
+    } on Object catch (e) {
+      if (e is! KdbxInvalidKeyException && e is! TomKeyRequiredException) {
+        rethrow;
+      }
+      // Another device re-keyed the vault (part-key-rotation, the
+      // migration period): the offline copy under the key held is served,
+      // read-only, until the new key is listed.
+      final copy = await _cachedUnderOldKey(
+        cache,
+        vault,
+        locator,
+        credentials,
+        outerKey,
+      );
+      if (copy == null) rethrow;
+      await _units.remove(locator)?.dispose();
+      return copy;
+    }
     // Kept for the saves: its base is what the service serves from now on.
     await _units.remove(locator)?.dispose();
     _units[locator] = unit;
@@ -156,6 +177,37 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
       fetchedAt: unit.fetchedAt,
       offlineReason: unit.offlineReason ?? unanswered,
     );
+  }
+
+  /// The offline copy of [locator] that [credentials] still open, as a
+  /// store served read-only ([TomSecretsKeyChangedException]); null when
+  /// there is none or it does not open either.
+  Future<TomSecretsOpenedVault?> _cachedUnderOldKey(
+    TomSecretsOfflineCache? cache,
+    TomSecretsGitHubLocator vault,
+    String locator,
+    Credentials credentials,
+    String? outerKey,
+  ) async {
+    final cached = await cache?.get(locator);
+    if (cached == null) return null;
+    try {
+      final file = await KdbxFormat().read(
+        await _codec(vault, outerKey).decode(cached.bytes),
+        credentials,
+      );
+      return TomSecretsOpenedVault(
+        locator: locator,
+        file: file,
+        stored: cached.bytes,
+        revision: cached.head,
+        source: 'cache',
+        fetchedAt: cached.fetchedAt,
+        offlineReason: TomSecretsKeyChangedException(locator),
+      );
+    } on Object {
+      return null;
+    }
   }
 
   @override

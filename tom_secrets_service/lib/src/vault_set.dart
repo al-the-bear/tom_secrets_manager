@@ -49,9 +49,29 @@ enum TomSecretsStoreState {
   /// `token_expired` when GitHub refused the token or none is there, else
   /// `offline`.
   static TomSecretsStoreState offlineFor(Object reason) =>
-      reason is TomTokenRejectedException || reason is TomTokenRequiredException
+      reason is TomSecretsKeyChangedException
+      ? needsUnlock
+      : reason is TomTokenRejectedException ||
+            reason is TomTokenRequiredException
       ? tokenExpired
       : offline;
+}
+
+/// **[C]** Why a store is served from a copy under its old key (part-key-
+/// rotation, the migration period): the current file no longer opens with
+/// the keys this device holds — another device re-keyed it. The copy is
+/// served read-only (`needs_unlock`, `source` `cache`, `keyChanged`) until
+/// the new key is listed in the primary; a save is refused meanwhile.
+final class TomSecretsKeyChangedException implements Exception {
+  /// The key of [locator] changed.
+  const TomSecretsKeyChangedException(this.locator);
+
+  /// The store's locator.
+  final String locator;
+
+  @override
+  String toString() =>
+      'TomSecretsKeyChangedException: the key of $locator changed';
 }
 
 /// Whether [error] is a failure to reach the remote, or a refusal of the
@@ -859,10 +879,15 @@ final class TomSecretsStoreStatus {
     this.revision,
     this.notPushed = 0,
     this.rewrittenHead,
+    this.keyChanged = false,
   });
 
   /// The store's name.
   final String name;
+
+  /// **[C]** Whether it is served from a copy under its old key, read-only,
+  /// because another device re-keyed it ([TomSecretsKeyChangedException]).
+  final bool keyChanged;
 
   /// The head of its rewritten branch awaiting the user's answer
   /// (`history.resolve`), or null.
@@ -902,6 +927,7 @@ final class TomSecretsStoreStatus {
     'fetchedAt': ?fetchedAt?.toUtc().toIso8601String(),
     'notPushed': notPushed,
     if (rewrittenHead != null) 'rewritten': {'head': rewrittenHead},
+    if (keyChanged) 'keyChanged': true,
   };
 }
 
@@ -1233,7 +1259,8 @@ final class TomSecretsVaultSet {
         outerKey: outerKey,
       );
       final store = TomSecretsStore.fromFile(opened.file, name: name);
-      _fetched(name, opened.offlineReason);
+      final keyChanged = opened.offlineReason is TomSecretsKeyChangedException;
+      _fetched(name, keyChanged ? null : opened.offlineReason);
       _opened[name] = opened;
       _status[name] = TomSecretsStoreStatus(
         name: name,
@@ -1242,6 +1269,7 @@ final class TomSecretsVaultSet {
         source: opened.source,
         fetchedAt: opened.fetchedAt,
         revision: _revisionOf(opened),
+        keyChanged: keyChanged,
       );
       return store;
     } on KdbxInvalidKeyException {
@@ -1464,6 +1492,16 @@ final class TomSecretsVaultSet {
       throw TomSecretsSaveException('not_found', 'no open store $name');
     }
     final state = _status[name]?.state;
+    if (state == TomSecretsStoreState.needsUnlock &&
+        (_status[name]?.keyChanged ?? false)) {
+      newKeys?.dispose();
+      throw TomSecretsSaveException(
+        'needs_unlock',
+        'the key of $name changed on another device; its copy is read-only '
+            'until the new key is here',
+        reason: 'key_changed',
+      );
+    }
     if (state == TomSecretsStoreState.offline ||
         state == TomSecretsStoreState.tokenExpired) {
       newKeys?.dispose();
@@ -2391,6 +2429,7 @@ final class TomSecretsVaultSet {
     TomSecretsStoreState state, {
     TomSecretsOpenedVault? from,
     String? source,
+    bool keyChanged = false,
   }) => _status[name] = TomSecretsStoreStatus(
     name: name,
     state: state,
@@ -2399,6 +2438,8 @@ final class TomSecretsVaultSet {
     fetchedAt: from?.fetchedAt,
     revision: from == null ? null : _revisionOf(from),
     rewrittenHead: _rewritten[name],
+    keyChanged:
+        keyChanged || from?.offlineReason is TomSecretsKeyChangedException,
   );
 
   /// Fetches store [name] at [locator] and reopens it when its file moved
@@ -2428,10 +2469,18 @@ final class TomSecretsVaultSet {
         credentials,
         outerKey: outerKey,
       );
-      _fetched(name, opened.offlineReason);
+      final keyChanged = opened.offlineReason is TomSecretsKeyChangedException;
+      _fetched(name, keyChanged ? null : opened.offlineReason);
       if (opened.offlineReason != null && held != null) {
         // The copy held is at least as new as the cached one.
-        _setStatus(name, locator, opened.state, from: held, source: 'cache');
+        _setStatus(
+          name,
+          locator,
+          opened.state,
+          from: held,
+          source: 'cache',
+          keyChanged: keyChanged,
+        );
         return _Outcome.unchanged;
       }
       if (!reopen && held != null && _revisionOf(held) == _revisionOf(opened)) {
@@ -2451,6 +2500,20 @@ final class TomSecretsVaultSet {
         _fetched(name, e);
       }
       final fetchFailed = !keyChanged && tomSecretsIsFetchFailure(e);
+      if (held != null && keyChanged && !isPrimary) {
+        // Another device re-keyed it (part-key-rotation): the copy held,
+        // under the old key, is served read-only until the new key is
+        // listed in the primary.
+        _setStatus(
+          name,
+          locator,
+          TomSecretsStoreState.needsUnlock,
+          from: held,
+          source: 'cache',
+          keyChanged: true,
+        );
+        return _Outcome.unchanged;
+      }
       if (held != null && (fetchFailed || isPrimary)) {
         // The primary is never dropped while unlocked: its held copy is
         // served until the next unlock.

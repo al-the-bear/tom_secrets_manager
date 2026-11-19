@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.15
+
+- The rotation record (part-key-rotation, DP-85): `TomSecretsRotations`
+  over `.tom-secrets/rotations` (start refused while a rotation of the same
+  target runs: the record is the lock; update; end), `TomSecretsRotation`
+  (kind, target, old and new key ids, started, switched, migration end,
+  pending), `TomSecretsRotationKind`, `tomSecretsRotationPeriod` (14 days),
+  `tomSecretsKeyId`.
+- `TomSecretsSharedVaultKeys.withoutRecipient` (a member's old key dropped
+  at the finish of its rotation, the vault's keys kept), `rotated()` (new
+  keys, the same members), `keyId`.
+- `TomSecretsDeviceSettings.memberKeyAgeMonths` (DP-85: 24).
+
 ## 0.2.14
 
 - The `age` v1 file format (part-sharing, DP-63, DP-177):

@@ -61,15 +61,19 @@
   - [TomSecretsSharedVaultFailure](#tomsecretssharedvaultfailure)
   - [TomSecretsSharedVaultException](#tomsecretssharedvaultexception)
   - [TomSecretsSharedVaultKeys](#tomsecretssharedvaultkeys)
+  - [TomSecretsRotationKind](#tomsecretsrotationkind)
+  - [TomSecretsRotationException](#tomsecretsrotationexception)
+  - [TomSecretsRotation](#tomsecretsrotation)
+  - [TomSecretsRotations](#tomsecretsrotations)
 - [Global Functions and Constants](#global-functions-and-constants)
 
 ---
 
 ## Overview
 
-The sharing module holds everything one device of the user's fleet needs to trust another: a device's trust material (approver, link and audit-log keys, the approvers and hosts it recorded) with key rotation; signed objects (grants, revocations, approval records, key-change statements) signed with Ed25519 and ML-DSA-65; the grants group of the primary vault; the approval code and its single-use token; the approval link (Noise KK with ML-KEM-768 paired to every Diffie-Hellman, ChaCha20-Poly1305 transport); pairing by a short code through SPAKE2 (RFC 9382) with an ML-KEM-768 exchange inside; the device records of the primary vault; and, for sharing with people (phase C), the member keys: hybrid `age` v1.3 identities and recipients (`age1pq1…`, X25519 + ML-KEM-768), other people's classical recipients for exports, the published key file, and the `member-key` and `member` entries of the primary vault's `tsm.sharing` group; the `age` v1 file format (hybrid and classical recipients, armour); and shared vaults with their recipients file.
+The sharing module holds everything one device of the user's fleet needs to trust another: a device's trust material (approver, link and audit-log keys, the approvers and hosts it recorded) with key rotation; signed objects (grants, revocations, approval records, key-change statements) signed with Ed25519 and ML-DSA-65; the grants group of the primary vault; the approval code and its single-use token; the approval link (Noise KK with ML-KEM-768 paired to every Diffie-Hellman, ChaCha20-Poly1305 transport); pairing by a short code through SPAKE2 (RFC 9382) with an ML-KEM-768 exchange inside; the device records of the primary vault; and, for sharing with people (phase C), the member keys: hybrid `age` v1.3 identities and recipients (`age1pq1…`, X25519 + ML-KEM-768), other people's classical recipients for exports, the published key file, and the `member-key` and `member` entries of the primary vault's `tsm.sharing` group; the `age` v1 file format (hybrid and classical recipients, armour); shared vaults with their recipients file; and the rotation records of the guided rotation with a migration period.
 
-Source files: `lib/src/trust.dart`, `lib/src/signed_objects.dart`, `lib/src/grants.dart`, `lib/src/approval_code.dart`, `lib/src/approval_link.dart`, `lib/src/pairing.dart`, `lib/src/pairing_setup.dart`, `lib/src/pairing_words.dart`, `lib/src/device_records.dart`, `lib/src/member_keys.dart`, `lib/src/age.dart`, `lib/src/shared_vault.dart`.
+Source files: `lib/src/trust.dart`, `lib/src/signed_objects.dart`, `lib/src/grants.dart`, `lib/src/approval_code.dart`, `lib/src/approval_link.dart`, `lib/src/pairing.dart`, `lib/src/pairing_setup.dart`, `lib/src/pairing_words.dart`, `lib/src/device_records.dart`, `lib/src/member_keys.dart`, `lib/src/age.dart`, `lib/src/shared_vault.dart`, `lib/src/rotation.dart`.
 
 ---
 
@@ -132,7 +136,11 @@ Object
 ├── TomSecretsSharedVaultMember (typedef)
 ├── TomSecretsSharedVaultFailure (enum)
 ├── TomSecretsSharedVaultException
-└── TomSecretsSharedVaultKeys
+├── TomSecretsSharedVaultKeys
+├── TomSecretsRotationKind (enum)
+├── TomSecretsRotationException
+├── TomSecretsRotation
+└── TomSecretsRotations
 ```
 
 ---
@@ -1470,8 +1478,90 @@ What a shared vault's recipients file holds: the vault's keys (a key file, a rep
 | `hasMember(recipient)` | `bool` | Whether `recipient` is a member. |
 | `withMember(member)` | `TomSecretsSharedVaultKeys` | The same keys for the members and `member` (adding a member). |
 | `withoutMember(recipient)` | `TomSecretsSharedVaultKeys` | New keys for the members but `recipient` (removing a member): a new key file and, when outer encrypted, a new repository key. |
+| `withoutRecipient(recipient)` | `TomSecretsSharedVaultKeys` | The same keys without `recipient` (a member's old key dropped at the finish of its rotation); the vault is not re-keyed. |
+| `rotated()` | `TomSecretsSharedVaultKeys` | New keys for the same members (the vault's key rotated without removing anyone). |
+| `keyId` | `String` | The key file's id (`tomSecretsKeyId`), as a rotation record names it. |
 | `toJson()` | `Map<String, Object?>` | The plaintext of the recipients file (`tsm-shared-vault-keys/1`). |
 | `dispose()` | `void` | Zeroes the key file. |
+
+---
+
+### TomSecretsRotationKind
+
+The kind of key a rotation replaces.
+
+**Kind:** `enum`
+
+#### Values
+
+| Value | Description |
+| --- | --- |
+| `memberKey` | `member-key`: the user's member key (target: the old key's fingerprint). |
+| `sharedVault` | `shared-vault`: a shared vault's key file and repository key (target: its store). |
+| `vaultKeys` | `vault-keys`: a vault's key file or master password (target: its store). |
+| `repositoryKey` | `repository-key`: a repository's outer key (target: `owner/repository`). |
+
+`TomSecretsRotationKind.of(name)` answers the kind of a record's name, null for one this version does not know; `wireName` is that name.
+
+---
+
+### TomSecretsRotationException
+
+A rotation that cannot start or go on.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsRotationException(message, {rotation})` | const | A refusal told by `message`. |
+| `message` | `String` | For people. |
+| `rotation` | `TomSecretsRotation?` | The rotation of the same target already running, when that is why. |
+
+---
+
+### TomSecretsRotation
+
+One rotation record: its kind and target, the old and new key ids, when it started and switched, when its migration period ends, who started it, who is still to take up the new key.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsRotation({kind, target, oldKeyId, newKeyId, started, endsAt, by, switched, pending})` | const | A record. |
+| `kind` | `TomSecretsRotationKind` | The kind of key. |
+| `target` | `String` | A store, a repository or a member key's fingerprint. |
+| `oldKeyId`, `newKeyId` | `String` | The old and the new key's ids. |
+| `started` | `DateTime` | When it started. |
+| `switched` | `DateTime?` | When the target started to run under the new key. |
+| `endsAt` | `DateTime` | When its migration period ends. |
+| `by` | `String` | Who started it. |
+| `pending` | `List<String>` | The devices, members or vaults still to take up the new key. |
+| `isDueAt(now)` | `bool` | Whether the migration period is over at `now`. |
+| `copyWith({switched, pending})` | `TomSecretsRotation` | The record with those replaced. |
+| `title` | `String` | `<kind> <target>`, the record's title in its group. |
+
+---
+
+### TomSecretsRotations
+
+The rotation records of a vault (the primary, or a shared vault): the group `.tom-secrets/rotations`; the record is the lock, one rotation per target.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsRotations(file)` | — | The records of `file`. |
+| `list()` | `List<TomSecretsRotation>` | Every record this version reads. |
+| `of(kind, target)` | `TomSecretsRotation?` | The running rotation of that kind and target. |
+| `start(rotation)` | `void` | Starts it; refused (`TomSecretsRotationException`) while one of the same kind and target runs. |
+| `update(rotation)` | `void` | Writes it over its record (the switch, who is pending). |
+| `end(kind, target)` | `bool` | Removes the record (finished or cancelled); whether there was one. |
 
 ---
 
@@ -1493,6 +1583,8 @@ What a shared vault's recipients file holds: the vault's keys (a key file, a rep
 | `tomSecretsDevicesGroup` | `String` | The subgroup of the product group holding the device records. |
 | `tomSecretsSharedVaultKeysFormat` | `String` | The format of a recipients file's plaintext: `tsm-shared-vault-keys/1`. |
 | `tomSecretsRecipientsSuffix` | `String` | The suffix of a recipients file, after the vault's name: `.keys.age`. |
+| `tomSecretsRotationsGroup` | `String` | The subgroup of the product group holding the rotation records: `rotations`. |
+| `tomSecretsRotationPeriod` | `Duration` | The default migration period of a rotation: 14 days (DP-85). |
 
 ### Functions
 
@@ -1552,3 +1644,4 @@ What a shared vault's recipients file holds: the vault's keys (a key file, a rep
 | `tomSecretsReadRecipientsFile` | `Future<TomSecretsSharedVaultKeys> tomSecretsReadRecipientsFile(Uint8List file, TomSecretsMemberKey memberKey)` | The keys of the recipients file `file`, opened with `memberKey`; throws `TomSecretsSharedVaultException` (`notAMember`, `malformed`) or `TomSecretsAgeException` for a broken file. |
 | `tomSecretsRecipientsFileName` | `String tomSecretsRecipientsFileName(String fileName)` | The recipients file beside the vault file `fileName` (`team.kdbx`, `team.kdbx.tsmx` → `team.keys.age`). |
 | `tomSecretsNewSharedVault` | `KdbxFile tomSecretsNewSharedVault(String name, TomSecretsSharedVaultKeys keys, {String? purpose, KdbxArgon2 argon2 = tomSecretsDefaultArgon2})` | A new shared vault `name` (kind `shared`) opened by `keys`' key file alone. |
+| `tomSecretsKeyId` | `String tomSecretsKeyId(List<int> bytes)` | The key id of `bytes` (a key file's, a repository key's): the first 8 bytes of their SHA-256 in hex. |

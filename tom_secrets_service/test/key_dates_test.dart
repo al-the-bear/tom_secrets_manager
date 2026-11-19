@@ -144,6 +144,46 @@ void main() {
     );
   });
 
+  test('the member key (phase C) is reminded of from 30 days before its 24 '
+      'months (memberKeyAgeMonths) are over, counted from its entry', () async {
+    final primaryFile = await admin.request('vaultFile', {'store': 'primary'});
+    final primary = await KdbxFormat().read(
+      base64.decode(primaryFile['bytes']! as String),
+      tomSecretsVaultCredentials(password: primaryPassword),
+    );
+    final key = await TomSecretsMemberKey.generate();
+    addTearDown(key.dispose);
+    final entry = tomSecretsAddMemberKey(primary, key);
+    entry.times.creationTime.set(now0);
+    await admin.request('save', {
+      'store': 'primary',
+      'bytes': base64.encode(await primary.save()),
+      'baseRevision': primaryFile['revision'],
+    });
+    final id = 'member-key:${key.recipient.fingerprint.substring(0, 16)}';
+    final keys = ((await admin.request('keys'))['keys']! as List).cast<Map>();
+    final member = keys.firstWhere((k) => k['key'] == id);
+    expect(member['kind'], 'member_key');
+    expect(
+      member['expiresAt'],
+      DateTime.utc(2028, 11, 13, 9).toIso8601String(),
+    );
+    expect(member['own'], isTrue);
+
+    now = DateTime.utc(2028, 10, 14, 9); // 24 months less 30 days
+    expect(expiring(), contains((id, 30)));
+
+    await admin.request('settings.set', {
+      'device': {...service.settings.toJson(), 'memberKeyAgeMonths': 12},
+    });
+    now = DateTime.utc(2027, 10, 14, 9); // 12 months less 30 days
+    expect(expiring(), contains((id, 30)));
+    final refused = admin.request('settings.set', {
+      'device': {...service.settings.toJson(), 'memberKeyAgeMonths': 0},
+    });
+    await expectLater(refused, throwsA(isA<TomSecretsAdminException>()));
+  });
+
   test('trust material without dates is dated at the next unlock', () async {
     service.trust
       ..approverKeySince = null

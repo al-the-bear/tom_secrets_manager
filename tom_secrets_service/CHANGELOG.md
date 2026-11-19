@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.18.0
+
+- The migration period of a rotation (part-key-rotation, protocol.md 6.4,
+  decision 41): a vault whose current file no longer opens with the keys
+  held, because another device re-keyed it, stays served from the copy
+  held, or after a new unlock from the offline copy the held keys still
+  open (`TomSecretsKeyChangedException`), read-only: `needs_unlock`,
+  `source` `cache`, `keyChanged` in the store state; clients read it, a
+  save is refused (`needs_unlock`, reason `key_changed`); once the primary
+  lists the new keys it is current and writable again.
+- The member key's rotation age (DP-85): `keys` / `status.expiring` list
+  `member_key` (`member-key:<fingerprint>`, from the `member-key` entry's
+  creation plus `memberKeyAgeMonths`, default 24); the device setting is
+  checked (1..120). Takes `tom_secrets_core` 0.2.15.
+
 ## 0.17.0
 
 - Shared vaults (part-sharing, protocol.md 6.4): `vault.recipients` reads

@@ -308,7 +308,7 @@ What the device settings hold. The keys of later parts (approver and approval-li
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsDeviceSettings({serviceLock, appLock, defaultEnvironment, servedStores, refreshMinutes, offlineCache, keyExpiryWarningDays, approvalTimeout, codeTimeout, startAtLogin, approvalLink, otherKeyWarningDays, keyPairAgeMonths, primaryKeyAgeMonths, vaultKeyAgeMonths})` | const | Settings with the defaults for every value not given. |
+| `TomSecretsDeviceSettings({serviceLock, appLock, defaultEnvironment, servedStores, refreshMinutes, offlineCache, keyExpiryWarningDays, approvalTimeout, codeTimeout, startAtLogin, approvalLink, otherKeyWarningDays, keyPairAgeMonths, primaryKeyAgeMonths, vaultKeyAgeMonths, memberKeyAgeMonths})` | const | Settings with the defaults for every value not given. |
 | `TomSecretsDeviceSettings.fromJson(json)` | factory | From the stored JSON; a value missing takes its default. |
 
 #### Properties
@@ -330,6 +330,7 @@ What the device settings hold. The keys of later parts (approver and approval-li
 | `keyPairAgeMonths` | `int` | The rotation age of the approver and approval-link key pairs, in months (default 24). |
 | `primaryKeyAgeMonths` | `int` | The rotation age a new key file or repository key of the primary vault gets, in months (default 24; rotating them means pairing again). |
 | `vaultKeyAgeMonths` | `int` | The rotation age a new key file or repository key of every other vault gets, in months (default 12). |
+| `memberKeyAgeMonths` | `int` | **[C]** The rotation age of the user's member key, in months (default 24), counted from its entry's creation. |
 
 #### Methods
 

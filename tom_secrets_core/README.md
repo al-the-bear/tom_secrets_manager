@@ -149,6 +149,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | Device records | `TomSecretsDeviceRecords` |
 | The `age` v1 file format (phase C): hybrid `mlkem768x25519` and classical `X25519` recipients, the armour; checked against the age testkit and `filippo.io/age` | `tomSecretsAgeEncrypt`, `tomSecretsAgeDecrypt`, `tomSecretsAgeArmor`, `TomSecretsAgeIdentity` |
 | Shared vaults (phase C): a key file alone, the recipients file `<vault>.keys.age` to the members' hybrid keys, adding and removing members | `TomSecretsSharedVaultKeys`, `tomSecretsWriteRecipientsFile`, `tomSecretsReadRecipientsFile`, `tomSecretsNewSharedVault` |
+| The rotation record of the guided rotation with a migration period (phase C): one per target in `.tom-secrets/rotations` (the lock), its switch, migration end and who is still pending | `TomSecretsRotations`, `TomSecretsRotation`, `tomSecretsKeyId` |
 | Member keys (phase C): hybrid `age` v1.3 keys (`age1pq1…`, X25519 + ML-KEM-768), other people's classical `age1…` keys for exports, fingerprints, the published key file, the `member-key` and `member` entries | `TomSecretsMemberKey`, `TomSecretsAgeRecipient`, `tomSecretsMemberKeyFile`, `tomSecretsReadMemberKeys`, `tomSecretsAddMemberKey`, `tomSecretsAddMember` |
 
 ### Import, export and device
@@ -529,6 +530,15 @@ Its plaintext (`tsm-shared-vault-keys/1`) holds the key file, the
 repository key and the members, so any member writes it again; removing a
 member makes new keys, to which the vault is re-keyed in the same commit.
 
+A **rotation with a migration period** (part-key-rotation) is recorded in
+the vault's `.tom-secrets/rotations` group (`TomSecretsRotations`): one
+record per target is the lock, and it names the old and new key ids, when
+the period ends (`tomSecretsRotationPeriod`, 14 days) and who is still to
+take up the new key. A member key rotates with the old and the new
+recipient side by side in each recipients file (`withMember`, then
+`withoutRecipient` at the finish); a shared vault's key with `rotated()`
+(new keys, the same members).
+
 ### Import and export
 
 ```dart
@@ -652,7 +662,7 @@ vault (`@host:<host>/.tom-secrets/device`) or in a key file.
 
 ## Status
 
-Version 0.2.14. The test suite (`dart test`) covers the model, resolution, the
+Version 0.2.15. The test suite (`dart test`) covers the model, resolution, the
 merge and the GitHub cycle against a fake GitHub server, the offline cache,
 compaction, the outer encryption against the fixtures in `test/fixtures/outer/`,
 the importers against synthetic exports, trust rotation, and the approval

@@ -45,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.17.0';
+const String tomSecretsServiceVersion = '0.18.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -1126,6 +1126,22 @@ final class TomSecretsService
           keys.expires,
           vault: keys.name,
         ),
+      // [C] The user's member key (part-sharing): its rotation age counted
+      // from its entry's creation; one in rotation (the old key kept until
+      // the finish) is reminded of by its newest key only.
+      if (primary != null)
+        if (tomSecretsMemberKeyEntries(primary.file).firstOrNull
+            case final memberKey?)
+          if (tomSecretsMemberKeyRecipientOf(memberKey) case final recipient?)
+            ?other(
+              'member_key',
+              'member-key:${recipient.fingerprint.substring(0, 16)}',
+              TomSecretsExpiringKey.keyPairDue(
+                memberKey.times.creationTime.get(),
+                months: settings.memberKeyAgeMonths,
+              ),
+              own: true,
+            ),
       if (trust != null) ...[
         ?pair(
           'approver_key',
@@ -1345,6 +1361,7 @@ final class TomSecretsService
     'notPushed': status.notPushed,
     if (status.rewrittenHead != null)
       'rewritten': {'head': status.rewrittenHead},
+    if (status.keyChanged) 'keyChanged': true,
   });
 
   /// Answers the rewritten branch of [store] (`history.resolve`, protocol.md
@@ -2083,6 +2100,7 @@ String? tomSecretsSettingsProblem(Map<String, Object?> device) {
       range('keyPairAgeMonths', 1, 120) ??
       range('primaryKeyAgeMonths', 1, 120) ??
       range('vaultKeyAgeMonths', 1, 120) ??
+      range('memberKeyAgeMonths', 1, 120) ??
       range('approvalTimeoutSeconds', 5, 3600) ??
       range('codeTimeoutSeconds', 60, 3600);
 }
@@ -3025,7 +3043,10 @@ final class _ClientSession {
     final status = storeName == null
         ? null
         : service.vaults.statusOf(storeName);
-    if (status?.state == TomSecretsStoreState.needsUnlock) {
+    // A copy under the old key (part-key-rotation, keyChanged) is served
+    // read-only during the migration period.
+    if (status?.state == TomSecretsStoreState.needsUnlock &&
+        !status!.keyChanged) {
       return fail(
         _error('needs_unlock', 'the store needs its own unlock', {
           'store': storeName,
