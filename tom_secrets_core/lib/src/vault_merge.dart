@@ -322,7 +322,7 @@ final class _EntryRecord {
   final String uuid;
 
   /// `field:<name>`, `binary:<name>`, `tags`, `expiry`, `group`,
-  /// `custom:<key>` (not `tsm.conflict`, which is [conflicts]).
+  /// `autotype`, `custom:<key>` (not `tsm.conflict`, which is [conflicts]).
   final Map<String, _Attr> attrs;
   final DateTime? modified;
   final DateTime? created;
@@ -417,6 +417,19 @@ _EntryRecord _entryRecord(KdbxEntry e, String group) {
     put('expiry', e.times.expiryTime.get()?.toIso8601String() ?? '');
   }
   put('group', group);
+  final autoType = e.autoType;
+  if (autoType != const KdbxAutoTypeSettings()) {
+    put(
+      'autotype',
+      jsonEncode({
+        'enabled': autoType.enabled,
+        'sequence': autoType.defaultSequence,
+        'windows': [
+          for (final a in autoType.associations) [a.window, a.sequence],
+        ],
+      }),
+    );
+  }
   for (final c in e.customData.entries) {
     if (c.key != tomSecretsConflictKey) put('custom:${c.key}', c.value);
   }
@@ -663,6 +676,23 @@ void _copyAttrs(KdbxEntry entry, Map<String, _Attr> attrs) {
   for (final MapEntry(:key, :value) in custom.entries) {
     if (entry.customData[key] != value) entry.customData[key] = value;
   }
+  final autoType = _autoTypeOf(attrs['autotype']?.value);
+  if (entry.autoType != autoType) entry.autoType = autoType;
+}
+
+/// The auto-type settings an `autotype` attribute holds (absent: the
+/// default ones).
+KdbxAutoTypeSettings _autoTypeOf(String? json) {
+  if (json == null) return const KdbxAutoTypeSettings();
+  final map = jsonDecode(json) as Map<String, Object?>;
+  return KdbxAutoTypeSettings(
+    enabled: map['enabled'] as bool? ?? true,
+    defaultSequence: map['sequence'] as String?,
+    associations: [
+      for (final w in map['windows'] as List? ?? const [])
+        KdbxAutoTypeAssociation('${(w as List)[0]}', '${w[1]}'),
+    ],
+  );
 }
 
 /// The entry's history: the union of both sides' versions and the conflict

@@ -58,6 +58,15 @@
   - [TomSecretsVaultFields](#tomsecretsvaultfields)
   - [TomSecretsVaultKeys](#tomsecretsvaultkeys)
   - [TomSecretsPrimaryVaults](#tomsecretsprimaryvaults)
+  - [TomSecretsAutoTypeKey](#tomsecretsautotypekey)
+  - [TomSecretsAutoTypeModifier](#tomsecretsautotypemodifier)
+  - [TomSecretsAutoTypeAction](#tomsecretsautotypeaction)
+  - [TomSecretsAutoTypeText](#tomsecretsautotypetext)
+  - [TomSecretsAutoTypeKeyPress](#tomsecretsautotypekeypress)
+  - [TomSecretsAutoTypeDelay](#tomsecretsautotypedelay)
+  - [TomSecretsAutoTypeKeyDelay](#tomsecretsautotypekeydelay)
+  - [TomSecretsAutoTypeException](#tomsecretsautotypeexception)
+  - [TomSecretsAutoTypeCandidate](#tomsecretsautotypecandidate)
   - [TomSecretsHealthIssue](#tomsecretshealthissue)
   - [TomSecretsHealthPolicy](#tomsecretshealthpolicy)
   - [TomSecretsPasswordStrength](#tomsecretspasswordstrength)
@@ -73,9 +82,9 @@
 
 ## Overview
 
-The vaults and resolution module covers what a vault is to the product and how a secret reference resolves: the shared configuration `tsm.config` with its dimensions and stores, vault locators (`file:`, `github:`, `git:`), the metadata entry `.tom-secrets`, the product's conventions on standard KDBX fields (flat key, entry type, attachments, passkey fields), new vaults keyed through Argon2id, stores indexed with their overlays, the resolver with its rank vectors and its explanation, TOTP codes in the three KDBX conventions, the password generator, the health report with its breach check, and the primary vault's list of further vaults.
+The vaults and resolution module covers what a vault is to the product and how a secret reference resolves: the shared configuration `tsm.config` with its dimensions and stores, vault locators (`file:`, `github:`, `git:`), the metadata entry `.tom-secrets`, the product's conventions on standard KDBX fields (flat key, entry type, attachments, passkey fields), new vaults keyed through Argon2id, stores indexed with their overlays, the resolver with its rank vectors and its explanation, TOTP codes in the three KDBX conventions, the password generator, the health report with its breach check, auto-type's sequences and window matching, and the primary vault's list of further vaults.
 
-Source files: `lib/src/config.dart`, `lib/src/locator.dart`, `lib/src/metadata.dart`, `lib/src/mapping.dart`, `lib/src/new_vault.dart`, `lib/src/store.dart`, `lib/src/resolution.dart`, `lib/src/totp.dart`, `lib/src/password_generator.dart`, `lib/src/primary.dart`, `lib/src/url_match.dart`, `lib/src/ssh_key.dart`, `lib/src/ssh_private_key.dart`, `lib/src/ssh_agent.dart`, `lib/src/bcrypt_pbkdf.dart`, `lib/src/health.dart`.
+Source files: `lib/src/config.dart`, `lib/src/locator.dart`, `lib/src/metadata.dart`, `lib/src/mapping.dart`, `lib/src/new_vault.dart`, `lib/src/store.dart`, `lib/src/resolution.dart`, `lib/src/totp.dart`, `lib/src/password_generator.dart`, `lib/src/primary.dart`, `lib/src/url_match.dart`, `lib/src/ssh_key.dart`, `lib/src/ssh_private_key.dart`, `lib/src/ssh_agent.dart`, `lib/src/bcrypt_pbkdf.dart`, `lib/src/health.dart`, `lib/src/auto_type.dart`.
 
 ---
 
@@ -87,14 +96,14 @@ Object
 ├── TomSecretsDimension
 ├── TomSecretsStoreLocation
 │   ├── TomSecretsLocalLocation
-│   └── TomSecretsGitHubLocation
+│   ├── TomSecretsGitHubLocation
 ├── TomSecretsStoreSpec
 ├── TomSecretsConfig
 ├── TomSecretsLocatorException
 ├── TomSecretsVaultLocator
 │   ├── TomSecretsFileLocator
 │   ├── TomSecretsGitHubLocator
-│   └── TomSecretsGitLocator
+│   ├── TomSecretsGitLocator
 ├── TomSecretsMetadataFields
 ├── TomSecretsVaultKind (enum)
 ├── TomSecretsMetadataException
@@ -129,7 +138,16 @@ Object
 ├── TomSecretsHealthFinding
 ├── TomSecretsHealthReport
 ├── TomSecretsBreachCheck
-└── TomSecretsBreachCheckException
+├── TomSecretsBreachCheckException
+├── TomSecretsAutoTypeKey (enum)
+├── TomSecretsAutoTypeModifier (enum)
+├── TomSecretsAutoTypeAction
+│   ├── TomSecretsAutoTypeText
+│   ├── TomSecretsAutoTypeKeyPress
+│   ├── TomSecretsAutoTypeDelay
+│   └── TomSecretsAutoTypeKeyDelay
+├── TomSecretsAutoTypeException
+└── TomSecretsAutoTypeCandidate
 ```
 
 ---
@@ -1436,6 +1454,168 @@ The breach check could not ask.
 
 ---
 
+### TomSecretsAutoTypeKey
+
+A key auto-type presses that is no character.
+
+**Kind:** `enum`
+
+#### Values
+
+| Value | Description |
+| --- | --- |
+| `tab` | Tab. |
+| `enter` | Enter. |
+| `space` | Space. |
+| `backspace` | Backspace. |
+| `delete` | Delete (forward). |
+| `escape` | Escape. |
+| `up` | Arrow up. |
+| `down` | Arrow down. |
+| `left` | Arrow left. |
+| `right` | Arrow right. |
+| `home` | Home. |
+| `end` | End. |
+| `pageUp` | Page up. |
+| `pageDown` | Page down. |
+| `insert` | Insert. |
+| `function` | F1 … F16 (the key press names which). |
+
+---
+
+### TomSecretsAutoTypeModifier
+
+A modifier held while a key is pressed.
+
+**Kind:** `enum`
+
+#### Values
+
+| Value | Description |
+| --- | --- |
+| `shift` | Shift (`+`). |
+| `control` | Control (`^`). |
+| `alt` | Alt or Option (`%`). |
+| `meta` | The Windows key, or Command on macOS (`@`). |
+
+---
+
+### TomSecretsAutoTypeAction
+
+One step of a parsed auto-type sequence.
+
+**Kind:** `sealed class`
+
+Subclasses: `TomSecretsAutoTypeText`, `TomSecretsAutoTypeKeyPress`, `TomSecretsAutoTypeDelay`, `TomSecretsAutoTypeKeyDelay`.
+
+---
+
+### TomSecretsAutoTypeText
+
+Text typed as characters, each as Unicode where the OS allows.
+
+**Kind:** `final class`
+
+**Extends:** `TomSecretsAutoTypeAction`
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `text` | `String` | The characters. |
+
+---
+
+### TomSecretsAutoTypeKeyPress
+
+A special key or a character pressed with modifiers.
+
+**Kind:** `final class`
+
+**Extends:** `TomSecretsAutoTypeAction`
+
+#### Constructors
+
+| Constructor | Kind | Description |
+| --- | --- | --- |
+| `TomSecretsAutoTypeKeyPress({key, character, function = 0, modifiers})` | `const` | A special key or a character, with the modifiers held. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `key` | `TomSecretsAutoTypeKey?` | The special key, or null for a character. |
+| `character` | `String?` | The character, or null for a special key. |
+| `function` | `int` | For a function key, its number. |
+| `modifiers` | `Set<TomSecretsAutoTypeModifier>` | The modifiers held. |
+
+---
+
+### TomSecretsAutoTypeDelay
+
+A pause (`{DELAY n}`).
+
+**Kind:** `final class`
+
+**Extends:** `TomSecretsAutoTypeAction`
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `duration` | `Duration` | How long. |
+
+---
+
+### TomSecretsAutoTypeKeyDelay
+
+The pause between keys from here on (`{DELAY=n}`).
+
+**Kind:** `final class`
+
+**Extends:** `TomSecretsAutoTypeAction`
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `duration` | `Duration` | How long. |
+
+---
+
+### TomSecretsAutoTypeException
+
+A sequence that cannot be typed.
+
+**Kind:** `final class`
+
+**Implements:** `Exception`
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `message` | `String` | What is wrong (never a value). |
+
+---
+
+### TomSecretsAutoTypeCandidate
+
+An entry auto-type may type into a window, and why.
+
+**Kind:** `final class`
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `store` | `String` | The entry's store. |
+| `entry` | `KdbxEntry` | The entry. |
+| `byAssociation` | `bool` | Whether a window association matched (else its title). |
+| `sequence` | `String` | The sequence it types there. |
+
+---
+
 ## Global Functions and Constants
 
 ### Constants
@@ -1461,6 +1641,7 @@ The breach check could not ask.
 | `tomSecretsSshAgentMaxMessage` | `int` | The largest message the agent reads, 256 KiB (OpenSSH's `AGENT_MAX_LEN`). |
 | `tomSecretsSshAgentMaxBindings` | `int` | At most this many `session-bind`s per connection, 16 (OpenSSH's `AGENT_MAX_SESSION_IDS`). |
 | `tomSecretsSshAgentKeyTypes` | `Set<String>` | The key types the agent signs with. |
+| `tomSecretsDefaultAutoTypeSequence` | `String` | `{USERNAME}{TAB}{PASSWORD}{ENTER}`, typed when neither the entry nor its groups name a sequence. |
 
 ### Functions
 
@@ -1504,3 +1685,9 @@ The breach check could not ask.
 | `tomSecretsPasswordChanged` | `DateTime? tomSecretsPasswordChanged(KdbxEntry entry)` | When an entry's current password was set, read from its history. |
 | `tomSecretsPasswordHash` | `String tomSecretsPasswordHash(String password)` | The SHA-1 of a password in upper-case hex, as the range API compares it; kept in memory only. |
 | `tomSecretsHealthReport` | `TomSecretsHealthReport tomSecretsHealthReport(Iterable<TomSecretsHealthEntry> entries, {required DateTime now, TomSecretsHealthPolicy policy = const TomSecretsHealthPolicy(), int? Function(TomSecretsHealthEntry entry, String password)? breachCount})` | The health report: weak, reused, old and breached login passwords, expiring entries, short SSH keys. |
+| `tomSecretsAutoTypeValues` | `String? Function(String name) tomSecretsAutoTypeValues(KdbxEntry entry, {DateTime? now})` | An entry's placeholder values: `{USERNAME}`, `{PASSWORD}`, `{TITLE}`, `{URL}`, `{NOTES}`, `{TOTP}`, `{S:<field>}`. |
+| `tomSecretsParseAutoType` | `List<TomSecretsAutoTypeAction> tomSecretsParseAutoType(String sequence, {required String? Function(String name) values})` | Parses a sequence in KeePass's syntax: placeholders as text, special keys with repeat counts, `+ ^ % @` modifiers on a key or a group, `~`, `{DELAY n}`, `{DELAY=n}`, escaped characters. |
+| `tomSecretsAutoTypeWindowMatches` | `bool tomSecretsAutoTypeWindowMatches(String pattern, String title)` | Whether a window title matches an association pattern: `*`/`?` wildcards over the whole title or `//regex//`, any case. |
+| `tomSecretsAutoTypeEnabled` | `bool tomSecretsAutoTypeEnabled(KdbxEntry entry)` | Whether auto-type is on for an entry (its own setting and the nearest group's). |
+| `tomSecretsAutoTypeSequenceFor` | `String? tomSecretsAutoTypeSequenceFor(KdbxEntry entry, {String? windowTitle})` | The sequence typed for an entry into a window: a matching association's, else the entry's, the group's, the default; null when off. |
+| `tomSecretsAutoTypeCandidates` | `List<TomSecretsAutoTypeCandidate> tomSecretsAutoTypeCandidates(Iterable<(String, KdbxEntry)> entries, String windowTitle)` | The logins and API tokens fitting a window: a matching association first, then titles the window title holds. |

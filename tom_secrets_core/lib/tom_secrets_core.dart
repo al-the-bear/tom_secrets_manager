@@ -8,6 +8,7 @@ library;
 
 export 'src/approval_code.dart';
 export 'src/approval_link.dart';
+export 'src/auto_type.dart';
 export 'src/bcrypt_pbkdf.dart';
 export 'src/compaction.dart';
 export 'src/config.dart';
@@ -58,6 +59,8 @@ export 'src/vault_sync.dart';
 export 'package:tom_kdbx_store/tom_kdbx_store.dart'
     show
         Credentials,
+        KdbxAutoTypeAssociation,
+        KdbxAutoTypeSettings,
         KdbxEntry,
         KdbxFile,
         KdbxFormat,

@@ -111,6 +111,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | Masked field values zeroed after use | `TomSecretsFieldValue` |
 | TOTP in three KDBX conventions | `TomSecretsTotp` |
 | Password generator | `TomSecretsPasswordGenerator`, `TomSecretsPasswordPolicy` |
+| Auto-type: KeePass's sequence syntax, window associations, which entries fit a window | `tomSecretsParseAutoType`, `tomSecretsAutoTypeSequenceFor`, `tomSecretsAutoTypeCandidates` |
 | Health report: weak (zxcvbn), reused, old, expiring and breached passwords, short keys (DP-179); the breach check over the Have I Been Pwned range API (the hash prefix only, padded) | `tomSecretsHealthReport`, `tomSecretsPasswordStrength`, `TomSecretsKeyStrength`, `TomSecretsBreachCheck` |
 | URL matching of login entries (the Public Suffix List, `tsm.urlMatch`) | `tomSecretsMatchLogins`, `TomSecretsSiteUrl` |
 | SSH keys: the typed `ssh-key` entry with `KeeAgent.settings`, reading a key file, generating Ed25519 or RSA 4096, retyping phase A's notes | `TomSecretsSshKeyInfo`, `tomSecretsGenerateSshKey`, `tomSecretsWriteSshKey`, `tomSecretsMigrateSshKeys` |

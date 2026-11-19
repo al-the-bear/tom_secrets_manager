@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.12
+
+- Auto-type's OS-independent half (part-password-manager, DP-41):
+  KeePass's sequence syntax parsed into actions (`tomSecretsParseAutoType`:
+  placeholders, special keys with repeat counts, `+ ^ % @` modifiers on a
+  key or a group, `~`, `{DELAY n}`, `{DELAY=n}`, escaped characters;
+  `tomSecretsAutoTypeValues`), window title patterns
+  (`tomSecretsAutoTypeWindowMatches`: wildcards or `//regex//`), the
+  sequence an entry types into a window (`tomSecretsAutoTypeSequenceFor`:
+  an association's, the entry's, the group's, the default), the entries
+  fitting a window (`tomSecretsAutoTypeCandidates`). The merge and
+  `tomSecretsCopyEntry` carry an entry's auto-type settings; the library
+  re-exports `KdbxAutoTypeSettings` and `KdbxAutoTypeAssociation`. Needs
+  `tom_kdbx_store` 0.2.6.
+
 ## 0.2.11
 
 - `TomSecretsBrowser` (0.2.10) is `TomSecretsCsvBrowser`: the name clashed

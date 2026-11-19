@@ -2,7 +2,7 @@
 
 The public API of `package:tom_secrets_core/tom_secrets_core.dart`, one summary per module. Every type, function and constant of `lib/src/` is listed in exactly one module summary; this index links them by module and alphabetically.
 
-The library also re-exports the KDBX types the service and the apps handle from `tom_kdbx_store` (`Credentials`, `KdbxEntry`, `KdbxFile`, `KdbxFormat`, `KdbxFormatException`, `KdbxGroup`, `KdbxInvalidKeyException`, `KdbxKey`, `KdbxKeyCommon`, `KdbxUuid`, `PlainValue`, `ProtectedValue`, `StringValue`); they are documented with that package.
+The library also re-exports the KDBX types the service and the apps handle from `tom_kdbx_store` (`Credentials`, `KdbxAutoTypeAssociation`, `KdbxAutoTypeSettings`, `KdbxEntry`, `KdbxFile`, `KdbxFormat`, `KdbxFormatException`, `KdbxGroup`, `KdbxInvalidKeyException`, `KdbxKey`, `KdbxKeyCommon`, `KdbxUuid`, `PlainValue`, `ProtectedValue`, `StringValue`); they are documented with that package.
 
 ## Table of Contents
 
@@ -101,6 +101,15 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsHealthReport` | final class | The health report: its findings by issue, then by store and title. | [→](api_summary_vaults.md#tomsecretshealthreport) |
 | `TomSecretsBreachCheck` | final class | The breach check over the Have I Been Pwned range API: only a password's five-character SHA-1 prefix leaves the device, with `Add-Padding: true`; counts cached per hash in memory. | [→](api_summary_vaults.md#tomsecretsbreachcheck) |
 | `TomSecretsBreachCheckException` | final class | The breach check could not ask. | [→](api_summary_vaults.md#tomsecretsbreachcheckexception) |
+| `TomSecretsAutoTypeKey` | enum | A key auto-type presses that is no character. | [→](api_summary_vaults.md#tomsecretsautotypekey) |
+| `TomSecretsAutoTypeModifier` | enum | A modifier held while a key is pressed. | [→](api_summary_vaults.md#tomsecretsautotypemodifier) |
+| `TomSecretsAutoTypeAction` | sealed class | One step of a parsed auto-type sequence. | [→](api_summary_vaults.md#tomsecretsautotypeaction) |
+| `TomSecretsAutoTypeText` | final class | Text typed as characters, each as Unicode where the OS allows. | [→](api_summary_vaults.md#tomsecretsautotypetext) |
+| `TomSecretsAutoTypeKeyPress` | final class | A special key or a character pressed with modifiers. | [→](api_summary_vaults.md#tomsecretsautotypekeypress) |
+| `TomSecretsAutoTypeDelay` | final class | A pause (`{DELAY n}`). | [→](api_summary_vaults.md#tomsecretsautotypedelay) |
+| `TomSecretsAutoTypeKeyDelay` | final class | The pause between keys from here on (`{DELAY=n}`). | [→](api_summary_vaults.md#tomsecretsautotypekeydelay) |
+| `TomSecretsAutoTypeException` | final class | A sequence that cannot be typed. | [→](api_summary_vaults.md#tomsecretsautotypeexception) |
+| `TomSecretsAutoTypeCandidate` | final class | An entry auto-type may type into a window, and why. | [→](api_summary_vaults.md#tomsecretsautotypecandidate) |
 
 ### Functions
 
@@ -144,6 +153,12 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsPasswordChanged` | When an entry's current password was set, read from its history. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsPasswordHash` | The SHA-1 of a password in upper-case hex, as the range API compares it; kept in memory only. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsHealthReport` | The health report: weak, reused, old and breached login passwords, expiring entries, short SSH keys. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAutoTypeValues` | An entry's placeholder values: `{USERNAME}`, `{PASSWORD}`, `{TITLE}`, `{URL}`, `{NOTES}`, `{TOTP}`, `{S:<field>}`. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsParseAutoType` | Parses a sequence in KeePass's syntax: placeholders as text, special keys with repeat counts, `+ ^ % @` modifiers on a key or a group, `~`, `{DELAY n}`, `{DELAY=n}`, escaped characters. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAutoTypeWindowMatches` | Whether a window title matches an association pattern: `*`/`?` wildcards over the whole title or `//regex//`, any case. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAutoTypeEnabled` | Whether auto-type is on for an entry (its own setting and the nearest group's). | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAutoTypeSequenceFor` | The sequence typed for an entry into a window: a matching association's, else the entry's, the group's, the default; null when off. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAutoTypeCandidates` | The logins and API tokens fitting a window: a matching association first, then titles the window title holds. | [→](api_summary_vaults.md#functions) |
 
 ### Global Variables
 
@@ -166,6 +181,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsSshAgentMaxMessage` | `int` | The largest message the agent reads, 256 KiB. | [→](api_summary_vaults.md#constants) |
 | `tomSecretsSshAgentMaxBindings` | `int` | At most this many `session-bind`s per connection, 16. | [→](api_summary_vaults.md#constants) |
 | `tomSecretsSshAgentKeyTypes` | `Set<String>` | The key types the agent signs with. | [→](api_summary_vaults.md#constants) |
+| `tomSecretsDefaultAutoTypeSequence` | `String` | `{USERNAME}{TAB}{PASSWORD}{ENTER}`, typed when neither the entry nor its groups name a sequence. | [→](api_summary_vaults.md#constants) |
 
 ---
 
@@ -495,6 +511,15 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsApprovalChannel` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsapprovalchannel) |
 | `TomSecretsApproverKey` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsapproverkey) |
 | `TomSecretsApproverPublicKey` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsapproverpublickey) |
+| `TomSecretsAutoTypeAction` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsautotypeaction) |
+| `TomSecretsAutoTypeCandidate` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsautotypecandidate) |
+| `TomSecretsAutoTypeDelay` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsautotypedelay) |
+| `TomSecretsAutoTypeException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsautotypeexception) |
+| `TomSecretsAutoTypeKey` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsautotypekey) |
+| `TomSecretsAutoTypeKeyDelay` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsautotypekeydelay) |
+| `TomSecretsAutoTypeKeyPress` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsautotypekeypress) |
+| `TomSecretsAutoTypeModifier` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsautotypemodifier) |
+| `TomSecretsAutoTypeText` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsautotypetext) |
 | `TomSecretsBitwardenKeys` | Import and Export | [→](api_summary_import_export.md#tomsecretsbitwardenkeys) |
 | `TomSecretsBranchAhead` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsbranchahead) |
 | `TomSecretsBranchCompacted` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsbranchcompacted) |
@@ -668,6 +693,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsApprovalCode` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsApproverKeyId` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsAsciiHost` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAutoTypeCandidates` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAutoTypeEnabled` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAutoTypeSequenceFor` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAutoTypeValues` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsAutoTypeWindowMatches` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsBase32Decode` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32Encode` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
@@ -741,6 +771,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsOverlayBinding` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsPairingAddresses` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsPairingSetupProblem` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsParseAutoType` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsParseCsv` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsParseFileBinding` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsParsePairingAddress` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
@@ -799,6 +830,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsCsvExportColumns` | Import and Export | [→](api_summary_import_export.md#constants) |
 | `tomSecretsDecisions` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsDefaultArgon2` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsDefaultAutoTypeSequence` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsDefaultValue` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsDeviceGroup` | First Run and Device Settings | [→](api_summary_device.md#constants) |
 | `tomSecretsDeviceNamespace` | First Run and Device Settings | [→](api_summary_device.md#constants) |
