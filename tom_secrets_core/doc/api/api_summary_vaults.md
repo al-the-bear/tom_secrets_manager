@@ -564,6 +564,8 @@ What kind of secret an entry holds (`tsm.type`).
 | `sshKey` | An SSH key (phase B). |
 | `certificate` | A certificate (phase C). |
 | `pgpKey` | A PGP key (phase C). |
+| `memberKey` | `member-key`: the user's member key, a hybrid `age` identity, in the primary vault's `tsm.sharing` group (phase C). |
+| `member` | `member`: another person's public `age` key in the directory of members (phase C). |
 
 #### Static Methods
 
@@ -1628,6 +1630,7 @@ An entry auto-type may type into a window, and why.
 | `tomSecretsMetadataTitle` | `String` | The title of the metadata entry. |
 | `tomSecretsMetadataFormat` | `int` | The metadata format this library reads and writes. |
 | `tomSecretsGrantsGroup` | `String` | The group holding the grants of every host (primary vault only); never a place references resolve into. |
+| `tomSecretsSharingGroup` | `String` | The group of the primary vault holding the member key and the directory of members (part-sharing); never a place references resolve into, never exported. |
 | `tomSecretsOverlayPrefix` | `String` | The first character of an overlay group's name. |
 | `tomSecretsFavoriteTag` | `String` | The tag that marks a favourite. |
 | `tomSecretsDefaultArgon2` | `KdbxArgon2` | The key derivation of a new vault: Argon2id over 64 MiB, 3 iterations, 1 lane. The app tunes it at creation so unlocking takes about one second on the slowest of the user's devices, and passes the result as `argon2` to `tomSecretsNewVault`. |

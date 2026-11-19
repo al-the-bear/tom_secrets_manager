@@ -44,15 +44,23 @@
   - [TomSecretsPairingReceipt](#tomsecretspairingreceipt)
   - [TomSecretsDeviceRecord](#tomsecretsdevicerecord)
   - [TomSecretsDeviceRecords](#tomsecretsdevicerecords)
+  - [TomSecretsMemberFields](#tomsecretsmemberfields)
+  - [TomSecretsMemberKeyFailure](#tomsecretsmemberkeyfailure)
+  - [TomSecretsMemberKeyException](#tomsecretsmemberkeyexception)
+  - [TomSecretsAgeRecipientKind](#tomsecretsagerecipientkind)
+  - [TomSecretsAgeRecipient](#tomsecretsagerecipient)
+  - [TomSecretsMemberKey](#tomsecretsmemberkey)
+  - [TomSecretsReceivedMemberKey](#tomsecretsreceivedmemberkey)
+  - [TomSecretsMember](#tomsecretsmember)
 - [Global Functions and Constants](#global-functions-and-constants)
 
 ---
 
 ## Overview
 
-The sharing module holds everything one device of the user's fleet needs to trust another: a device's trust material (approver, link and audit-log keys, the approvers and hosts it recorded) with key rotation; signed objects (grants, revocations, approval records, key-change statements) signed with Ed25519 and ML-DSA-65; the grants group of the primary vault; the approval code and its single-use token; the approval link (Noise KK with ML-KEM-768 paired to every Diffie-Hellman, ChaCha20-Poly1305 transport); pairing by a short code through SPAKE2 (RFC 9382) with an ML-KEM-768 exchange inside; and the device records of the primary vault.
+The sharing module holds everything one device of the user's fleet needs to trust another: a device's trust material (approver, link and audit-log keys, the approvers and hosts it recorded) with key rotation; signed objects (grants, revocations, approval records, key-change statements) signed with Ed25519 and ML-DSA-65; the grants group of the primary vault; the approval code and its single-use token; the approval link (Noise KK with ML-KEM-768 paired to every Diffie-Hellman, ChaCha20-Poly1305 transport); pairing by a short code through SPAKE2 (RFC 9382) with an ML-KEM-768 exchange inside; the device records of the primary vault; and, for sharing with people (phase C), the member keys: hybrid `age` v1.3 identities and recipients (`age1pq1…`, X25519 + ML-KEM-768), other people's classical recipients for exports, the published key file, and the `member-key` and `member` entries of the primary vault's `tsm.sharing` group.
 
-Source files: `lib/src/trust.dart`, `lib/src/signed_objects.dart`, `lib/src/grants.dart`, `lib/src/approval_code.dart`, `lib/src/approval_link.dart`, `lib/src/pairing.dart`, `lib/src/pairing_setup.dart`, `lib/src/pairing_words.dart`, `lib/src/device_records.dart`.
+Source files: `lib/src/trust.dart`, `lib/src/signed_objects.dart`, `lib/src/grants.dart`, `lib/src/approval_code.dart`, `lib/src/approval_link.dart`, `lib/src/pairing.dart`, `lib/src/pairing_setup.dart`, `lib/src/pairing_words.dart`, `lib/src/device_records.dart`, `lib/src/member_keys.dart`.
 
 ---
 
@@ -98,7 +106,15 @@ Object
 ├── TomSecretsPairingWindow
 ├── TomSecretsPairingReceipt
 ├── TomSecretsDeviceRecord
-└── TomSecretsDeviceRecords
+├── TomSecretsDeviceRecords
+├── TomSecretsMemberFields
+├── TomSecretsMemberKeyFailure (enum)
+├── TomSecretsMemberKeyException
+├── TomSecretsAgeRecipientKind (enum)
+├── TomSecretsAgeRecipient
+├── TomSecretsMemberKey
+├── TomSecretsReceivedMemberKey (typedef)
+└── TomSecretsMember
 ```
 
 ---
@@ -1126,6 +1142,184 @@ The device records of the primary vault `file`.
 
 ---
 
+### TomSecretsMemberFields
+
+The fields of the `member-key` and `member` entries.
+
+**Kind:** `abstract final class`
+
+#### Static Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `recipient` | `KdbxKey` | `tsm.recipient`: the `age` recipient string (`age1pq1…`, or a member's `age1…`). |
+| `fingerprint` | `KdbxKey` | `tsm.fingerprint`: the recipient's fingerprint, for display in other KeePass programs. |
+| `checked` | `KdbxKey` | `tsm.checked`: when the user compared a member's fingerprint with its owner (an ISO 8601 date), absent until then. |
+
+---
+
+### TomSecretsMemberKeyFailure
+
+Why a key or an entry was refused.
+
+**Kind:** `enum`
+
+#### Values
+
+| Value | Description |
+| --- | --- |
+| `malformed` | Not an `age` key: not Bech32, a bad checksum, mixed case, an unknown prefix, the wrong length. |
+| `plugin` | An `age` plugin recipient (`age1<plugin>1…`), which the product does not run. |
+| `classicalIdentity` | A classical identity (`AGE-SECRET-KEY-1…`): a member key is hybrid. |
+| `invalidKey` | The recipient's ML-KEM-768 half fails FIPS 203's check, or its X25519 half is a low-order point. |
+| `duplicate` | The directory holds this recipient already. |
+| `ownKey` | The recipient is the user's own member key. |
+
+---
+
+### TomSecretsMemberKeyException
+
+A refused key, with the `reason` the app shows.
+
+**Kind:** `final class`
+
+**Implements:** `Exception`
+
+#### Constructors
+
+| Constructor | Kind | Description |
+| --- | --- | --- |
+| `TomSecretsMemberKeyException(reason, message)` | const | A refusal for `reason`, told by `message`. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `reason` | `TomSecretsMemberKeyFailure` | Why. |
+| `message` | `String` | For people; never a private key. |
+
+---
+
+### TomSecretsAgeRecipientKind
+
+The kind of an `age` recipient.
+
+**Kind:** `enum`
+
+#### Values
+
+| Value | Description |
+| --- | --- |
+| `hybrid` | `age1pq1…`: X25519 + ML-KEM-768 (`mlkem768x25519`), a member key. |
+| `classical` | `age1…`: X25519 alone, for exports only. |
+
+---
+
+### TomSecretsAgeRecipient
+
+An `age` public key: a hybrid member key or another person's classical key. Equal by its canonical (lower-case) string.
+
+**Kind:** `final class`
+
+#### Constructors
+
+| Constructor | Kind | Description |
+| --- | --- | --- |
+| `TomSecretsAgeRecipient.hybrid(publicKey)` | factory | The hybrid recipient of the 1,216-byte X-Wing `publicKey` (ML-KEM-768, then X25519). |
+| `TomSecretsAgeRecipient.parse(text)` | factory | Parses `age1pq1…` or `age1…`, lower case or all upper case (canonicalised to lower case, the only form `age` reads), white space around it ignored; throws `TomSecretsMemberKeyException` otherwise. |
+
+#### Static Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `hybridPrefix` | `String` | `age1pq`, the Bech32 prefix of a hybrid recipient. |
+| `classicalPrefix` | `String` | `age`, the Bech32 prefix of a classical recipient. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `kind` | `TomSecretsAgeRecipientKind` | Hybrid or classical. |
+| `publicKey` | `Uint8List` | The public key: 1,216 bytes (ML-KEM-768 then X25519) or 32 (X25519). |
+| `encoded` | `String` | The recipient string, lower case: what `age -r` takes (a hybrid one is 1,959 characters). |
+| `isHybrid` | `bool` | Whether it is a hybrid (post-quantum) key. |
+| `fingerprint` | `String` | The SHA-256 of `encoded` in base32 (RFC 4648, lower case, no padding, 52 characters): the member id of the inbox folders and the relay's mailboxes. |
+| `shortFingerprint` | `String` | The first 20 characters of `fingerprint` in groups of four (100 bits): what people compare. |
+
+#### Methods
+
+| Method | Return Type | Description |
+| --- | --- | --- |
+| `check()` | `Future<void>` | Checks the key as `age` would on encrypting to it (a hybrid key: an encapsulation to it succeeds); throws `TomSecretsMemberKeyException` (`invalidKey`) otherwise. |
+
+---
+
+### TomSecretsMemberKey
+
+The user's member key: a hybrid `age` identity and its recipient. Holds the 32-byte seed in native memory (`SecretBytes`); `dispose` zeroes it.
+
+**Kind:** `final class`
+
+#### Static Methods
+
+| Method | Return Type | Description |
+| --- | --- | --- |
+| `generate()` | `Future<TomSecretsMemberKey>` | A new member key from fresh randomness. |
+| `parse(identity)` | `Future<TomSecretsMemberKey>` | The member key of an `AGE-SECRET-KEY-PQ-1…` identity (an existing `age-keygen -pq` key, or the `member-key` entry's); a classical identity is refused (`classicalIdentity`). |
+
+#### Static Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `identityPrefix` | `String` | `age-secret-key-pq-`, the Bech32 prefix of a hybrid identity (written in upper case). |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `recipient` | `TomSecretsAgeRecipient` | The public key, given to other people. |
+| `seed` | `SecretBytes` | The seed, for the `age` decryption of a later phase; owned by this key. |
+
+#### Methods
+
+| Method | Return Type | Description |
+| --- | --- | --- |
+| `revealIdentity()` | `String` | The identity, `AGE-SECRET-KEY-PQ-1…` (what `age -d -i` reads); a `String` the caller writes into the vault and drops. |
+| `dispose()` | `void` | Zeroes the seed. |
+
+---
+
+### TomSecretsReceivedMemberKey
+
+One public key read from a key file or a pasted block.
+
+**Kind:** `typedef` = `({TomSecretsAgeRecipient recipient, String? name})`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `recipient` | `TomSecretsAgeRecipient` | The key. |
+| `name` | `String?` | The name its file gave (`# name: …`), if any. |
+
+---
+
+### TomSecretsMember
+
+A received public key in the primary vault (a `member` entry).
+
+**Kind:** `final class`
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `entry` | `KdbxEntry` | The entry. |
+| `recipient` | `TomSecretsAgeRecipient` | The member's public key. |
+| `name` | `String` | The name the user gave the member (the entry's title). |
+| `checked` | `DateTime?` | When the user compared the fingerprint with the member, or null. |
+| `canJoinSharedVaults` | `bool` | Whether the key can join shared vaults (hybrid), not only receive exports (classical). |
+
+---
+
 ## Global Functions and Constants
 
 ### Constants
@@ -1178,3 +1372,14 @@ The device records of the primary vault `file`.
 | `tomSecretsPairingSetupProblem` | `String? tomSecretsPairingSetupProblem(TomSecretsPairingBundle bundle)` | Why a bundle cannot set a machine up, or null when it can: the primary must be in it, with its token when it is in a GitHub repository. |
 | `tomSecretsReceivePairingForSetup` | `Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({required String address, required int port, required TomSecretsPairingCode code, required String device, String? linkAddress, DateTime? now, Duration connectTimeout = const Duration(seconds: 10)})` | Receives a pairing for a machine being set up as `device`: connects to the giving machine's window at `address`:`port` with `code`, answers with the public keys of fresh trust material (made `now`) and `linkAddress`, where this machine's approval link will listen (the giver records it and opens the link), and refuses a bundle it cannot be set up from (`tomSecretsPairingSetupProblem`); a `linkAddress` that is no approval link throws `ArgumentError`. |
 | `tomSecretsParsePairingAddress` | `(String host, int port) tomSecretsParsePairingAddress(String text)` | Splits `host:port` (an IPv6 address in brackets: `[fd00::1]:47900`) as the giving machine's Pairing screen shows it. Throws `FormatException`. |
+| `tomSecretsMemberKeyFile` | `String tomSecretsMemberKeyFile(TomSecretsAgeRecipient recipient, {required String name, DateTime? created})` | The text of a published member key: `age`'s recipients-file format (so `age -R <file>` encrypts to it), with the name, short fingerprint and date as `#` comments. |
+| `tomSecretsMemberKeyFileName` | `String tomSecretsMemberKeyFileName(String name)` | The file name of `name`'s published member key: `<name>.age-recipient.txt` (lower case, other characters as `_`). |
+| `tomSecretsReadMemberKeys` | `List<TomSecretsReceivedMemberKey> tomSecretsReadMemberKeys(String text)` | The public keys in `text` (a key file, a recipients file with several, a pasted recipient, a scanned QR code's text); blank lines and `#` comments skipped, a `# name: …` comment names the key after it; a line that is no `age` recipient is refused, naming its line. |
+| `tomSecretsSharingGroupOf` | `KdbxGroup? tomSecretsSharingGroupOf(KdbxFile file, {bool create = false})` | The `tsm.sharing` group at the root of `file`, made when `create`. |
+| `tomSecretsMemberKeyEntries` | `List<KdbxEntry> tomSecretsMemberKeyEntries(KdbxFile file)` | The `member-key` entries of `file`, the newest first. |
+| `tomSecretsMemberKeyOf` | `Future<TomSecretsMemberKey> tomSecretsMemberKeyOf(KdbxEntry entry)` | The member key an entry holds (its identity in `Password`). |
+| `tomSecretsMemberKeyRecipientOf` | `TomSecretsAgeRecipient? tomSecretsMemberKeyRecipientOf(KdbxEntry entry)` | The public key a `member-key` or `member` entry names (`tsm.recipient`), read without the identity; null when absent or unreadable. |
+| `tomSecretsAddMemberKey` | `KdbxEntry tomSecretsAddMemberKey(KdbxFile file, TomSecretsMemberKey key, {String title = 'Member key'})` | Writes `key` into `file` as a new `member-key` entry in `tsm.sharing`: the identity protected in `Password`, the recipient and fingerprint beside it. |
+| `tomSecretsMembers` | `List<TomSecretsMember> tomSecretsMembers(KdbxFile file)` | The members of `file` whose entry holds a readable recipient, by name. |
+| `tomSecretsAddMember` | `Future<TomSecretsMember> tomSecretsAddMember(KdbxFile file, {required String name, required TomSecretsAgeRecipient recipient, DateTime? checked})` | Adds `recipient` to the directory as a `member` entry named `name`, after `TomSecretsAgeRecipient.check`; refuses a recipient the directory holds (`duplicate`) and the user's own key (`ownKey`). |
+| `tomSecretsMarkMemberChecked` | `void tomSecretsMarkMemberChecked(KdbxEntry entry, DateTime when)` | Records that the user compared the fingerprint of `entry` with its owner on `when` (its date, `tsm.checked`); the entry as it was goes to its history. |

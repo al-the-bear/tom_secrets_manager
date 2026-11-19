@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.1
+
+- Takes `tom_secrets_core` 0.2.13: the primary vault's `tsm.sharing`
+  group (the member key and the directory of members, part-sharing) is
+  never resolved into, so no client reads a member key.
+
 ## 0.16.0
 
 - The browser prompt (protocol.md 5.5, decision 39, DP-44): the browser

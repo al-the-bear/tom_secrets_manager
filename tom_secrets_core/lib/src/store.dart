@@ -140,9 +140,12 @@ final class TomSecretsStore {
         final childName = child.name.get() ?? '';
         // The product's own group is never resolved into, at the root or
         // inside an overlay (`@host:<host>/.tom-secrets/device` holds a
-        // device's settings key, DP-15); the grants group lives at the root.
+        // device's settings key, DP-15); the grants group and the sharing
+        // group (member keys, part-sharing) live at the root.
         if (childName == tomSecretsProductGroup ||
-            (groups.isEmpty && childName == tomSecretsGrantsGroup)) {
+            (groups.isEmpty &&
+                (childName == tomSecretsGrantsGroup ||
+                    childName == tomSecretsSharingGroup))) {
           continue;
         }
         walk(child, [...groups, childName]);

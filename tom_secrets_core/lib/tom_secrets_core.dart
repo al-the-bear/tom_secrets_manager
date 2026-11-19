@@ -30,6 +30,7 @@ export 'src/import_kdbx.dart';
 export 'src/key_file.dart';
 export 'src/locator.dart';
 export 'src/mapping.dart';
+export 'src/member_keys.dart';
 export 'src/metadata.dart';
 export 'src/new_vault.dart';
 export 'src/offline_cache.dart';

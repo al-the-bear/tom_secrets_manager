@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.13
+
+- Member keys (part-sharing, DP-63, DP-177): `TomSecretsMemberKey`, a
+  hybrid `age` v1.3 identity (`AGE-SECRET-KEY-PQ-1…`) generated or parsed,
+  its recipient `age1pq1…` (X25519 + ML-KEM-768, `tom_pqc`'s X-Wing);
+  `TomSecretsAgeRecipient` reads hybrid and classical `age1…` recipients
+  (Bech32 without a length limit; plugin keys, classical identities, bad
+  checksums and invalid ML-KEM keys refused), with the fingerprint (base32
+  SHA-256 of the recipient) and its short form. The published key file in
+  `age`'s recipients-file format (`tomSecretsMemberKeyFile`,
+  `tomSecretsReadMemberKeys`). The entry types `member-key` and `member`
+  in the primary vault's `tsm.sharing` group, which resolution skips
+  (`tomSecretsAddMemberKey`, `tomSecretsAddMember`, `tomSecretsMembers`,
+  `tomSecretsMarkMemberChecked`). Checked against `filippo.io/age` v1.3.2.
+
 ## 0.2.12
 
 - Auto-type's OS-independent half (part-password-manager, DP-41):

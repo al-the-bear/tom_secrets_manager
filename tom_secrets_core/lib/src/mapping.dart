@@ -52,6 +52,11 @@ abstract final class TomSecretsEntryFields {
 /// place references resolve into.
 const String tomSecretsGrantsGroup = 'tsm.grants';
 
+/// **[C]** The group of the primary vault holding the member key and the
+/// directory of members (part-sharing); never a place references resolve
+/// into, never exported.
+const String tomSecretsSharingGroup = 'tsm.sharing';
+
 /// The first character of an overlay group's name.
 const String tomSecretsOverlayPrefix = '@';
 
@@ -76,7 +81,15 @@ enum TomSecretsEntryType {
   certificate('certificate'),
 
   /// **[C]** A PGP key.
-  pgpKey('pgp-key');
+  pgpKey('pgp-key'),
+
+  /// **[C]** The user's member key: a hybrid `age` identity (part-sharing),
+  /// in the primary vault's `tsm.sharing` group.
+  memberKey('member-key'),
+
+  /// **[C]** Another person's public `age` key in the directory of members
+  /// (part-sharing), in the primary vault's `tsm.sharing` group.
+  member('member');
 
   const TomSecretsEntryType(this.wireName);
 

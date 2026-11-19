@@ -45,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.16.0';
+const String tomSecretsServiceVersion = '0.16.1';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {

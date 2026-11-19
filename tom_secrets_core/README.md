@@ -147,6 +147,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | Approval link (Noise KK + ML-KEM-768) | `TomSecretsLinkSession`, `TomSecretsApprovalChannel` |
 | Pairing (SPAKE2, RFC 9382) | `TomSecretsPairingCode`, `tomSecretsGivePairing`, `tomSecretsReceivePairing`, `TomSecretsPairingWindow` |
 | Device records | `TomSecretsDeviceRecords` |
+| Member keys (phase C): hybrid `age` v1.3 keys (`age1pq1…`, X25519 + ML-KEM-768), other people's classical `age1…` keys for exports, fingerprints, the published key file, the `member-key` and `member` entries | `TomSecretsMemberKey`, `TomSecretsAgeRecipient`, `tomSecretsMemberKeyFile`, `tomSecretsReadMemberKeys`, `tomSecretsAddMemberKey`, `tomSecretsAddMember` |
 
 ### Import, export and device
 
@@ -480,6 +481,28 @@ with `tomSecretsReceivePairingForSetup` and is set up by
 where this one's approval link will listen (the device setting
 `approvalLink` it is set up with), so the giver opens the link at once.
 
+A person's **member key** (phase C) is a hybrid `age` v1.3 identity,
+`AGE-SECRET-KEY-PQ-1…`, whose public key is the recipient `age1pq1…`
+(X25519 + ML-KEM-768 through `tom_pqc`, about 1,960 characters). Both work
+with the `age` command line from v1.3.0 on. People compare the
+fingerprint, the base32 SHA-256 of the recipient:
+
+```dart
+final key = await TomSecretsMemberKey.generate();
+print(key.recipient.shortFingerprint); // e.g. wgel hhnt 6gbn ci7u taaz
+final published = tomSecretsMemberKeyFile(key.recipient, name: 'Alice');
+tomSecretsAddMemberKey(primary, key); // the member-key entry, tsm.sharing
+
+final [received] = tomSecretsReadMemberKeys(textFromBob);
+await tomSecretsAddMember(primary, name: 'Bob', recipient: received.recipient);
+key.dispose();
+```
+
+The published file is `age`'s recipients-file format (`age -R` reads it).
+A classical `age1…` recipient is accepted for exports to that person only
+(`canJoinSharedVaults` is false). The group `tsm.sharing` is never resolved
+into and never exported.
+
 ### Import and export
 
 ```dart
@@ -603,12 +626,13 @@ vault (`@host:<host>/.tom-secrets/device`) or in a key file.
 
 ## Status
 
-Version 0.2.2. The test suite (`dart test`) covers the model, resolution, the
+Version 0.2.13. The test suite (`dart test`) covers the model, resolution, the
 merge and the GitHub cycle against a fake GitHub server, the offline cache,
 compaction, the outer encryption against the fixtures in `test/fixtures/outer/`,
 the importers against synthetic exports, trust rotation, and the approval
 material byte for byte against the protocol's vectors (signatures, approval
-codes, the link handshake, RFC 9382's SPAKE2 vectors).
+codes, the link handshake, RFC 9382's SPAKE2 vectors), and the member keys
+against keys `filippo.io/age` v1.3.2 made.
 
 ### The live check on github.com
 
