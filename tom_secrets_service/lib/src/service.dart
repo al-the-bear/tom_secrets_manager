@@ -45,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.15.1';
+const String tomSecretsServiceVersion = '0.16.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -386,6 +386,17 @@ final class TomSecretsService
   );
   final Set<_AdminSession> _admins = {};
   int _authFailures = 0;
+
+  /// The logins a browser prompt allowed `once` (protocol.md 5.5): by the
+  /// browser host as started by its browser (the grant subject an `always`
+  /// would have written), the entries (`<store>/<uuid>`) and until when. The
+  /// browser host lists them and reads each once until then; the extension's
+  /// list and its fill are separate host processes, so this is the
+  /// service's, not one connection's. Forgotten at the lock.
+  final Map<String, Map<String, DateTime>> _browserOnce = {};
+
+  /// How long a browser prompt's `once` holds.
+  static const browserOnceFor = Duration(minutes: 10);
   final Completer<void> _done = Completer<void>();
   Completer<void> _unlocked = Completer<void>();
   bool _stopping = false;
@@ -1260,6 +1271,7 @@ final class TomSecretsService
     await _approverLinks?.stop();
     _approverLinks = null;
     _approvals?.abandonAll();
+    _browserOnce.clear();
     await _approvals?.closeLinks();
     await _linkServer?.close();
     await _audit?.close();
@@ -2416,6 +2428,25 @@ final class _ClientSession {
           _auditPicked(requests[i], approver);
         }
       }
+      // A login a browser prompt allowed `once`: every field of it this
+      // request reads (a fill reads user name, password and code at once),
+      // then it is spent.
+      if (_isBrowserHost) {
+        final once = _browserOnceEntries();
+        final spent = <String>{};
+        for (var i = 0; i < requests.length; i++) {
+          final entry = requests[i].resolution.entry;
+          final key = '${entry.store}/${entry.uuid}';
+          if (!picked.containsKey(i) && once.contains(key)) {
+            picked[i] = const TomSecretsAccessAllowed();
+            _auditPicked(requests[i], null);
+            spent.add(key);
+          }
+        }
+        service._browserOnce[_browserSubject()]?.removeWhere(
+          (key, _) => spent.contains(key),
+        );
+      }
       final batch = [
         for (var i = 0; i < requests.length; i++)
           if (!picked.containsKey(i)) requests[i],
@@ -2558,8 +2589,10 @@ final class _ClientSession {
   /// `match` (protocol.md 5.5): the login entries of a page that this
   /// client's grants cover (with `userName`, only that user's), never a
   /// value; only for the browser host and the helpers; audited. The browser
-  /// host gets no entry of a system vault. A helper's `pick` answers one
-  /// login, asking the user to pick when the grants do not decide.
+  /// host gets no entry of a system vault; when no grant covers a login of
+  /// the page it asks the approvers (the browser prompt, DP-44). A helper's
+  /// `pick` answers one login, asking the user to pick when the grants do
+  /// not decide.
   Future<void> _match(int id, Map<String, Object?> m) async {
     final url = m['url'];
     final frameUrl = m['frameUrl'];
@@ -2615,11 +2648,15 @@ final class _ClientSession {
             (!pick || f.level == TomSecretsUrlMatchLevel.exactHost))
           f,
     ];
-    var found = matching(
-      eligible.where((e) => coverage.covers(e.store, e.uuid)),
-    );
+    final once = browser ? _browserOnceEntries() : const <String>{};
+    bool listed(TomSecretsIndexedEntry e) =>
+        coverage.covers(e.store, e.uuid) ||
+        once.contains('${e.store}/${e.uuid}');
+    var found = matching(eligible.where(listed));
     if (pick) {
       found = await _picked(id, url, found, coverage, eligible, matching);
+    } else if (browser && found.isEmpty) {
+      found = await _browserApproved(id, url, matching(eligible));
     }
     connection.send({
       'op': 'matches',
@@ -2639,6 +2676,87 @@ final class _ClientSession {
       for (final f in found) f.entry.uuid,
     ]);
     service.log.info('match', {'candidates': found.length});
+  }
+
+  /// The browser host's `once` entries (`<store>/<uuid>`) still held.
+  Set<String> _browserOnceEntries() {
+    final held = service._browserOnce[_browserSubject()];
+    if (held == null) return const {};
+    final now = DateTime.now();
+    held.removeWhere((_, until) => !until.isAfter(now));
+    return held.keys.toSet();
+  }
+
+  /// The browser host as its grants name it: started by its browser.
+  String _browserSubject() => tomSecretsGrantSubject(
+    _identity!,
+    const TomSecretsApprovalAnswer(
+      decision: 'always',
+      secret: 'all',
+      approver: '',
+    ),
+    browser: true,
+  );
+
+  /// The browser host's `match` that no grant covers (protocol.md 5.5,
+  /// DP-44): when the page has logins in the personal and shared vaults
+  /// ([options]), the approvers are asked once for all of them
+  /// (`approval_needed` with `browser` and `url`). `always` writes the
+  /// grants for the browser host as started by its browser (`exe-from`) with
+  /// the scope picked, `never` its never grants; `once` lets it list those
+  /// logins and read each once for [TomSecretsService.browserOnceFor]. The
+  /// logins allowed are listed. No approver connected, refused or
+  /// unanswered: none.
+  Future<List<TomSecretsLoginMatch>> _browserApproved(
+    int id,
+    String url,
+    List<TomSecretsLoginMatch> options,
+  ) async {
+    if (options.isEmpty) return const [];
+    final policy = service.config.policy ?? service.approvals;
+    final resolver = service.vaults.resolver;
+    if (policy is! TomSecretsApprovals || resolver == null) return const [];
+    final items = <TomSecretsAccessRequest>[];
+    for (final f in options) {
+      final resolution = resolver.resolve(
+        '${f.entry.store}/~${f.entry.uuid}',
+        field: 'Title',
+      );
+      resolution.value.dispose();
+      items.add(
+        TomSecretsAccessRequest(
+          reference: '${f.entry.store}/~${f.entry.uuid}',
+          resolution: resolution,
+          client: _client,
+          identity: _identity!,
+        ),
+      );
+    }
+    final answers = await policy.askBrowser(
+      TomSecretsAccessBatch(
+        identity: _identity!,
+        client: _client,
+        items: items,
+        onProgress: (p) => connection.send({'op': 'progress', 'id': id, ...p}),
+        clientTokenHash: _clientTokenHash,
+      ),
+      url,
+    );
+    if (answers == null) return const [];
+    final allowed = [
+      for (var i = 0; i < options.length; i++)
+        if (answers[i] is TomSecretsAccessAllowed) options[i],
+    ];
+    // An `always` wrote grants; a `once` did not: remember it.
+    final coverage = await _coverage(resolver);
+    final held = service._browserOnce.putIfAbsent(_browserSubject(), () => {});
+    final until = DateTime.now().add(TomSecretsService.browserOnceFor);
+    for (final f in allowed) {
+      if (!coverage.covers(f.entry.store, f.entry.uuid)) {
+        held['${f.entry.store}/${f.entry.uuid}'] = until;
+      }
+    }
+    return allowed;
   }
 
   /// The entries this connection may read once without asking: a login the
@@ -2877,6 +2995,18 @@ final class _ClientSession {
       return fail(_error(e.kind.wireName, e.message, e.details));
     }
     held.add(resolution.value);
+    if (_isBrowserHost && _isSystemStore(resolver, resolution.entry.store)) {
+      // DP-44: a system vault is never served to the browser, whatever a
+      // grant says.
+      _auditLookup(_canonicalRef(ref), 'denied:system_vault', [
+        resolution.entry.uuid,
+      ]);
+      return fail(
+        _error('denied', 'a system vault is not served to the browser', {
+          'reason': 'system_vault',
+        }),
+      );
+    }
     return (
       TomSecretsAccessRequest(
         reference: ref,
@@ -2887,6 +3017,19 @@ final class _ClientSession {
       ),
       null,
     );
+  }
+
+  bool _isSystemStore(TomSecretsResolver resolver, String store) =>
+      resolver.stores.any(
+        (s) => s.name == store && s.metadata.kind == TomSecretsVaultKind.system,
+      );
+
+  static String _canonicalRef(String ref) {
+    try {
+      return TomSecretReference.parse(ref).canonical;
+    } on Object {
+      return ref;
+    }
   }
 
   /// The answer to [request] under [access]: its value, or the refusal.

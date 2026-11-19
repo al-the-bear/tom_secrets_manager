@@ -393,6 +393,32 @@ String tomSecretsRealPath(String path, String? cwd) {
   }
 }
 
+/// The process whose child [process] counts as, for its grants: its
+/// [parent], except for the browser host (an executable named
+/// `tsm-browser-host`) started through a shell, `cmd.exe` (Chrome and the
+/// other Chromium browsers start a native-messaging host on Windows with
+/// `cmd /c`): then the shell's parent, the browser, read with [infoOf]. A
+/// grant of the browser host names its browser (`exe-from`, DP-44), which
+/// the shell alone would not tell apart.
+TomSecretsProcessInfo? tomSecretsLauncherOf(
+  TomSecretsProcessInfo process,
+  TomSecretsProcessInfo? parent,
+  TomSecretsProcessInfo? Function(int pid) infoOf,
+) {
+  if (parent == null) return null;
+  String base(String path) {
+    final name = path.split(RegExp(r'[/\\]')).last.toLowerCase();
+    return name.endsWith('.exe') ? name.substring(0, name.length - 4) : name;
+  }
+
+  if (base(process.exe) != 'tsm-browser-host' || base(parent.exe) != 'cmd') {
+    return parent;
+  }
+  final above = parent.parentPid;
+  if (above == null || above == 0) return parent;
+  return infoOf(above) ?? parent;
+}
+
 /// The identity of [process] (the client) with its [parent], classified by
 /// [interpreters]; a script's hash from [hashes].
 TomSecretsIdentity tomSecretsIdentityOf(

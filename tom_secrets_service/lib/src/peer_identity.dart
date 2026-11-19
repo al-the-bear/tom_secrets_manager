@@ -109,9 +109,13 @@ final class TomSecretsSystemPeerMeasurer implements TomSecretsPeerMeasurer {
     if (own != null && process.uid != own) {
       return const TomSecretsPeerRefused('other_user');
     }
-    final parent = process.parentPid == null || process.parentPid == 0
-        ? null
-        : tomSecretsProcessInfo(process.parentPid!);
+    final parent = tomSecretsLauncherOf(
+      process,
+      process.parentPid == null || process.parentPid == 0
+          ? null
+          : tomSecretsProcessInfo(process.parentPid!),
+      tomSecretsProcessInfo,
+    );
     return TomSecretsPeerMeasured(
       tomSecretsIdentityOf(
         process,

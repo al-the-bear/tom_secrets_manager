@@ -202,6 +202,10 @@ final class TomSecretsApproverLinks {
         (answer.decision == 'folder' && answer.folder == null)) {
       throw ArgumentError('decision, secret and folder');
     }
+    final browser = event['browser'] == true;
+    if (browser && answer.decision == 'folder') {
+      throw ArgumentError('a browser prompt is answered once, always or never');
+    }
     final token = answer.clientToken;
     if (token != null &&
         (answer.decision != 'always' || event['wantClientToken'] != true)) {
@@ -228,7 +232,7 @@ final class TomSecretsApproverLinks {
       tokenId = tomSecretsClientTokenId(tomSecretsClientTokenHash(bytes));
     }
     final subject = tokenId == null
-        ? tomSecretsGrantSubject(identity, answer)
+        ? tomSecretsGrantSubject(identity, answer, browser: browser)
         : 'exe-token ${identity.exe} $tokenId';
     final secrets = tomSecretsGrantSecrets(
       answer,

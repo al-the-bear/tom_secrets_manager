@@ -7,8 +7,9 @@
 /// its id qualified by the host; once, always (a grant signed by mbp,
 /// applied on bigbeast at once) and always with a client token (its
 /// `exe-token` grant answers the request); the link opened again after the
-/// host relocked, and under the host's rotated link key the new key taken.
-/// Demo data only.
+/// host relocked, and under the host's rotated link key the new key taken;
+/// a browser prompt (protocol.md 5.5) answered always over the link names
+/// the browser in its grant. Demo data only.
 @TestOn('vm')
 @Timeout(Duration(minutes: 2))
 library;
@@ -26,6 +27,29 @@ import 'package:tom_secrets_service/tom_secrets_service.dart';
 
 import 'support/setup.dart';
 
+/// Measures the next client connection as [next] when it is set (then
+/// forgets it), every other peer as the tests always are measured.
+final class SwitchMeasurer implements TomSecretsPeerMeasurer {
+  SwitchMeasurer(TomSecretsTransport transport)
+    : _usual = transport == TomSecretsTransport.tcp && !Platform.isWindows
+          ? const SelfPeerMeasurer()
+          : TomSecretsSystemPeerMeasurer();
+
+  final TomSecretsPeerMeasurer _usual;
+
+  /// The identity the next connection is measured as.
+  TomSecretsIdentity? next;
+
+  @override
+  Future<TomSecretsPeerMeasurement> measure(Socket socket) async {
+    final identity = next;
+    next = null;
+    return identity == null
+        ? _usual.measure(socket)
+        : TomSecretsPeerMeasured(identity);
+  }
+}
+
 void main() {
   late Demo demoA;
   late Demo demoB;
@@ -34,6 +58,7 @@ void main() {
   late TomSecretsAdminClient adminA;
   late TomSecretsAdminClient adminB;
   late int linkPort;
+  late SwitchMeasurer measurerB;
   final transport = Platform.isWindows
       ? TomSecretsTransport.tcp
       : TomSecretsTransport.unix;
@@ -64,12 +89,31 @@ void main() {
       dataDirectory: '${demoB.dir}/data',
       deviceKey: TomSecretsDeviceKeyMode.keyfile,
     );
+    // A login of a web site in the team vault both machines serve.
+    final team = await KdbxFormat().read(
+      File(demoA.teamPath).readAsBytesSync(),
+      tomSecretsVaultCredentials(password: teamPassword),
+    );
+    final root = team.body.rootGroup;
+    root.addEntry(
+      KdbxEntry.create(team, root)
+        ..setString(KdbxKeyCommon.TITLE, PlainValue('Mail'))
+        ..setString(KdbxKeyCommon.USER_NAME, PlainValue('demo-user'))
+        ..setString(KdbxKeyCommon.URL, PlainValue('https://mail.example.com'))
+        ..setString(
+          KdbxKeyCommon.PASSWORD,
+          ProtectedValue.fromString('demo-mail-pw'),
+        ),
+    );
+    File(demoA.teamPath).writeAsBytesSync(await team.save());
     mbp = await demoA.start(transport: transport, host: 'mbp');
     // bigbeast asks its approvers: no grants of the test's own.
+    measurerB = SwitchMeasurer(transport);
     bigbeast = await demoB.start(
       transport: transport,
       host: 'bigbeast',
       policy: null,
+      peerMeasurer: measurerB,
     );
     adminA = await admin(demoA);
     adminB = await admin(demoB);
@@ -190,6 +234,41 @@ void main() {
     addTearDown(sub.cancel);
     expect((await c.get('primary/Db/Main')).text, 'demo-db-pw');
     expect(prompted, isFalse);
+  });
+
+  test('a browser prompt on bigbeast answered always on mbp: the grant names '
+      'the browser that started the browser host', () async {
+    const chrome =
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    const hostExe =
+        '/Applications/Tom Secrets Manager.app/tsm/bin/'
+        'tsm-browser-host';
+    measurerB.next = TomSecretsIdentity.fromJson({
+      'kind': 'exe',
+      'exe': hostExe,
+      'args': ['chrome-extension://lcejninmlbnhfnpedlgjjfeelhbgmach/'],
+      'cwd': '/',
+      'parent': {'exe': chrome},
+    });
+    final needed = nextEvent('approval_needed');
+    final c = await clientOnB();
+    final listed = c.match('https://mail.example.com/login');
+    final event = await needed;
+    expect(event['host'], 'bigbeast');
+    expect(event['browser'], isTrue);
+    expect(event['url'], 'https://mail.example.com/login');
+    await adminA.request('approve', {
+      'approvalId': event['approvalId'],
+      'decision': 'always',
+      'secret': 'all',
+      'pin': 'off',
+    });
+    expect([for (final l in await listed) l.title], ['Mail']);
+    final grants = await adminA.request('grants.list', {'host': 'bigbeast'});
+    final grant = (grants['grants']! as List).cast<Map>().single;
+    expect(grant['approver'], 'mbp');
+    expect(grant['subject'], 'exe-from $chrome => $hostExe');
+    expect(grant['secret'], 'all');
   });
 
   test('always with a client token: its exe-token grant answers the request '

@@ -627,6 +627,316 @@ void main() {
     });
   });
 
+  group('match for the browser host without a grant (DP-44)', () {
+    /// The answer of [request], progress frames skipped.
+    Future<Map<String, Object?>> answer(
+      _Raw raw,
+      Map<String, Object?> request,
+    ) async {
+      raw.send(request);
+      while (true) {
+        final m = await raw.next();
+        if (m['op'] != 'progress') return m;
+      }
+    }
+
+    /// The reference of the system vault's login Fleet.
+    String fleetOf(TomSecretsService service) {
+      final system = service.vaults.resolver!.stores.firstWhere(
+        (s) => s.metadata.kind == TomSecretsVaultKind.system,
+      );
+      final fleet = system.entries.firstWhere((e) => e.entry.label == 'Fleet');
+      return '${system.name}/~${fleet.uuid}';
+    }
+
+    test('the first match asks for the page\'s personal and shared logins; '
+        'always writes one grant for the host as started by its browser, '
+        'the next match and get ask nothing; a system vault\'s value is '
+        'refused whatever the grant says', () async {
+      final service = await start(browserHosts: self, policy: null);
+      final raw = await _Raw.open(demo, transport);
+      await raw.hello(service);
+      final needed = admin.events.firstWhere(
+        (e) => e['op'] == 'approval_needed',
+      );
+      final matched = answer(raw, {
+        'op': 'match',
+        'id': 1,
+        'url': 'https://mail.example.com/inbox',
+      });
+      final event = await needed;
+      expect(event['browser'], isTrue);
+      expect(event['url'], 'https://mail.example.com/inbox');
+      expect(event['pick'], isNull);
+      // The site's logins of the team vault; the system vault's Fleet is
+      // never put to the user for the browser.
+      expect([
+        for (final r in (event['resolved']! as List).cast<Map>()) r['path'],
+      ], unorderedEquals(['Mail', 'Deploy']));
+      expect(
+        (event['refs']! as List).every((r) => '$r'.startsWith('team/~')),
+        isTrue,
+      );
+      await admin.request('approve', {
+        'approvalId': event['approvalId'],
+        'decision': 'always',
+        'secret': 'all',
+        'pin': 'off',
+      });
+      final first = await matched;
+      expect(
+        [for (final c in first['candidates']! as List) c['title']],
+        ['Mail', 'Deploy'],
+      );
+      final identity = TomSecretsIdentity.fromJson(
+        (event['identity']! as Map).cast<String, Object?>(),
+      );
+      final grants = ((await admin.request('grants.list'))['grants']! as List)
+          .cast<Map>();
+      expect(grants, hasLength(1));
+      expect(grants.single['secret'], 'all');
+      expect(
+        grants.single['subject'],
+        tomSecretsGrantSubject(
+          identity,
+          const TomSecretsApprovalAnswer(
+            decision: 'always',
+            secret: 'all',
+            approver: 'demo',
+          ),
+          browser: true,
+        ),
+      );
+
+      var prompted = false;
+      final sub = admin.events.listen((e) {
+        if (e['op'] == 'approval_needed') prompted = true;
+      });
+      final again = await answer(raw, {
+        'op': 'match',
+        'id': 2,
+        'url': 'https://mail.example.com/',
+      });
+      expect((again['candidates']! as List), hasLength(2));
+      final mail = (again['candidates']! as List).cast<Map>().first['entryId'];
+      final values = await answer(raw, {
+        'op': 'getMany',
+        'id': 3,
+        'refs': [
+          {'ref': mail, 'field': 'Password'},
+          {'ref': fleetOf(service), 'field': 'Password'},
+        ],
+      });
+      final results = (values['results']! as List).cast<Map>();
+      expect(results.first['op'], 'value');
+      expect(results.last['kind'], 'denied');
+      expect((results.last['details']! as Map)['reason'], 'system_vault');
+      final single = await answer(raw, {
+        'op': 'get',
+        'id': 4,
+        'ref': fleetOf(service),
+      });
+      expect((single['details']! as Map)['reason'], 'system_vault');
+      await sub.cancel();
+      expect(prompted, isFalse);
+    });
+
+    test('once: the logins are listed and each read once, also by another '
+        'host process of the same browser (the fill), nothing written; a '
+        'second read asks again', () async {
+      final service = await start(browserHosts: self, policy: null);
+      final raw = await _Raw.open(demo, transport);
+      await raw.hello(service);
+      var needed = admin.events.firstWhere((e) => e['op'] == 'approval_needed');
+      final matched = answer(raw, {
+        'op': 'match',
+        'id': 1,
+        'url': 'https://mail.example.com/',
+      });
+      final event = await needed;
+      await admin.request('approve', {
+        'approvalId': event['approvalId'],
+        'decision': 'once',
+        'secret': 'ref',
+      });
+      final mail = ((await matched)['candidates']! as List)
+          .cast<Map>()
+          .firstWhere((c) => c['title'] == 'Mail')['entryId'];
+      expect((await admin.request('grants.list'))['grants'], isEmpty);
+
+      // The fill: a new host process, a new connection.
+      final fill = await _Raw.open(demo, transport);
+      await fill.hello(service);
+      var prompted = false;
+      final sub = admin.events.listen((e) {
+        if (e['op'] == 'approval_needed') prompted = true;
+      });
+      final listed = await answer(fill, {
+        'op': 'match',
+        'id': 1,
+        'url': 'https://mail.example.com/',
+      });
+      expect((listed['candidates']! as List), hasLength(2));
+      final values = await answer(fill, {
+        'op': 'getMany',
+        'id': 2,
+        'refs': [
+          {'ref': mail, 'field': 'UserName'},
+          {'ref': mail, 'field': 'Password'},
+        ],
+      });
+      expect(
+        [for (final r in (values['results']! as List).cast<Map>()) r['op']],
+        ['value', 'value'],
+      );
+      await sub.cancel();
+      expect(prompted, isFalse);
+
+      needed = admin.events.firstWhere((e) => e['op'] == 'approval_needed');
+      final second = answer(fill, {
+        'op': 'get',
+        'id': 3,
+        'ref': mail,
+        'field': 'Password',
+      });
+      final ask = await needed;
+      expect(ask['browser'], isNull, reason: 'a value prompt');
+      await admin.request('approve', {
+        'approvalId': ask['approvalId'],
+        'decision': 'never',
+        'secret': 'ref',
+      });
+      expect((await second)['kind'], 'denied');
+    });
+
+    test('never lists none and asks no more; a folder answer is refused; '
+        'no approver connected: none at once', () async {
+      final service = await start(browserHosts: self, policy: null);
+      final raw = await _Raw.open(demo, transport);
+      await raw.hello(service);
+      final needed = admin.events.firstWhere(
+        (e) => e['op'] == 'approval_needed',
+      );
+      final matched = answer(raw, {
+        'op': 'match',
+        'id': 1,
+        'url': 'https://mail.example.com/',
+      });
+      final event = await needed;
+      await expectLater(
+        admin.request('approve', {
+          'approvalId': event['approvalId'],
+          'decision': 'folder',
+          'secret': 'all',
+          'folder': '/opt',
+        }),
+        throwsA(
+          isA<TomSecretsAdminException>().having(
+            (e) => e.kind,
+            'kind',
+            'malformed',
+          ),
+        ),
+      );
+      await admin.request('approve', {
+        'approvalId': event['approvalId'],
+        'decision': 'never',
+        'secret': 'all',
+      });
+      expect((await matched)['candidates'], isEmpty);
+      final grants = ((await admin.request('grants.list'))['grants']! as List)
+          .cast<Map>();
+      expect(grants.single['decision'], 'never');
+
+      var prompted = false;
+      final sub = admin.events.listen((e) {
+        if (e['op'] == 'approval_needed') prompted = true;
+      });
+      final again = await answer(raw, {
+        'op': 'match',
+        'id': 2,
+        'url': 'https://mail.example.com/',
+      });
+      expect(again['candidates'], isEmpty);
+      await sub.cancel();
+      expect(prompted, isFalse);
+      await service.stop();
+
+      final alone = await start(
+        browserHosts: self,
+        policy: null,
+        subscribe: false,
+      );
+      final raw2 = await _Raw.open(demo, transport);
+      await raw2.hello(alone);
+      final none = await answer(raw2, {
+        'op': 'match',
+        'id': 1,
+        'url': 'https://shop.example.org/',
+      });
+      expect(none['candidates'], isEmpty);
+    });
+
+    test('the browser host\'s lasting grants name its browser', () {
+      const always = TomSecretsApprovalAnswer(
+        decision: 'always',
+        secret: 'all',
+        approver: 'demo',
+      );
+      final host = TomSecretsIdentity.fromJson({
+        'kind': 'exe',
+        'exe': '/opt/tsm/bin/tsm-browser-host',
+        'args': ['chrome-extension://lcejninmlbnhfnpedlgjjfeelhbgmach/'],
+        'cwd': '/',
+        'parent': {'exe': '/opt/google/chrome/chrome'},
+      });
+      expect(
+        tomSecretsGrantSubject(host, always, browser: true),
+        'exe-from /opt/google/chrome/chrome => /opt/tsm/bin/tsm-browser-host',
+      );
+      expect(
+        tomSecretsGrantSubject(host, always),
+        'exe /opt/tsm/bin/tsm-browser-host',
+      );
+      final unmeasured = TomSecretsIdentity.fromJson({
+        'kind': 'exe',
+        'exe': '/opt/tsm/bin/tsm-browser-host',
+        'args': const <String>[],
+        'cwd': '/',
+      });
+      expect(
+        tomSecretsGrantSubject(unmeasured, always, browser: true),
+        'exe /opt/tsm/bin/tsm-browser-host',
+      );
+    });
+
+    test('on Windows a browser starts the host through cmd: the browser is '
+        'the launcher', () {
+      TomSecretsProcessInfo info(int pid, String exe, int? parent) =>
+          TomSecretsProcessInfo(
+            pid: pid,
+            exe: exe,
+            args: const [],
+            cwd: r'C:\',
+            startTime: pid,
+            parentPid: parent,
+            uid: 'S-1-5-21-demo',
+          );
+      final chrome = info(10, r'C:\Program Files\Google\Chrome\chrome.exe', 1);
+      final cmd = info(11, r'C:\Windows\System32\cmd.exe', 10);
+      final host = info(12, r'C:\tsm\bin\tsm-browser-host.exe', 11);
+      final processes = {10: chrome, 11: cmd};
+      expect(tomSecretsLauncherOf(host, cmd, (p) => processes[p]), chrome);
+      // Its shell's parent unreadable: the shell.
+      expect(tomSecretsLauncherOf(host, cmd, (_) => null), cmd);
+      // Started directly (Firefox), or another program under cmd: the parent.
+      expect(tomSecretsLauncherOf(host, chrome, (p) => processes[p]), chrome);
+      final tsm = info(13, r'C:\tsm\bin\tsm.exe', 11);
+      expect(tomSecretsLauncherOf(tsm, cmd, (p) => processes[p]), cmd);
+      expect(tomSecretsLauncherOf(host, null, (p) => processes[p]), isNull);
+    });
+  });
+
   test('propose needs an allow grant of the browser host', () async {
     final service = await start(browserHosts: self, policy: null);
     final raw = await _Raw.open(demo, transport);

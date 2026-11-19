@@ -217,14 +217,24 @@ service is unlocked, or `locked` when the approval timeout passes.
   named `binary` and `getFile`, else `unsupported`. It is checked and
   decided as `get` is.
 - `match` answers the login entries of a web page that an `allow` grant of
-  the client covers, never a value and without a prompt (URL matching:
+  the client covers, never a value (URL matching:
   `tom_secrets_core`'s `tomSecretsMatchLogins`), only for the browser host
   (`tsm-browser-host`) and the helpers (`tsm` and its multi-call names),
   known by their real paths beside the service
   (`TomSecretsServiceConfig.browserHostExecutables`, `helperExecutables`,
   `tomSecretsLookupExecutables`); the browser host gets no entry of a
-  system vault; every `match` is audited. `userName` keeps one user's
-  logins.
+  system vault, and no system vault's value by `get`, `getMany` or
+  `getFile` (`denied`, reason `system_vault`); every `match` is audited.
+  `userName` keeps one user's logins.
+- The browser prompt (DP-44): the browser host's `match` that no grant
+  covers asks the approvers for the page's logins in the personal and
+  shared vaults (`approval_needed` with `browser` and `url`; no prompt
+  without an approver). `always` and `never` write grants for the browser
+  host as started by its browser (`exe-from <browser> => <host>`), one per
+  browser; `once` lets that browser's host list the logins and read each
+  once for 10 minutes, from any connection. On Windows the measured parent
+  of a host started through `cmd.exe` is the shell's parent
+  (`tomSecretsLauncherOf`).
 - `match` with `pick` (the helpers, git's credential lookup) answers one
   login of the host (the host rule): the one the client's grants cover; of
   several, the one an allow grant names by its reference; else the user

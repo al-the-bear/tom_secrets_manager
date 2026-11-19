@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.16.0
+
+- The browser prompt (protocol.md 5.5, decision 39, DP-44): the browser
+  host's `match` that no grant covers asks the approvers once for the
+  page's logins in the personal and shared vaults (`approval_needed` with
+  `browser` and `url`; `askBrowser`); `always` / `never` write grants for
+  the host as started by its browser (`exe-from`, also from a remote
+  approver), `once` holds for that browser's host for 10 minutes across
+  connections, `folder` is refused. No approver connected: no prompt.
+- The browser host never gets a system vault's value: `get`, `getMany` and
+  `getFile` of one are `denied` (reason `system_vault`), audited.
+- `tomSecretsGrantSubject` takes `browser`; `tomSecretsLauncherOf` measures
+  the browser above `cmd.exe` on Windows.
+
 ## 0.15.1
 
 - After an OS unlock the app edits with the primary's composite key: the

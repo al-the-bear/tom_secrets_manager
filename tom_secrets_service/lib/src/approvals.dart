@@ -121,6 +121,7 @@ final class _Waiting {
     this.grantId,
     this.pick,
     this.url,
+    this.browser = false,
   });
 
   final String approvalId;
@@ -141,8 +142,13 @@ final class _Waiting {
   /// `userName`, `matchedUrl`), in the order of [items].
   final List<Map<String, Object?>>? pick;
 
-  /// The page or host the logins of a pick prompt match.
+  /// The page or host the logins of a pick or browser prompt match.
   final String? url;
+
+  /// A browser prompt (protocol.md 5.5): the browser host asks for the
+  /// logins of the page [url]; its lasting grants name the browser
+  /// (`exe-from`).
+  final bool browser;
   final Completer<List<TomSecretsAccess>> done = Completer();
   final Set<String> redeemedTokens = {};
   int badTokens = 0;
@@ -169,6 +175,7 @@ final class _Waiting {
     if (confirmOnly) 'confirmOnly': true,
     'pick': ?pick,
     'url': ?url,
+    if (browser) 'browser': true,
   };
 
   /// Whether the client asked for a client token.
@@ -193,11 +200,15 @@ bool _remote(TomSecretsIdentity identity) =>
 
 /// The subject a lasting answer [a] to a request of [i] is granted for: a
 /// `folder` decision its folder (with the interpreter), a `tsm run` its
-/// command line, else the script, the interpreter or the executable.
+/// command line, else the script, the interpreter or the executable. The
+/// browser host's grants ([browser], a browser prompt) always name the
+/// browser that started it (`exe-from`, DP-44: one grant per browser), as
+/// do the helpers' and an answer [TomSecretsApprovalAnswer.withParent].
 String tomSecretsGrantSubject(
   TomSecretsIdentity i,
-  TomSecretsApprovalAnswer a,
-) {
+  TomSecretsApprovalAnswer a, {
+  bool browser = false,
+}) {
   if (a.decision == 'folder') {
     return i.interpreter == null
         ? 'folder ${a.folder}'
@@ -207,7 +218,7 @@ String tomSecretsGrantSubject(
     return 'tsm-command ${i.args.join(' ')}';
   }
   final parent = i.parent?['exe'];
-  if ((a.withParent || tomSecretsIsHelperCall(i)) &&
+  if ((a.withParent || browser || tomSecretsIsHelperCall(i)) &&
       i.kind == 'exe' &&
       parent is String) {
     return 'exe-from $parent => ${i.exe}';
@@ -812,6 +823,7 @@ final class TomSecretsApprovals
     String? grantId,
     List<Map<String, Object?>>? pick,
     String? url,
+    bool browser = false,
   }) {
     final identity = batch.identity;
     List<TomSecretsAccess> all(TomSecretsAccess a) => [
@@ -842,6 +854,7 @@ final class TomSecretsApprovals
           _sameList(wRefs, refs) &&
           w.confirmOnly == confirmOnly &&
           (w.pick == null) == (pick == null) &&
+          w.browser == browser &&
           (w.batch.ssh == null) == (batch.ssh == null)) {
         _progress(batch, w);
         return w.done.future;
@@ -875,6 +888,7 @@ final class TomSecretsApprovals
       grantId: grantId,
       pick: pick,
       url: url,
+      browser: browser,
     );
     _waiting[approvalId] = waiting;
     var limit = connected
@@ -930,6 +944,46 @@ final class TomSecretsApprovals
       index: index,
       approver: (answers[index] as TomSecretsAccessAllowed).approver,
     );
+  }
+
+  /// Asks the approvers whether the browser host may have the logins of the
+  /// page [url] (its [batch] items, `<store>/~<uuid>`), for the browser
+  /// host's `match` that no grant covers (protocol.md 5.5, DP-44). Items a
+  /// grant decides are answered by it; the others go to one prompt
+  /// (`approval_needed` with `browser` and `url`). Answers each item's
+  /// decision, or null when no approver is connected (no approval code:
+  /// a list in a page cannot wait for one). Audited.
+  Future<List<TomSecretsAccess>?> askBrowser(
+    TomSecretsAccessBatch batch,
+    String url,
+  ) async {
+    if (!service.hasLocalApprover && _links.isEmpty) return null;
+    final decisions = List<TomSecretsAccess?>.filled(batch.items.length, null);
+    final open = <int>[];
+    for (var i = 0; i < batch.items.length; i++) {
+      final grant = await match(batch.identity, batch.items[i]);
+      if (grant == null) {
+        open.add(i);
+      } else {
+        decisions[i] = grant.decision == 'allow'
+            ? TomSecretsAccessAllowed(grantId: grant.id)
+            : TomSecretsAccessDenied('never', grantId: grant.id);
+      }
+    }
+    if (open.isNotEmpty) {
+      final answers = await _ask(
+        batch,
+        [for (final i in open) batch.items[i]],
+        url: url,
+        browser: true,
+      );
+      for (var k = 0; k < open.length; k++) {
+        decisions[open[k]] = answers[k];
+      }
+    }
+    final result = decisions.cast<TomSecretsAccess>();
+    _auditBatch(batch, result);
+    return result;
   }
 
   void _progress(TomSecretsAccessBatch batch, _Waiting w) =>
@@ -1013,6 +1067,9 @@ final class TomSecretsApprovals
         !const ['ref', 'store', 'all'].contains(answer.secret) ||
         (answer.decision == 'folder' && answer.folder == null)) {
       throw ArgumentError('decision, secret and folder');
+    }
+    if (w.browser && answer.decision == 'folder') {
+      throw ArgumentError('a browser prompt is answered once, always or never');
     }
     final token = answer.clientToken;
     if (token != null &&
@@ -1147,7 +1204,7 @@ final class TomSecretsApprovals
   }) async {
     final identity = w.batch.identity;
     final subject = clientTokenId == null
-        ? tomSecretsGrantSubject(identity, a)
+        ? tomSecretsGrantSubject(identity, a, browser: w.browser)
         : 'exe-token ${identity.exe} $clientTokenId';
     final secrets = tomSecretsGrantSecrets(
       a,
