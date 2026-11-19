@@ -24,7 +24,7 @@
   - [TomSecretsPasskeyException](#tomsecretspasskeyexception)
   - [TomSecretsPasskey](#tomsecretspasskey)
   - [TomSecretsBitwardenKeys](#tomsecretsbitwardenkeys)
-  - [TomSecretsBrowser](#tomsecretsbrowser)
+  - [TomSecretsCsvBrowser](#tomsecretscsvbrowser)
   - [TomSecretsKdbxImportResult](#tomsecretskdbximportresult)
   - [TomSecretsExport](#tomsecretsexport)
 - [Global Functions and Constants](#global-functions-and-constants)
@@ -62,7 +62,7 @@ Object
 ├── TomSecretsPasskeyException
 ├── TomSecretsPasskey
 ├── TomSecretsBitwardenKeys
-├── TomSecretsBrowser (enum)
+├── TomSecretsCsvBrowser (enum)
 ├── TomSecretsKdbxImportResult
 └── TomSecretsExport
 ```
@@ -502,7 +502,7 @@ The encryption and MAC keys of a Bitwarden export password.
 
 ---
 
-### TomSecretsBrowser
+### TomSecretsCsvBrowser
 
 A browser whose password export is read.
 
@@ -603,8 +603,8 @@ A plaintext export (CSV, Bitwarden JSON) and what it left behind.
 | `tomSecretsReadBitwardenJson` | `Future<TomSecretsImportSource> tomSecretsReadBitwardenJson(String text, {String? password})` | Reads Bitwarden's JSON export, a password-protected one with `password`; folders become groups, types map as 1Password's, the item id into `tsm.import.bitwarden.id`; a wrong password and an account-restricted export are refused. |
 | `tomSecretsBitwardenExportKeys` | `Future<TomSecretsBitwardenKeys> tomSecretsBitwardenExportKeys({required String password, required String salt, int kdfType = 0, int iterations = 600000, int? memoryMiB, int? parallelism})` | The keys of a password-protected export: PBKDF2-SHA256 (0) or Argon2id over the SHA-256 of the salt (1), then HKDF-Expand with `enc` and `mac`. |
 | `tomSecretsBitwardenDecrypt` | `Future<Uint8List> tomSecretsBitwardenDecrypt(String cipherString, TomSecretsBitwardenKeys keys)` | Decrypts a type-2 cipher string (AES-256-CBC, HMAC-SHA256 checked first). |
-| `tomSecretsBrowserOfCsv` | `TomSecretsBrowser? tomSecretsBrowserOfCsv(String text)` | The browser a CSV header looks like (Firefox, Safari), or null for Chrome and Edge. |
-| `tomSecretsReadBrowserCsv` | `TomSecretsImportSource tomSecretsReadBrowserCsv(String text, {TomSecretsBrowser browser = TomSecretsBrowser.chrome})` | Reads a browser's password export (Chrome, Edge, Firefox, Safari), identified by the same hash as an Enpass or 1Password CSV row. |
+| `tomSecretsBrowserOfCsv` | `TomSecretsCsvBrowser? tomSecretsBrowserOfCsv(String text)` | The browser a CSV header looks like (Firefox, Safari), or null for Chrome and Edge. |
+| `tomSecretsReadBrowserCsv` | `TomSecretsImportSource tomSecretsReadBrowserCsv(String text, {TomSecretsCsvBrowser browser = TomSecretsCsvBrowser.chrome})` | Reads a browser's password export (Chrome, Edge, Firefox, Safari), identified by the same hash as an Enpass or 1Password CSV row. |
 | `tomSecretsImportKdbxAsGroup` | `TomSecretsKdbxImportResult tomSecretsImportKdbxAsGroup(KdbxFile target, KdbxFile source, {required String name, List<String> parent = const []})` | Copies another KDBX file's groups and entries into a new group (` (2)` where the name is taken). |
 | `tomSecretsImportKdbxMerged` | `TomSecretsMergeResult tomSecretsImportKdbxMerged(KdbxFile target, KdbxFile source, {DateTime? now})` | Merges a copy of the same vault edited elsewhere entry by entry; another vault is refused. |
 | `tomSecretsExportEntries` | `List<(KdbxEntry, List<String>)> tomSecretsExportEntries(KdbxFile file, {KdbxGroup? group})` | The entries an export writes, with their group paths: no recycle bin, product groups or metadata entry. |

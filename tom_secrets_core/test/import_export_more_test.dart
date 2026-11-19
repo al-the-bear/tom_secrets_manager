@@ -198,7 +198,7 @@ void main() {
       expect(items.last.notes, 'Two-line\nnote');
       final edge = tomSecretsReadBrowserCsv(
         _read('$_browser/chrome.csv'),
-        browser: TomSecretsBrowser.edge,
+        browser: TomSecretsCsvBrowser.edge,
       );
       expect(edge.source, 'edge');
 

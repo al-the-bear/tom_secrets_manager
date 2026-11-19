@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.11
+
+- `TomSecretsBrowser` (0.2.10) is `TomSecretsCsvBrowser`: the name clashed
+  with `tom_secrets_client`'s browser hosts, which the apps import beside
+  this library.
+
 ## 0.2.10
 
 - The other imports and the exports (part-password-manager, DP-40):

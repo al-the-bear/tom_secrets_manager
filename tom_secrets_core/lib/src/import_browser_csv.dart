@@ -10,7 +10,7 @@
 ///   `password`, the notes (`note`, `notes`) and Safari's `OTPAuth`.
 /// - **Which browser** is read from the header: Firefox's has `httpRealm`
 ///   and `guid`, Safari's `OTPAuth`; Chrome and Edge write the same columns,
-///   so the caller names which ([TomSecretsBrowser.chrome] by default).
+///   so the caller names which ([TomSecretsCsvBrowser.chrome] by default).
 /// - **Re-import:** an item is identified by the same hash of title, URL and
 ///   user name as an Enpass or 1Password CSV row, its state by the hash of
 ///   its row; the import id is `tsm.import.<browser>.id`.
@@ -25,7 +25,7 @@ import 'import_1password.dart'
     show TomSecretsImportFormatException, tomSecretsParseCsv;
 
 /// A browser whose password export is read.
-enum TomSecretsBrowser {
+enum TomSecretsCsvBrowser {
   /// Google Chrome (and other Chromium browsers).
   chrome('chrome', 'Chrome'),
 
@@ -38,7 +38,7 @@ enum TomSecretsBrowser {
   /// Apple Safari (and the macOS Passwords app).
   safari('safari', 'Safari');
 
-  const TomSecretsBrowser(this.source, this.displayName);
+  const TomSecretsCsvBrowser(this.source, this.displayName);
 
   /// The source name in `tsm.import.<source>.id`.
   final String source;
@@ -57,14 +57,14 @@ const List<String> tomSecretsBrowserCsvLosses = [
 
 /// The browser whose export [text]'s header looks like: Firefox or Safari
 /// by their own columns, else null (Chrome and Edge look alike).
-TomSecretsBrowser? tomSecretsBrowserOfCsv(String text) {
+TomSecretsCsvBrowser? tomSecretsBrowserOfCsv(String text) {
   final rows = tomSecretsParseCsv(text);
   if (rows.isEmpty) return null;
   final header = {for (final h in rows.first) h.trim().toLowerCase()};
   if (header.contains('httprealm') || header.contains('guid')) {
-    return TomSecretsBrowser.firefox;
+    return TomSecretsCsvBrowser.firefox;
   }
-  if (header.contains('otpauth')) return TomSecretsBrowser.safari;
+  if (header.contains('otpauth')) return TomSecretsCsvBrowser.safari;
   return null;
 }
 
@@ -74,7 +74,7 @@ TomSecretsBrowser? tomSecretsBrowserOfCsv(String text) {
 /// or `password` column.
 TomSecretsImportSource tomSecretsReadBrowserCsv(
   String text, {
-  TomSecretsBrowser browser = TomSecretsBrowser.chrome,
+  TomSecretsCsvBrowser browser = TomSecretsCsvBrowser.chrome,
 }) {
   final rows = tomSecretsParseCsv(text);
   if (rows.isEmpty) {

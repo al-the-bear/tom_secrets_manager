@@ -154,7 +154,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | 1Password 1PUX and CSV | `tomSecretsRead1Pux`, `tomSecretsRead1PasswordCsv` |
 | Enpass JSON and CSV | `tomSecretsReadEnpassJson`, `tomSecretsReadEnpassCsv` |
 | Bitwarden JSON, plain or password-protected | `tomSecretsReadBitwardenJson`, `tomSecretsBitwardenNeedsPassword` |
-| Browser CSV (Chrome, Edge, Firefox, Safari) | `tomSecretsReadBrowserCsv`, `TomSecretsBrowser` |
+| Browser CSV (Chrome, Edge, Firefox, Safari) | `tomSecretsReadBrowserCsv`, `TomSecretsCsvBrowser` |
 | Another KDBX file, as a group or merged | `tomSecretsImportKdbxAsGroup`, `tomSecretsImportKdbxMerged` |
 | One import for every source, with preview and re-import | `tomSecretsImport`, `TomSecretsImportReport` |
 | Exports: KDBX under a new password, CSV, Bitwarden JSON, Enpass JSON | `tomSecretsExportKdbx`, `tomSecretsExportCsv`, `tomSecretsExportBitwardenJson`, `tomSecretsExportEnpassJson` |

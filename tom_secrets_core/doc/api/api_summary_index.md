@@ -392,7 +392,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsPasskeyException` | final class | A passkey's private key that cannot be read. | [→](api_summary_import_export.md#tomsecretspasskeyexception) |
 | `TomSecretsPasskey` | final class | A passkey with its private key. | [→](api_summary_import_export.md#tomsecretspasskey) |
 | `TomSecretsBitwardenKeys` | final class | The encryption and MAC keys of a Bitwarden export password. | [→](api_summary_import_export.md#tomsecretsbitwardenkeys) |
-| `TomSecretsBrowser` | enum | A browser whose password export is read. | [→](api_summary_import_export.md#tomsecretsbrowser) |
+| `TomSecretsCsvBrowser` | enum | A browser whose password export is read. | [→](api_summary_import_export.md#tomsecretscsvbrowser) |
 | `TomSecretsKdbxImportResult` | final class | What `tomSecretsImportKdbxAsGroup` did. | [→](api_summary_import_export.md#tomsecretskdbximportresult) |
 | `TomSecretsExport` | final class | A plaintext export (CSV, Bitwarden JSON) and what it left behind. | [→](api_summary_import_export.md#tomsecretsexport) |
 
@@ -502,7 +502,6 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsBranchRewritten` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsbranchrewritten) |
 | `TomSecretsBreachCheck` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsbreachcheck) |
 | `TomSecretsBreachCheckException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsbreachcheckexception) |
-| `TomSecretsBrowser` | Import and Export | [→](api_summary_import_export.md#tomsecretsbrowser) |
 | `TomSecretsCachedVault` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretscachedvault) |
 | `TomSecretsCharacterClass` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretscharacterclass) |
 | `TomSecretsClientTokenRecord` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsclienttokenrecord) |
@@ -513,6 +512,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsCompactionSettings` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretscompactionsettings) |
 | `TomSecretsConfig` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsconfig) |
 | `TomSecretsConfigException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsconfigexception) |
+| `TomSecretsCsvBrowser` | Import and Export | [→](api_summary_import_export.md#tomsecretscsvbrowser) |
 | `TomSecretsDeviceContainer` | First Run and Device Settings | [→](api_summary_device.md#tomsecretsdevicecontainer) |
 | `TomSecretsDeviceKeyException` | First Run and Device Settings | [→](api_summary_device.md#tomsecretsdevicekeyexception) |
 | `TomSecretsDeviceKeyMode` | First Run and Device Settings | [→](api_summary_device.md#tomsecretsdevicekeymode) |
