@@ -268,9 +268,38 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
     required Uint8List base,
     required Uint8List stored,
     String? outerKey,
+    Map<String, Uint8List> beside = const {},
   }) async {
     final unit = _units[locator];
     if (unit == null) throw StateError('$locator is not open');
+    if (beside.isNotEmpty) {
+      // The re-keyed file and the files beside it in one commit: a shared
+      // vault's removal (part-sharing). The unit is opened again on the new
+      // head with the new keys.
+      final vault = _parse(locator);
+      await _commitTree(
+        vault,
+        writes: {
+          vault.path: stored,
+          for (final MapEntry(:key, :value) in beside.entries)
+            _besidePath(vault, key): value,
+        },
+        expected: {vault.path: tomSecretsBlobId(base)},
+        refusals: {
+          vault.path: (
+            'the branch moved since the copy that was re-keyed',
+            'stale_base',
+          ),
+        },
+        message: 'tsm: ${vault.fileName} re-keyed from $device',
+        moving: 'the branch moved since the copy that was re-keyed',
+        movingReason: 'stale_base',
+      );
+      await _units.remove(locator)?.dispose();
+      return TomSecretsCommitted(
+        opened: await open(locator, file.credentials, outerKey: outerKey),
+      );
+    }
     try {
       await unit.rekey(
         file,
@@ -322,96 +351,21 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
         old.branch != target.branch) {
       throw ArgumentError.value(to, 'to', 'not in the repository of $from');
     }
-    final repository = _repository(old);
-    final token = await tokens(old);
-    if (token == null) {
-      throw const TomTokenRequiredException(TomGitHubStorage.host);
-    }
-    final git = repository._client(token).git;
-    final owner = old.owner;
-    final repo = old.repository;
-    final branch = old.branch ?? await repository.defaultBranch();
-    try {
-      final head = await git.getRef(
-        owner: owner,
-        repo: repo,
-        ref: 'heads/$branch',
-      );
-      final commit = await git.getCommit(
-        owner: owner,
-        repo: repo,
-        sha: head.sha,
-      );
-      final tree = await git.getTree(
-        owner: owner,
-        repo: repo,
-        sha: commit.treeSha,
-        recursive: true,
-      );
-      String? blobAt(String path) =>
-          tree.entries.where((e) => e.path == path).firstOrNull?.sha;
-      if (blobAt(old.path) != tomSecretsBlobId(base)) {
-        throw TomSecretsSaveException(
-          'denied',
+    await _commitTree(
+      old,
+      writes: {target.path: stored},
+      deletes: {old.path},
+      expected: {old.path: tomSecretsBlobId(base), target.path: null},
+      refusals: {
+        old.path: (
           'the file has moved since the copy that is moved',
-          reason: 'stale_base',
-        );
-      }
-      if (blobAt(target.path) != null) {
-        throw TomSecretsSaveException(
-          'denied',
-          'a file is at ${target.path} already',
-          reason: 'target_exists',
-        );
-      }
-      final blob = await git.createBlob(
-        owner: owner,
-        repo: repo,
-        bytes: stored,
-      );
-      final moved = await git.createTree(
-        owner: owner,
-        repo: repo,
-        baseTreeSha: commit.treeSha,
-        entries: [
-          GitHubTreeEntry(path: target.path, sha: blob),
-          GitHubTreeEntry.deletion(old.path),
-        ],
-      );
-      final identity = tomSecretsDeviceCommitter(device);
-      final made = await git.createCommit(
-        owner: owner,
-        repo: repo,
-        message: 'tsm: ${old.fileName} to ${target.fileName} from $device',
-        treeSha: moved.sha,
-        parentShas: [head.sha],
-        author: identity,
-        committer: identity,
-      );
-      try {
-        await git.updateRef(
-          owner: owner,
-          repo: repo,
-          ref: 'heads/$branch',
-          sha: made.sha,
-        );
-      } on GitHubException catch (e) {
-        if (e.statusCode == 422 || e.statusCode == 409) {
-          throw TomSecretsSaveException(
-            'denied',
-            'the branch moved meanwhile; move again',
-            reason: 'branch_moving',
-          );
-        }
-        rethrow;
-      }
-    } on GitHubAuthException {
-      throw const TomTokenRejectedException(
-        'github',
-        TomGitHubStorage.host,
-        'GitHub refused the token',
-      );
-    }
+          'stale_base',
+        ),
+        target.path: ('a file is at ${target.path} already', 'target_exists'),
+      },
+      message: 'tsm: ${old.fileName} to ${target.fileName} from $device',
+      moving: 'the branch moved meanwhile; move again',
+    );
     await _units.remove(from)?.dispose();
     return open(to, credentials, outerKey: outerKey);
   }
@@ -478,6 +432,185 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
       source: 'github',
       fetchedAt: unit.fetchedAt,
     );
+  }
+
+  /// The path of the file [name] in the folder of [vault]'s file; a name
+  /// with a path in it is refused.
+  static String _besidePath(TomSecretsGitHubLocator vault, String name) {
+    if (name.isEmpty || name.contains('/')) {
+      throw ArgumentError.value(name, 'name', 'not a file name');
+    }
+    final slash = vault.path.lastIndexOf('/');
+    return slash < 0 ? name : '${vault.path.substring(0, slash + 1)}$name';
+  }
+
+  /// Reads the file [name] beside [locator]'s file at the branch's head
+  /// through the REST API.
+  @override
+  Future<({Uint8List bytes, String revision})?> readBeside(
+    String locator,
+    String name,
+  ) async {
+    final vault = _parse(locator);
+    final path = _besidePath(vault, name);
+    final (git, branch) = await _git(vault);
+    try {
+      final head = await git.getRef(
+        owner: vault.owner,
+        repo: vault.repository,
+        ref: 'heads/$branch',
+      );
+      final commit = await git.getCommit(
+        owner: vault.owner,
+        repo: vault.repository,
+        sha: head.sha,
+      );
+      final tree = await git.getTree(
+        owner: vault.owner,
+        repo: vault.repository,
+        sha: commit.treeSha,
+        recursive: true,
+      );
+      final sha = tree.entries.where((e) => e.path == path).firstOrNull?.sha;
+      if (sha == null) return null;
+      final bytes = await git.getBlob(
+        owner: vault.owner,
+        repo: vault.repository,
+        sha: sha,
+      );
+      return (bytes: bytes, revision: sha);
+    } on GitHubAuthException {
+      throw const TomTokenRejectedException(
+        'github',
+        TomGitHubStorage.host,
+        'GitHub refused the token',
+      );
+    }
+  }
+
+  /// Writes the file [name] beside [locator]'s file in one commit on the
+  /// branch, through the REST API.
+  @override
+  Future<String> writeBeside(
+    String locator,
+    String name,
+    Uint8List bytes, {
+    required String? baseRevision,
+  }) async {
+    final vault = _parse(locator);
+    final path = _besidePath(vault, name);
+    await _commitTree(
+      vault,
+      writes: {path: bytes},
+      expected: {path: baseRevision},
+      refusals: {
+        path: ('the file $name has moved since it was read', 'stale_base'),
+      },
+      message: 'tsm: $name from $device',
+      moving: 'the branch moved meanwhile; write again',
+    );
+    return tomSecretsBlobId(bytes);
+  }
+
+  /// The git API of [vault]'s repository with its token, and its branch.
+  Future<(GitHubGitApi, String)> _git(TomSecretsGitHubLocator vault) async {
+    final repository = _repository(vault);
+    final token = await tokens(vault);
+    if (token == null) {
+      throw const TomTokenRequiredException(TomGitHubStorage.host);
+    }
+    final git = repository._client(token).git;
+    return (git, vault.branch ?? await repository.defaultBranch());
+  }
+
+  /// One commit on [vault]'s branch, on top of its head, moved onto the
+  /// branch without force: the head's tree with [writes] (path → bytes)
+  /// and without [deletes]. Each path of [expected] must hold that blob at
+  /// the head (null: no file), else the commit is refused as its
+  /// [refusals] entry says (`denied`); a branch that moved meanwhile is
+  /// refused with [moving] (`denied`, [movingReason]).
+  Future<void> _commitTree(
+    TomSecretsGitHubLocator vault, {
+    required Map<String, Uint8List> writes,
+    Set<String> deletes = const {},
+    required Map<String, String?> expected,
+    required Map<String, (String, String)> refusals,
+    required String message,
+    required String moving,
+    String movingReason = 'branch_moving',
+  }) async {
+    final (git, branch) = await _git(vault);
+    final owner = vault.owner;
+    final repo = vault.repository;
+    try {
+      final head = await git.getRef(
+        owner: owner,
+        repo: repo,
+        ref: 'heads/$branch',
+      );
+      final commit = await git.getCommit(
+        owner: owner,
+        repo: repo,
+        sha: head.sha,
+      );
+      final tree = await git.getTree(
+        owner: owner,
+        repo: repo,
+        sha: commit.treeSha,
+        recursive: true,
+      );
+      String? blobAt(String path) =>
+          tree.entries.where((e) => e.path == path).firstOrNull?.sha;
+      for (final MapEntry(key: path, value: blob) in expected.entries) {
+        if (blobAt(path) != blob) {
+          final (text, reason) = refusals[path]!;
+          throw TomSecretsSaveException('denied', text, reason: reason);
+        }
+      }
+      final entries = <GitHubTreeEntry>[
+        for (final MapEntry(key: path, value: bytes) in writes.entries)
+          GitHubTreeEntry(
+            path: path,
+            sha: await git.createBlob(owner: owner, repo: repo, bytes: bytes),
+          ),
+        for (final path in deletes) GitHubTreeEntry.deletion(path),
+      ];
+      final next = await git.createTree(
+        owner: owner,
+        repo: repo,
+        baseTreeSha: commit.treeSha,
+        entries: entries,
+      );
+      final identity = tomSecretsDeviceCommitter(device);
+      final made = await git.createCommit(
+        owner: owner,
+        repo: repo,
+        message: message,
+        treeSha: next.sha,
+        parentShas: [head.sha],
+        author: identity,
+        committer: identity,
+      );
+      try {
+        await git.updateRef(
+          owner: owner,
+          repo: repo,
+          ref: 'heads/$branch',
+          sha: made.sha,
+        );
+      } on GitHubException catch (e) {
+        if (e.statusCode == 422 || e.statusCode == 409) {
+          throw TomSecretsSaveException('denied', moving, reason: movingReason);
+        }
+        rethrow;
+      }
+    } on GitHubAuthException {
+      throw const TomTokenRejectedException(
+        'github',
+        TomGitHubStorage.host,
+        'GitHub refused the token',
+      );
+    }
   }
 
   @override

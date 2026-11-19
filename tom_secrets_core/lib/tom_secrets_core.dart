@@ -6,6 +6,7 @@
 /// (part-structure). The reference grammar is `tom_secrets_client`'s.
 library;
 
+export 'src/age.dart';
 export 'src/approval_code.dart';
 export 'src/approval_link.dart';
 export 'src/auto_type.dart';
@@ -42,6 +43,7 @@ export 'src/passkey.dart';
 export 'src/password_generator.dart';
 export 'src/primary.dart';
 export 'src/resolution.dart';
+export 'src/shared_vault.dart';
 export 'src/signed_objects.dart';
 export 'src/ssh_agent.dart';
 export 'src/ssh_key.dart';

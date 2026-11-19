@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.17.0
+
+- Shared vaults (part-sharing, protocol.md 6.4): `vault.recipients` reads
+  a shared vault's recipients file `<vault>.keys.age` beside it, by store
+  or, for a vault not listed yet, by location with the GitHub token the
+  request brings (used for that read only); `vault.recipients.set` writes
+  it alone over the revision read (`stale_base` otherwise); `vault.create`
+  takes `recipients` for a shared vault (keys with a key file alone),
+  written after the vault is listed; a re-keyed `save` takes `recipients`
+  and writes the re-keyed vault and the file in one commit, without force
+  (`stale_base` when the branch moved), and refuses it with a save that is
+  not re-keyed. `TomSecretsVaultOpener` gains `readBeside`, `writeBeside`
+  and `rekey`'s `beside`; the GitHub opener commits trees through one
+  helper (`vault.move` too). Takes `tom_secrets_core` 0.2.14.
+
 ## 0.16.1
 
 - Takes `tom_secrets_core` 0.2.13: the primary vault's `tsm.sharing`

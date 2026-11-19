@@ -214,8 +214,8 @@ void main() {
       ? TomSecretsTransport.tcp
       : TomSecretsTransport.unix;
 
-  /// Another device writing [file] to [locator] on GitHub.
-  Future<void> put(String locator, KdbxFile file) async {
+  /// Another device writing [bytes] to [locator] on GitHub.
+  Future<void> putBytes(String locator, Uint8List bytes) async {
     final storage = TomGitHubStorage.withClient(
       GitHubApiClient(
         token: 'demo-seed',
@@ -234,7 +234,7 @@ void main() {
       }
       await storage.commit(
         locator,
-        TomChangeset.singleFile(await file.save()),
+        TomChangeset.singleFile(bytes),
         expectedHead: head,
         message: 'seed',
       );
@@ -242,6 +242,10 @@ void main() {
       storage.close();
     }
   }
+
+  /// Another device writing [file] to [locator] on GitHub.
+  Future<void> put(String locator, KdbxFile file) async =>
+      putBytes(locator, await file.save());
 
   KdbxFile primaryVault({bool withOther = true, DateTime? otherExpires}) {
     final primary = _vault('primary', primaryPassword, {
@@ -1154,6 +1158,153 @@ void main() {
       ).byName('third')!;
       expect(listed.githubToken, 'demo-third-token');
     });
+
+    test(
+      'a shared vault (part-sharing): created with its recipients file, '
+      'read by store and, not listed, by location with the token the '
+      'request brings, written alone over its revision, and a member '
+      'removed: the re-keyed vault and the recipients file in one commit',
+      () async {
+        final service = await start();
+        final alice = await TomSecretsMemberKey.generate();
+        final bob = await TomSecretsMemberKey.generate();
+        addTearDown(() {
+          alice.dispose();
+          bob.dispose();
+        });
+        final keys = TomSecretsSharedVaultKeys.generate(
+          'crew',
+          members: [
+            (name: 'Alice', recipient: alice.recipient),
+            (name: 'Bob', recipient: bob.recipient),
+          ],
+        );
+        const crew = 'github:$_repo/shared/crew.kdbx';
+        final file = tomSecretsNewSharedVault('crew', keys, argon2: testArgon2);
+        final group = file.createGroup(
+          parent: file.body.rootGroup,
+          name: 'Api',
+        );
+        group.addEntry(
+          KdbxEntry.create(file, group)
+            ..setString(KdbxKeyCommon.TITLE, PlainValue('Token'))
+            ..setString(
+              KdbxKeyCommon.PASSWORD,
+              ProtectedValue.fromString('crew-token-1'),
+            ),
+        );
+        final recipients = await tomSecretsWriteRecipientsFile(keys);
+        final before = commits().length;
+        await admin.request('vault.create', {
+          'store': 'crew',
+          'location': crew,
+          'bytes': base64.encode(await file.save()),
+          'keys': {'keyFile': base64.encode(keys.keyFile)},
+          'recipients': base64.encode(recipients),
+        });
+        final created = commits();
+        expect(created, hasLength(before + 3));
+        expect(created[2].message, 'tsm: crew.kdbx from demo-host');
+        expect(created[1].message, 'tsm: primary.kdbx from demo-host');
+        expect(created[0].message, 'tsm: crew.keys.age from demo-host');
+        expect(onGitHub('shared/crew.keys.age'), recipients);
+        expect(await get('crew/Api/Token'), 'crew-token-1');
+
+        final byStore = await admin.request('vault.recipients', {
+          'store': 'crew',
+        });
+        expect(byStore['location'], crew);
+        expect(base64.decode(byStore['bytes'] as String), recipients);
+        expect(byStore['revision'], tomSecretsBlobId(recipients));
+
+        // Another person's repository, not listed: read with the request's
+        // token, used for that read only.
+        const theirsRepo = 'al-the-bear/their-team';
+        server.repo(theirsRepo);
+        await put('github:$theirsRepo/team.kdbx', _vault('t', 'x', {}));
+        await putBytes('github:$theirsRepo/team.keys.age', recipients);
+        final theirs = await admin.request('vault.recipients', {
+          'location': 'github:$theirsRepo/team.kdbx',
+          'githubToken': 'demo-their-token',
+        });
+        expect(base64.decode(theirs['bytes'] as String), recipients);
+        expect(
+          network.requests
+              .where((r) => r.$1.contains('/repos/$theirsRepo/git/'))
+              .map((r) => r.$2)
+              .toSet(),
+          {'Bearer demo-their-token'},
+        );
+
+        // A member added: the file alone, over its revision.
+        final carol = await TomSecretsMemberKey.generate();
+        addTearDown(carol.dispose);
+        final withCarol = await tomSecretsWriteRecipientsFile(
+          keys.withMember((name: 'Carol', recipient: carol.recipient)),
+        );
+        final stale = await refused(
+          admin.request('vault.recipients.set', {
+            'store': 'crew',
+            'bytes': base64.encode(withCarol),
+            'baseRevision': 'b1946ac92492d2347c62',
+          }),
+        );
+        expect(stale.details['reason'], 'stale_base');
+        await admin.request('vault.recipients.set', {
+          'store': 'crew',
+          'bytes': base64.encode(withCarol),
+          'baseRevision': byStore['revision'],
+        });
+        expect(commits().first.message, 'tsm: crew.keys.age from demo-host');
+        expect(onGitHub('shared/crew.keys.age'), withCarol);
+
+        // Bob removed: the new keys listed in the primary, then one commit.
+        final next = keys
+            .withMember((name: 'Carol', recipient: carol.recipient))
+            .withoutMember(bob.recipient);
+        final primaryFile = await admin.request('vaultFile', {
+          'store': 'primary',
+        });
+        final primary = await KdbxFormat().read(
+          base64.decode(primaryFile['bytes'] as String),
+          _pw(primaryPassword),
+        );
+        final vaults = TomSecretsPrimaryVaults(primary);
+        vaults.put(
+          TomSecretsVaultKeys(
+            name: 'crew',
+            locator: crew,
+            keyFile: next.keyFile,
+          ),
+        );
+        await admin.request('save', {
+          'store': 'primary',
+          'bytes': base64.encode(await primary.save()),
+          'baseRevision': primaryFile['revision'],
+        });
+        final held = onGitHub('shared/crew.kdbx');
+        final team = await KdbxFormat().read(held, keys.credentials)
+          ..credentials = next.credentials;
+        final rekeyed = await team.save();
+        final withoutBob = await tomSecretsWriteRecipientsFile(next);
+        final beforeRemoval = commits().length;
+        await admin.request('save', {
+          'store': 'crew',
+          'bytes': base64.encode(rekeyed),
+          'baseRevision': tomSecretsBlobId(held),
+          'recipients': base64.encode(withoutBob),
+        });
+        final removal = commits();
+        expect(removal, hasLength(beforeRemoval + 1));
+        expect(removal.first.message, 'tsm: crew.kdbx re-keyed from demo-host');
+        expect(onGitHub('shared/crew.kdbx'), rekeyed);
+        expect(onGitHub('shared/crew.keys.age'), withoutBob);
+        expect(await get('crew/Api/Token'), 'crew-token-1');
+        // Served with the new keys across a refresh.
+        await service.refresh(force: true);
+        expect(stores(service)['crew']!['state'], 'current');
+      },
+    );
 
     test('vault.create refused: a file already at the path, a token for the '
         'primary\'s repository, GitHub unreachable; nothing listed', () async {

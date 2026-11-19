@@ -52,15 +52,24 @@
   - [TomSecretsMemberKey](#tomsecretsmemberkey)
   - [TomSecretsReceivedMemberKey](#tomsecretsreceivedmemberkey)
   - [TomSecretsMember](#tomsecretsmember)
+  - [TomSecretsAgeFailure](#tomsecretsagefailure)
+  - [TomSecretsAgeException](#tomsecretsageexception)
+  - [TomSecretsAgeIdentity](#tomsecretsageidentity)
+  - [TomSecretsAgeHybridIdentity](#tomsecretsagehybrididentity)
+  - [TomSecretsAgeX25519Identity](#tomsecretsagex25519identity)
+  - [TomSecretsSharedVaultMember](#tomsecretssharedvaultmember)
+  - [TomSecretsSharedVaultFailure](#tomsecretssharedvaultfailure)
+  - [TomSecretsSharedVaultException](#tomsecretssharedvaultexception)
+  - [TomSecretsSharedVaultKeys](#tomsecretssharedvaultkeys)
 - [Global Functions and Constants](#global-functions-and-constants)
 
 ---
 
 ## Overview
 
-The sharing module holds everything one device of the user's fleet needs to trust another: a device's trust material (approver, link and audit-log keys, the approvers and hosts it recorded) with key rotation; signed objects (grants, revocations, approval records, key-change statements) signed with Ed25519 and ML-DSA-65; the grants group of the primary vault; the approval code and its single-use token; the approval link (Noise KK with ML-KEM-768 paired to every Diffie-Hellman, ChaCha20-Poly1305 transport); pairing by a short code through SPAKE2 (RFC 9382) with an ML-KEM-768 exchange inside; the device records of the primary vault; and, for sharing with people (phase C), the member keys: hybrid `age` v1.3 identities and recipients (`age1pq1…`, X25519 + ML-KEM-768), other people's classical recipients for exports, the published key file, and the `member-key` and `member` entries of the primary vault's `tsm.sharing` group.
+The sharing module holds everything one device of the user's fleet needs to trust another: a device's trust material (approver, link and audit-log keys, the approvers and hosts it recorded) with key rotation; signed objects (grants, revocations, approval records, key-change statements) signed with Ed25519 and ML-DSA-65; the grants group of the primary vault; the approval code and its single-use token; the approval link (Noise KK with ML-KEM-768 paired to every Diffie-Hellman, ChaCha20-Poly1305 transport); pairing by a short code through SPAKE2 (RFC 9382) with an ML-KEM-768 exchange inside; the device records of the primary vault; and, for sharing with people (phase C), the member keys: hybrid `age` v1.3 identities and recipients (`age1pq1…`, X25519 + ML-KEM-768), other people's classical recipients for exports, the published key file, and the `member-key` and `member` entries of the primary vault's `tsm.sharing` group; the `age` v1 file format (hybrid and classical recipients, armour); and shared vaults with their recipients file.
 
-Source files: `lib/src/trust.dart`, `lib/src/signed_objects.dart`, `lib/src/grants.dart`, `lib/src/approval_code.dart`, `lib/src/approval_link.dart`, `lib/src/pairing.dart`, `lib/src/pairing_setup.dart`, `lib/src/pairing_words.dart`, `lib/src/device_records.dart`, `lib/src/member_keys.dart`.
+Source files: `lib/src/trust.dart`, `lib/src/signed_objects.dart`, `lib/src/grants.dart`, `lib/src/approval_code.dart`, `lib/src/approval_link.dart`, `lib/src/pairing.dart`, `lib/src/pairing_setup.dart`, `lib/src/pairing_words.dart`, `lib/src/device_records.dart`, `lib/src/member_keys.dart`, `lib/src/age.dart`, `lib/src/shared_vault.dart`.
 
 ---
 
@@ -114,7 +123,16 @@ Object
 ├── TomSecretsAgeRecipient
 ├── TomSecretsMemberKey
 ├── TomSecretsReceivedMemberKey (typedef)
-└── TomSecretsMember
+├── TomSecretsMember
+├── TomSecretsAgeFailure (enum)
+├── TomSecretsAgeException
+├── TomSecretsAgeIdentity (sealed)
+├── TomSecretsAgeHybridIdentity
+├── TomSecretsAgeX25519Identity
+├── TomSecretsSharedVaultMember (typedef)
+├── TomSecretsSharedVaultFailure (enum)
+├── TomSecretsSharedVaultException
+└── TomSecretsSharedVaultKeys
 ```
 
 ---
@@ -1320,6 +1338,143 @@ A received public key in the primary vault (a `member` entry).
 
 ---
 
+### TomSecretsAgeFailure
+
+Why an `age` file could not be written or read.
+
+**Kind:** `enum`
+
+#### Values
+
+| Value | Description |
+| --- | --- |
+| `noMatch` | None of the identities given opens the file. |
+| `header` | The header breaks the format, or its MAC does not verify. |
+| `payload` | The payload does not authenticate (changed or cut off). |
+| `armor` | The armour breaks the format. |
+| `recipients` | No recipient, or hybrid and classical recipients together. |
+
+---
+
+### TomSecretsAgeException
+
+A refused `age` file.
+
+**Kind:** `final class`
+
+#### Members
+
+| Constructor / Property | Type | Description |
+| --- | --- | --- |
+| `TomSecretsAgeException(reason, message)` | const | A refusal for `reason`, told by `message`. |
+| `reason` | `TomSecretsAgeFailure` | Why. |
+| `message` | `String` | For people; never a key. |
+
+---
+
+### TomSecretsAgeIdentity
+
+An identity that opens `age` files: `TomSecretsAgeHybridIdentity` (a member key) or `TomSecretsAgeX25519Identity` (a classical identity).
+
+**Kind:** `sealed class`
+
+---
+
+### TomSecretsAgeHybridIdentity
+
+A member key as an `age` identity.
+
+**Kind:** `final class`
+
+#### Members
+
+| Constructor / Property | Type | Description |
+| --- | --- | --- |
+| `TomSecretsAgeHybridIdentity(key)` | const | `key` as an identity; the key stays the caller's to dispose. |
+| `key` | `TomSecretsMemberKey` | The member key. |
+
+---
+
+### TomSecretsAgeX25519Identity
+
+A classical `age` identity, `AGE-SECRET-KEY-1…` (X25519): the product makes none, but reads a file written to one.
+
+**Kind:** `final class`
+
+#### Members
+
+| Constructor / Method | Type | Description |
+| --- | --- | --- |
+| `TomSecretsAgeX25519Identity.parse(identity)` | factory | The identity of an `AGE-SECRET-KEY-1…` string. |
+| `dispose()` | `void` | Zeroes the secret. |
+
+---
+
+### TomSecretsSharedVaultMember
+
+One member a shared vault's recipients file is written for: `({String name, TomSecretsAgeRecipient recipient})`.
+
+**Kind:** `typedef`
+
+---
+
+### TomSecretsSharedVaultFailure
+
+Why a shared vault's keys could not be read or written.
+
+**Kind:** `enum`
+
+#### Values
+
+| Value | Description |
+| --- | --- |
+| `notAMember` | The recipients file is not for this member key. |
+| `malformed` | The recipients file opens but holds no readable keys. |
+| `members` | A member without a hybrid key, no member, or one twice. |
+
+---
+
+### TomSecretsSharedVaultException
+
+A refused recipients file or member change.
+
+**Kind:** `final class`
+
+#### Members
+
+| Constructor / Property | Type | Description |
+| --- | --- | --- |
+| `TomSecretsSharedVaultException(reason, message)` | const | A refusal for `reason`, told by `message`. |
+| `reason` | `TomSecretsSharedVaultFailure` | Why. |
+| `message` | `String` | For people; never a key. |
+
+---
+
+### TomSecretsSharedVaultKeys
+
+What a shared vault's recipients file holds: the vault's keys (a key file, a repository key when outer encrypted) and its members.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsSharedVaultKeys.generate(vault, {members, outer = false})` | factory | New keys (a fresh KeePass key file of 32 random bytes; a fresh repository key when `outer`) for `members`. |
+| `TomSecretsSharedVaultKeys.fromJson(json)` | factory | The keys of a recipients file's plaintext; throws `TomSecretsSharedVaultException` (`malformed`). |
+| `vault` | `String` | The vault's store name. |
+| `keyFile` | `Uint8List` | The KDBX key file's bytes: the vault's only credential. |
+| `repositoryKey` | `String?` | The repository's outer key (base64), when outer encrypted. |
+| `members` | `List<TomSecretsSharedVaultMember>` | The members it is written for. |
+| `credentials` | `Credentials` | The credentials that open the vault. |
+| `hasMember(recipient)` | `bool` | Whether `recipient` is a member. |
+| `withMember(member)` | `TomSecretsSharedVaultKeys` | The same keys for the members and `member` (adding a member). |
+| `withoutMember(recipient)` | `TomSecretsSharedVaultKeys` | New keys for the members but `recipient` (removing a member): a new key file and, when outer encrypted, a new repository key. |
+| `toJson()` | `Map<String, Object?>` | The plaintext of the recipients file (`tsm-shared-vault-keys/1`). |
+| `dispose()` | `void` | Zeroes the key file. |
+
+---
+
 ## Global Functions and Constants
 
 ### Constants
@@ -1336,6 +1491,8 @@ A received public key in the primary vault (a `member` entry).
 | `tomSecretsPairingWindow` | `Duration` | How long the giving side's pairing window stays open. |
 | `tomSecretsPairingWords` | `List<String>` | The 256 words of a pairing code, in their fixed order. |
 | `tomSecretsDevicesGroup` | `String` | The subgroup of the product group holding the device records. |
+| `tomSecretsSharedVaultKeysFormat` | `String` | The format of a recipients file's plaintext: `tsm-shared-vault-keys/1`. |
+| `tomSecretsRecipientsSuffix` | `String` | The suffix of a recipients file, after the vault's name: `.keys.age`. |
 
 ### Functions
 
@@ -1383,3 +1540,15 @@ A received public key in the primary vault (a `member` entry).
 | `tomSecretsMembers` | `List<TomSecretsMember> tomSecretsMembers(KdbxFile file)` | The members of `file` whose entry holds a readable recipient, by name. |
 | `tomSecretsAddMember` | `Future<TomSecretsMember> tomSecretsAddMember(KdbxFile file, {required String name, required TomSecretsAgeRecipient recipient, DateTime? checked})` | Adds `recipient` to the directory as a `member` entry named `name`, after `TomSecretsAgeRecipient.check`; refuses a recipient the directory holds (`duplicate`) and the user's own key (`ownKey`). |
 | `tomSecretsMarkMemberChecked` | `void tomSecretsMarkMemberChecked(KdbxEntry entry, DateTime when)` | Records that the user compared the fingerprint of `entry` with its owner on `when` (its date, `tsm.checked`); the entry as it was goes to its history. |
+| `tomSecretsAgeEncrypt` | `Future<Uint8List> tomSecretsAgeEncrypt(List<int> plaintext, List<TomSecretsAgeRecipient> recipients)` | `plaintext` as an `age` v1 file to `recipients`, all hybrid (`mlkem768x25519`) or all classical (`X25519`); throws `TomSecretsAgeException` (`recipients`) for none or a mix. |
+| `tomSecretsAgeDecrypt` | `Future<Uint8List> tomSecretsAgeDecrypt(Uint8List file, Iterable<TomSecretsAgeIdentity> identities)` | The plaintext of the `age` file `file` (binary or armoured), opened with the first identity a stanza is for; throws `TomSecretsAgeException` (`noMatch`, `header`, `payload`, `armor`). |
+| `tomSecretsIsAgeArmor` | `bool tomSecretsIsAgeArmor(List<int> file)` | Whether `file` begins with the `age` armour (white space before it allowed). |
+| `tomSecretsAgeArmor` | `String tomSecretsAgeArmor(List<int> file)` | `file` in the `age` armour (`-----BEGIN AGE ENCRYPTED FILE-----`, base64 in lines of 64), for pasting into a message. |
+| `tomSecretsAgeDearmor` | `Uint8List tomSecretsAgeDearmor(List<int> text)` | The binary file inside the armoured `text` (white space around it and CRLF allowed); throws `TomSecretsAgeException` (`armor`). |
+| `tomSecretsAgeClassicalSecret` | `Uint8List tomSecretsAgeClassicalSecret(String identity)` | The 32-byte secret of a classical `AGE-SECRET-KEY-1…` identity. |
+| `tomSecretsBech32Data` | `Uint8List tomSecretsBech32Data(String hrp, String text, int length)` | The data of the Bech32 string `text` whose prefix must be `hrp` and whose data must be `length` bytes (age's Bech32: no length limit, either case). |
+| `tomSecretsCheckSharedVaultMembers` | `void tomSecretsCheckSharedVaultMembers(List<TomSecretsSharedVaultMember> members)` | Checks `members` for a recipients file: at least one, each with a hybrid key, none twice. |
+| `tomSecretsWriteRecipientsFile` | `Future<Uint8List> tomSecretsWriteRecipientsFile(TomSecretsSharedVaultKeys keys)` | The recipients file of `keys`: its JSON encrypted with `age` to every member's recipient. |
+| `tomSecretsReadRecipientsFile` | `Future<TomSecretsSharedVaultKeys> tomSecretsReadRecipientsFile(Uint8List file, TomSecretsMemberKey memberKey)` | The keys of the recipients file `file`, opened with `memberKey`; throws `TomSecretsSharedVaultException` (`notAMember`, `malformed`) or `TomSecretsAgeException` for a broken file. |
+| `tomSecretsRecipientsFileName` | `String tomSecretsRecipientsFileName(String fileName)` | The recipients file beside the vault file `fileName` (`team.kdbx`, `team.kdbx.tsmx` → `team.keys.age`). |
+| `tomSecretsNewSharedVault` | `KdbxFile tomSecretsNewSharedVault(String name, TomSecretsSharedVaultKeys keys, {String? purpose, KdbxArgon2 argon2 = tomSecretsDefaultArgon2})` | A new shared vault `name` (kind `shared`) opened by `keys`' key file alone. |

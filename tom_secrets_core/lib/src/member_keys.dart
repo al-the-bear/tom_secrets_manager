@@ -514,6 +514,18 @@ void tomSecretsMarkMemberChecked(KdbxEntry entry, DateTime when) {
   });
 }
 
+/// The data of the Bech32 string [text] whose prefix must be [hrp] and whose
+/// data must be [length] bytes (`age`'s Bech32: no length limit, either
+/// case). Throws [TomSecretsMemberKeyException] otherwise.
+Uint8List tomSecretsBech32Data(String hrp, String text, int length) {
+  final (found, data) = _bech32Decode(text);
+  if (found != hrp || data.length != length) {
+    data.fillRange(0, data.length, 0);
+    throw _malformed('not a $hrp key of $length bytes');
+  }
+  return data;
+}
+
 TomSecretsMemberKeyException _malformed(String why) =>
     TomSecretsMemberKeyException(TomSecretsMemberKeyFailure.malformed, why);
 

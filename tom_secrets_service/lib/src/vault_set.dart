@@ -167,12 +167,38 @@ abstract interface class TomSecretsVaultOpener {
   /// nothing changes. From then on the opener reads and writes [locator]
   /// with the new keys. Throws the storage's failure when the remote cannot
   /// be reached or refuses the token.
+  ///
+  /// **[C]** [beside] (file name → bytes) are written beside the vault in
+  /// the same commit: a shared vault's recipients file, re-written with the
+  /// new keys when a member is removed (part-sharing).
   Future<TomSecretsCommitted> rekey(
     String locator,
     KdbxFile file, {
     required Uint8List base,
     required Uint8List stored,
     String? outerKey,
+    Map<String, Uint8List> beside = const {},
+  });
+
+  /// **[C]** The file [name] beside the vault at [locator] (in its folder,
+  /// a shared vault's recipients file, part-sharing) and its revision (its
+  /// git blob id), or null when there is none. Throws the storage's
+  /// failure when the remote cannot be reached or refuses the token.
+  Future<({Uint8List bytes, String revision})?> readBeside(
+    String locator,
+    String name,
+  );
+
+  /// **[C]** Writes [bytes] as the file [name] beside the vault at
+  /// [locator]; a `github:` vault in one commit on the branch. Refused
+  /// (`denied`, `stale_base`) when the file there is not [baseRevision]
+  /// (null: no file may be there yet), and (`denied`, `branch_moving`) when
+  /// the branch moved during the write. Answers the file's new revision.
+  Future<String> writeBeside(
+    String locator,
+    String name,
+    Uint8List bytes, {
+    required String? baseRevision,
   });
 
   /// Moves the store at [from] to [to] (part-stores: adding or removing the
@@ -320,9 +346,31 @@ final class TomSecretsLocatorOpener implements TomSecretsVaultOpener {
     required Uint8List base,
     required Uint8List stored,
     String? outerKey,
+    Map<String, Uint8List> beside = const {},
+  }) => _for(locator).rekey(
+    locator,
+    file,
+    base: base,
+    stored: stored,
+    outerKey: outerKey,
+    beside: beside,
+  );
+
+  @override
+  Future<({Uint8List bytes, String revision})?> readBeside(
+    String locator,
+    String name,
+  ) => _for(locator).readBeside(locator, name);
+
+  @override
+  Future<String> writeBeside(
+    String locator,
+    String name,
+    Uint8List bytes, {
+    required String? baseRevision,
   }) => _for(
     locator,
-  ).rekey(locator, file, base: base, stored: stored, outerKey: outerKey);
+  ).writeBeside(locator, name, bytes, baseRevision: baseRevision);
 
   @override
   Future<TomSecretsOpenedVault> move(
@@ -434,11 +482,57 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
   }
 
   /// Replaces the file at [locator] with [stored] at once.
-  Future<void> _write(String locator, Uint8List stored) async {
-    final path = _path(locator);
+  Future<void> _write(String locator, Uint8List stored) =>
+      _writeFile(_path(locator), stored);
+
+  /// Replaces the file at [path] with [bytes] at once.
+  static Future<void> _writeFile(String path, Uint8List bytes) async {
     final temp = File('$path.tmp');
-    await temp.writeAsBytes(stored, flush: true);
+    await temp.writeAsBytes(bytes, flush: true);
     await temp.rename(path);
+  }
+
+  /// The path of the file [name] in the folder of the vault at [locator];
+  /// a name with a path in it is refused.
+  static String _besidePath(String locator, String name) {
+    if (name.isEmpty || name.contains('/') || name.contains(r'\')) {
+      throw ArgumentError.value(name, 'name', 'not a file name');
+    }
+    return '${File(_path(locator)).parent.path}${Platform.pathSeparator}$name';
+  }
+
+  @override
+  Future<({Uint8List bytes, String revision})?> readBeside(
+    String locator,
+    String name,
+  ) async {
+    final file = File(_besidePath(locator, name));
+    if (!file.existsSync()) return null;
+    final bytes = await file.readAsBytes();
+    return (bytes: bytes, revision: tomSecretsBlobId(bytes));
+  }
+
+  @override
+  Future<String> writeBeside(
+    String locator,
+    String name,
+    Uint8List bytes, {
+    required String? baseRevision,
+  }) async {
+    final path = _besidePath(locator, name);
+    final file = File(path);
+    final now = file.existsSync()
+        ? tomSecretsBlobId(await file.readAsBytes())
+        : null;
+    if (now != baseRevision) {
+      throw TomSecretsSaveException(
+        'denied',
+        'the file $name has moved since it was read',
+        reason: 'stale_base',
+      );
+    }
+    await _writeFile(path, bytes);
+    return tomSecretsBlobId(bytes);
   }
 
   @override
@@ -491,6 +585,7 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
     required Uint8List base,
     required Uint8List stored,
     String? outerKey,
+    Map<String, Uint8List> beside = const {},
   }) async {
     final current = await read(locator);
     if (tomSecretsBlobId(current) != tomSecretsBlobId(base)) {
@@ -501,6 +596,9 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
       );
     }
     await _write(locator, stored);
+    for (final MapEntry(:key, :value) in beside.entries) {
+      await _writeFile(_besidePath(locator, key), value);
+    }
     return TomSecretsCommitted(
       opened: TomSecretsOpenedVault(
         locator: locator,
@@ -1327,6 +1425,7 @@ final class TomSecretsVaultSet {
     Uint8List stored, {
     String? baseRevision,
     TomSecretsHeldKeys? newKeys,
+    Uint8List? recipients,
   }) async {
     if (newKeys != null && name != _primaryName) {
       newKeys.dispose();
@@ -1395,6 +1494,15 @@ final class TomSecretsVaultSet {
         baseRevision: baseRevision,
         editOnly: editOnly,
         machine: machine,
+        recipients: recipients,
+      );
+    }
+    if (recipients != null) {
+      throw TomSecretsSaveException(
+        'malformed',
+        'a recipients file goes with a re-keyed save only (a member '
+            'removed); write it alone with vault.recipients.set',
+        reason: 'recipients',
       );
     }
     final edited = opens.file;
@@ -1567,6 +1675,7 @@ final class TomSecretsVaultSet {
     required String? baseRevision,
     required bool editOnly,
     required TomSecretsMachine machine,
+    Uint8List? recipients,
   }) async {
     final locator = opened.locator;
     final TomSecretsCommitted committed;
@@ -1584,6 +1693,7 @@ final class TomSecretsVaultSet {
         base: opened.stored,
         stored: stored,
         outerKey: rekey.newKeys!.outerKeyText,
+        beside: {_recipientsName(locator): ?recipients},
       );
     } on TomSecretsSaveException {
       rekey.newKeys!.dispose();
@@ -1625,6 +1735,79 @@ final class TomSecretsVaultSet {
     _setStatus(name, locator, TomSecretsStoreState.current, from: written);
     _rebuildOpened(machine);
     return TomSecretsSaveResult(revision: revision, rekeyed: true);
+  }
+
+  /// The name of a shared vault's recipients file beside the vault at
+  /// [locator] (part-sharing): `<vault>.keys.age`.
+  static String _recipientsName(String locator) => tomSecretsRecipientsFileName(
+    TomSecretsVaultLocator.parse(locator).fileName,
+  );
+
+  /// The locator of the store [name]: the primary's, an open or edit-only
+  /// store's, else the primary's vault list's; null when none names it.
+  String? locatorOf(String name) {
+    if (name == _primaryName) return _primary?.locator;
+    final opened = _opened[name] ?? _editOnly[name];
+    if (opened != null) return opened.locator;
+    final primary = _primary;
+    if (primary == null) return null;
+    return TomSecretsPrimaryVaults(primary.file).byName(name)?.locator;
+  }
+
+  /// **[C]** The recipients file of the shared vault at [location]
+  /// (`vault.recipients`, part-sharing) and its revision, or null when the
+  /// vault has none. Throws the storage's failure when the remote cannot be
+  /// reached or refuses the token.
+  Future<({Uint8List bytes, String revision})?> recipientsAt(String location) {
+    final parsed = TomSecretsVaultLocator.parse(location);
+    if (parsed is! TomSecretsFileLocator &&
+        parsed is! TomSecretsGitHubLocator) {
+      throw TomSecretsSaveException(
+        'malformed',
+        'a shared vault is a file: or a github: vault',
+        reason: 'location',
+      );
+    }
+    return opener.readBeside(location, _recipientsName(location));
+  }
+
+  /// **[C]** Writes the recipients file of the store [name]
+  /// (`vault.recipients.set`, part-sharing: a member added), over
+  /// [baseRevision] (the file as read; null when there is none yet).
+  /// Answers its new revision. Refused (`not_found`) for a store nobody
+  /// names, (`denied`, `stale_base`) when the file moved since it was read.
+  Future<String> setRecipients(
+    String name,
+    Uint8List bytes, {
+    required String? baseRevision,
+  }) async {
+    if (_primary == null) {
+      throw TomSecretsSaveException('locked', 'unlock the service first');
+    }
+    final location = locatorOf(name);
+    if (location == null) {
+      throw TomSecretsSaveException('not_found', 'no store $name');
+    }
+    try {
+      return await opener.writeBeside(
+        location,
+        _recipientsName(location),
+        bytes,
+        baseRevision: baseRevision,
+      );
+    } on TomSecretsSaveException {
+      rethrow;
+    } on Object catch (e) {
+      final failure = tomSecretsFetchFailureOf(e);
+      if (failure == null) rethrow;
+      final now = TomSecretsStoreState.offlineFor(failure);
+      throw TomSecretsSaveException(
+        now.wireName,
+        now == TomSecretsStoreState.offline
+            ? 'the store cannot be reached'
+            : 'the store\'s token was refused',
+      );
+    }
   }
 
   /// Moves the open store [name] to [location] (`vault.move`, protocol.md
@@ -1797,6 +1980,7 @@ final class TomSecretsVaultSet {
     required TomSecretsHeldKeys keys,
     String? githubToken,
     DateTime? keysDue,
+    Uint8List? recipients,
   }) async {
     final primary = _primary;
     final machine = _machine;
@@ -1916,21 +2100,55 @@ final class TomSecretsVaultSet {
       // refresh writes it (primaryWritePending).
       if (tomSecretsFetchFailureOf(e) == null) rethrow;
     }
+    if (recipients != null) {
+      // A shared vault's recipients file beside it (part-sharing): a second
+      // commit, after the vault is listed; a failure leaves the vault
+      // listed and served, and the app writes the file again with
+      // vault.recipients.set (the failure is thrown once it is served).
+      try {
+        await opener.writeBeside(
+          location,
+          _recipientsName(location),
+          recipients,
+          baseRevision: null,
+        );
+      } on Object catch (e, trace) {
+        _serveCreated(name, location, created, keys, machine);
+        final failure = tomSecretsFetchFailureOf(e);
+        if (failure == null) Error.throwWithStackTrace(e, trace);
+        throw TomSecretsSaveException(
+          TomSecretsStoreState.offlineFor(failure).wireName,
+          'the vault is created; its recipients file could not be written',
+          reason: 'recipients',
+        );
+      }
+    }
+    _serveCreated(name, location, created, keys, machine);
+    return _revisionOf(created);
+  }
+
+  /// Serves the vault [name] just created at [location] with [keys], unless
+  /// this machine does not serve it (then [keys] are dropped: it stays
+  /// editable through vaultKeys / vaultFile as a vault not served).
+  void _serveCreated(
+    String name,
+    String location,
+    TomSecretsOpenedVault created,
+    TomSecretsHeldKeys keys,
+    TomSecretsMachine machine,
+  ) {
     final served = _served;
     if (served != null && !served.contains(name)) {
-      // Listed for the machines that serve it; editable here through
-      // vaultKeys / vaultFile as a vault not served.
       keys.dispose();
-      return _revisionOf(created);
+      return;
     }
-    _keys[name] = list.byName(name)!;
+    _keys[name] = TomSecretsPrimaryVaults(_primary!.file).byName(name)!;
     _held.remove(name)?.dispose();
     _held[name] = keys;
     _opened[name] = created;
     _fetched(name, null);
     _setStatus(name, location, TomSecretsStoreState.current, from: created);
     _rebuildOpened(machine);
-    return _revisionOf(created);
   }
 
   /// The stores whose branch was rewritten and that wait for the user's

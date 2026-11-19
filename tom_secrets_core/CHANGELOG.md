@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.14
+
+- The `age` v1 file format (part-sharing, DP-63, DP-177):
+  `tomSecretsAgeEncrypt` to hybrid (`mlkem768x25519`: HPKE base mode with
+  X-Wing, HKDF-SHA256, ChaCha20-Poly1305) or classical (`X25519`)
+  recipients, never both; `tomSecretsAgeDecrypt` with member keys
+  (`TomSecretsAgeHybridIdentity`) or classical identities
+  (`TomSecretsAgeX25519Identity`); the armour (`tomSecretsAgeArmor`,
+  `tomSecretsAgeDearmor`). The reader passes every hybrid vector of the age
+  testkit (`test/fixtures/age/`); files go both ways with
+  `filippo.io/age` v1.3.2 (hybrid with two recipients, empty, one and
+  several 64 KiB chunks, armoured, X25519).
+- Shared vaults (part-sharing, part-stores): `TomSecretsSharedVaultKeys`
+  (a KeePass key file and, when outer encrypted, a repository key, and the
+  members), the recipients file `<vault>.keys.age` written to every
+  member's hybrid key and read with a member key
+  (`tomSecretsWriteRecipientsFile`, `tomSecretsReadRecipientsFile`,
+  plaintext `tsm-shared-vault-keys/1`), adding a member (keys kept) and
+  removing one (new keys), `tomSecretsNewSharedVault` (kind `shared`, a key
+  file alone), `tomSecretsRecipientsFileName`; `tomSecretsBech32Data`.
+
 ## 0.2.13
 
 - Member keys (part-sharing, DP-63, DP-177): `TomSecretsMemberKey`, a

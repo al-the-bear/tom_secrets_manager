@@ -45,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.16.1';
+const String tomSecretsServiceVersion = '0.17.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -955,6 +955,8 @@ final class TomSecretsService
   /// list keeps for a vault in that repository, never for the primary's own
   /// repository (part-stores).
   Future<String?> _githubToken(TomSecretsGitHubLocator vault) async {
+    final offered = _offeredTokens[vault.repositorySlug];
+    if (offered != null) return offered;
     // Signed in with the GitHub App (DP-83): its user token, renewed first
     // when it runs out; a device that must sign in again has none.
     if (await _githubApp.signedIn) return _githubApp.accessToken();
@@ -1656,6 +1658,53 @@ final class TomSecretsService
     return revision;
   }
 
+  /// **[C]** The recipients file of the shared vault [store], or of the
+  /// vault at [location] not listed yet (`vault.recipients`, part-sharing:
+  /// joining it), read with [githubToken] for that repository when given
+  /// (held for this read only). Null when the vault has none.
+  Future<({String location, Uint8List bytes, String revision})?> recipients({
+    String? store,
+    String? location,
+    String? githubToken,
+  }) async {
+    final at = location ?? (store == null ? null : _vaults.locatorOf(store));
+    if (at == null) {
+      throw TomSecretsSaveException('not_found', 'no store $store');
+    }
+    final parsed = TomSecretsVaultLocator.parse(at);
+    final slug = parsed is TomSecretsGitHubLocator
+        ? parsed.repositorySlug
+        : null;
+    if (githubToken != null && slug != null) _offeredTokens[slug] = githubToken;
+    try {
+      final read = await _vaults.recipientsAt(at);
+      return read == null
+          ? null
+          : (location: at, bytes: read.bytes, revision: read.revision);
+    } finally {
+      if (slug != null) _offeredTokens.remove(slug);
+    }
+  }
+
+  /// GitHub tokens a request brings for one read of a repository not listed
+  /// yet ([recipients]), by `owner/repository`.
+  final Map<String, String> _offeredTokens = {};
+
+  /// **[C]** Writes the recipients file of the shared vault [store]
+  /// (`vault.recipients.set`, part-sharing: a member added) over
+  /// [baseRevision]; answers its new revision.
+  Future<String> setRecipients(
+    String store,
+    Uint8List bytes, {
+    required String? baseRevision,
+  }) async {
+    final revision = await _serial(
+      () => _vaults.setRecipients(store, bytes, baseRevision: baseRevision),
+    );
+    log.info('recipients_written', {'store': store});
+    return revision;
+  }
+
   /// Creates the further vault [store] at [location] (`vault.create`,
   /// protocol.md 6.4) as [TomSecretsVaultSet.create] says: the file written
   /// where it lives, then listed in the primary with its keys. Answers the
@@ -1667,6 +1716,7 @@ final class TomSecretsService
     required TomSecretsHeldKeys keys,
     String? githubToken,
     DateTime? keysDue,
+    Uint8List? recipients,
   }) async {
     final revision = await _serial(
       () => _tellingStates(
@@ -1677,6 +1727,7 @@ final class TomSecretsService
           keys: keys,
           githubToken: githubToken,
           keysDue: keysDue,
+          recipients: recipients,
         ),
       ),
     );
@@ -1684,6 +1735,7 @@ final class TomSecretsService
       'store': store,
       'github': location.startsWith('github:'),
       'outer': location.endsWith(tomSecretsOuterSuffix),
+      if (recipients != null) 'shared': true,
     });
     final primary = _vaults.primaryName;
     if (primary != null) {
@@ -1948,6 +2000,7 @@ final class TomSecretsService
     Uint8List stored, {
     String? baseRevision,
     TomSecretsHeldKeys? newKeys,
+    Uint8List? recipients,
   }) async {
     final primaryLocator = _vaults.primary?.locator;
     final result = await _serial(
@@ -1957,6 +2010,7 @@ final class TomSecretsService
           stored,
           baseRevision: baseRevision,
           newKeys: newKeys,
+          recipients: recipients,
         ),
       ),
     );
@@ -2035,15 +2089,22 @@ String? tomSecretsSettingsProblem(Map<String, Object?> device) {
 
 /// The keys a request's `password` and `keyFile` (base64) carry, held masked;
 /// null when they cannot be read.
-TomSecretsHeldKeys? _keysOf(Map<String, Object?> m) {
+TomSecretsHeldKeys? _keysOf(
+  Map<String, Object?> m, {
+  bool keyFileOnly = false,
+}) {
   final password = m['password'];
   final keyFile = m['keyFile'];
-  if (password is! String || (keyFile != null && keyFile is! String)) {
+  // A shared vault (part-sharing) is opened by its key file alone.
+  final passwordOk =
+      password is String ||
+      (keyFileOnly && password == null && keyFile is String);
+  if (!passwordOk || (keyFile != null && keyFile is! String)) {
     return null;
   }
   try {
     return TomSecretsHeldKeys.of(
-      password: password,
+      password: password as String?,
       keyFile: keyFile == null ? null : base64.decode(keyFile as String),
     );
   } on FormatException {
@@ -2063,6 +2124,7 @@ TomSecretsHeldKeys? _keysOf(Map<String, Object?> m) {
 TomSecretsHeldKeys? _newKeysOf(
   Map<String, Object?> m, {
   bool allowComposite = false,
+  bool keyFileOnly = false,
 }) {
   final composite = m['compositeKey'];
   TomSecretsHeldKeys? keys;
@@ -2084,7 +2146,7 @@ TomSecretsHeldKeys? _newKeysOf(
       return null;
     }
   } else {
-    keys = _keysOf(m);
+    keys = _keysOf(m, keyFileOnly: keyFileOnly);
   }
   final outerKey = m['outerKey'];
   if (keys == null) return null;
@@ -3928,6 +3990,24 @@ final class _AdminSession {
           return;
         }
         final wireKeys = m['keys'];
+        final wireRecipients = m['recipients'];
+        final Uint8List? recipients;
+        try {
+          recipients = wireRecipients is String
+              ? base64.decode(wireRecipients)
+              : null;
+        } on FormatException {
+          connection.sendError(id, 'malformed', 'recipients is not base64', {
+            'reason': 'recipients',
+          });
+          return;
+        }
+        if (wireRecipients != null && wireRecipients is! String) {
+          connection.sendError(id, 'malformed', 'recipients is base64', {
+            'reason': 'recipients',
+          });
+          return;
+        }
         final newKeys = wireKeys is Map
             ? _newKeysOf(
                 wireKeys.cast<String, Object?>(),
@@ -3949,6 +4029,7 @@ final class _AdminSession {
             stored,
             baseRevision: base as String?,
             newKeys: newKeys,
+            recipients: recipients,
           );
           connection.send({'op': 'ok', 'id': id});
         } on TomSecretsSaveException catch (e) {
@@ -4205,12 +4286,14 @@ final class _AdminSession {
         final token = m['githubToken'];
         final due = m['keysDue'];
         final keysDue = due is String ? DateTime.tryParse(due) : null;
+        final wireRecipients = m['recipients'];
         if (store is! String ||
             location is! String ||
             bytes is! String ||
             wireKeys is! Map ||
             (token != null && (token is! String || token.isEmpty)) ||
-            (due != null && keysDue == null)) {
+            (due != null && keysDue == null) ||
+            (wireRecipients != null && wireRecipients is! String)) {
           connection.sendError(
             id,
             'malformed',
@@ -4229,7 +4312,10 @@ final class _AdminSession {
           connection.sendError(id, 'locked', 'unlock the service first');
           return;
         }
-        final newKeys = _newKeysOf(wireKeys.cast<String, Object?>());
+        final newKeys = _newKeysOf(
+          wireKeys.cast<String, Object?>(),
+          keyFileOnly: wireRecipients != null,
+        );
         if (newKeys == null) {
           connection.sendError(id, 'malformed', 'keys cannot be read', {
             'reason': 'keys',
@@ -4237,8 +4323,12 @@ final class _AdminSession {
           return;
         }
         final Uint8List stored;
+        final Uint8List? recipients;
         try {
           stored = base64.decode(bytes);
+          recipients = wireRecipients == null
+              ? null
+              : base64.decode(wireRecipients as String);
         } on FormatException {
           newKeys.dispose();
           connection.sendError(id, 'malformed', 'bytes is not base64', {
@@ -4254,6 +4344,7 @@ final class _AdminSession {
             keys: newKeys,
             githubToken: token as String?,
             keysDue: keysDue,
+            recipients: recipients,
           );
           connection.send({
             'op': 'ok',
@@ -4278,6 +4369,130 @@ final class _AdminSession {
           connection.sendError(id, 'internal', 'the vault was not created', {
             'code': e.runtimeType.toString(),
           });
+        }
+      case 'vault.recipients':
+        final store = m['store'];
+        final location = m['location'];
+        final token = m['githubToken'];
+        if ((store == null) == (location == null) ||
+            (store != null && store is! String) ||
+            (location != null && location is! String) ||
+            (token != null && (token is! String || token.isEmpty))) {
+          connection.sendError(
+            id,
+            'malformed',
+            'vault.recipients names a store or a location',
+            {'reason': 'recipients'},
+          );
+          return;
+        }
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        try {
+          final read = await service.recipients(
+            store: store as String?,
+            location: location as String?,
+            githubToken: token as String?,
+          );
+          if (read == null) {
+            connection.sendError(
+              id,
+              'not_found',
+              'the vault has no recipients file',
+              {'reason': 'no_recipients'},
+            );
+            return;
+          }
+          connection.send({
+            'op': 'recipientsData',
+            'id': id,
+            'store': ?store,
+            'location': read.location,
+            'revision': read.revision,
+            'bytes': base64.encode(read.bytes),
+          });
+        } on TomSecretsSaveException catch (e) {
+          connection.sendError(id, e.kind, e.message, {'reason': ?e.reason});
+        } on TomSecretsLocatorException {
+          connection.sendError(id, 'malformed', '$location is no locator', {
+            'reason': 'location',
+          });
+        } on Object catch (e) {
+          final failure = tomSecretsFetchFailureOf(e);
+          if (failure != null) {
+            connection.sendError(
+              id,
+              TomSecretsStoreState.offlineFor(failure).wireName,
+              'the recipients file cannot be read now',
+            );
+          } else {
+            service.log.error('recipients_failed', e);
+            connection.sendError(
+              id,
+              'unavailable',
+              'the recipients file cannot be read',
+            );
+          }
+        }
+      case 'vault.recipients.set':
+        final store = m['store'];
+        final bytes = m['bytes'];
+        final base = m['baseRevision'];
+        if (store is! String ||
+            bytes is! String ||
+            (base != null && base is! String)) {
+          connection.sendError(
+            id,
+            'malformed',
+            'vault.recipients.set carries store and bytes',
+            {'reason': 'recipients'},
+          );
+          return;
+        }
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        final Uint8List file;
+        try {
+          file = base64.decode(bytes);
+        } on FormatException {
+          connection.sendError(id, 'malformed', 'bytes is not base64', {
+            'reason': 'bytes',
+          });
+          return;
+        }
+        try {
+          final revision = await service.setRecipients(
+            store,
+            file,
+            baseRevision: base as String?,
+          );
+          connection.send({'op': 'ok', 'id': id, 'revision': revision});
+        } on TomSecretsSaveException catch (e) {
+          connection.sendError(id, e.kind, e.message, {'reason': ?e.reason});
+        } on Object catch (e) {
+          service.log.error('recipients_write_failed', e, {'store': store});
+          connection.sendError(
+            id,
+            'internal',
+            'the recipients file was not written',
+            {'code': e.runtimeType.toString()},
+          );
         }
       case 'pair.identity' || 'pair.record' || 'pair.revoke' || 'pair.list':
         if (!isApp) {

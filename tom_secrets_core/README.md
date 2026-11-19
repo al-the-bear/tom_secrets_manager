@@ -147,6 +147,8 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | Approval link (Noise KK + ML-KEM-768) | `TomSecretsLinkSession`, `TomSecretsApprovalChannel` |
 | Pairing (SPAKE2, RFC 9382) | `TomSecretsPairingCode`, `tomSecretsGivePairing`, `tomSecretsReceivePairing`, `TomSecretsPairingWindow` |
 | Device records | `TomSecretsDeviceRecords` |
+| The `age` v1 file format (phase C): hybrid `mlkem768x25519` and classical `X25519` recipients, the armour; checked against the age testkit and `filippo.io/age` | `tomSecretsAgeEncrypt`, `tomSecretsAgeDecrypt`, `tomSecretsAgeArmor`, `TomSecretsAgeIdentity` |
+| Shared vaults (phase C): a key file alone, the recipients file `<vault>.keys.age` to the members' hybrid keys, adding and removing members | `TomSecretsSharedVaultKeys`, `tomSecretsWriteRecipientsFile`, `tomSecretsReadRecipientsFile`, `tomSecretsNewSharedVault` |
 | Member keys (phase C): hybrid `age` v1.3 keys (`age1pq1…`, X25519 + ML-KEM-768), other people's classical `age1…` keys for exports, fingerprints, the published key file, the `member-key` and `member` entries | `TomSecretsMemberKey`, `TomSecretsAgeRecipient`, `tomSecretsMemberKeyFile`, `tomSecretsReadMemberKeys`, `tomSecretsAddMemberKey`, `tomSecretsAddMember` |
 
 ### Import, export and device
@@ -503,6 +505,30 @@ A classical `age1…` recipient is accepted for exports to that person only
 (`canJoinSharedVaults` is false). The group `tsm.sharing` is never resolved
 into and never exported.
 
+Recipients files and exports are `age` v1 files (`tomSecretsAgeEncrypt`,
+`tomSecretsAgeDecrypt`, `tomSecretsAgeArmor`): to hybrid recipients
+(`mlkem768x25519`, HPKE with X-Wing) or to classical ones (`X25519`), never
+both. A **shared vault** is opened by a key file alone; its keys travel in
+the recipients file beside it, `<vault>.keys.age`, written to every
+member's hybrid key:
+
+```dart
+final keys = TomSecretsSharedVaultKeys.generate('team', members: [
+  (name: 'Alice', recipient: alice.recipient),
+  (name: 'Bob', recipient: bob.recipient),
+]);
+final vault = tomSecretsNewSharedVault('team', keys);
+final recipients = await tomSecretsWriteRecipientsFile(keys);
+
+final opened = await tomSecretsReadRecipientsFile(recipients, bob);
+final withCarol = keys.withMember((name: 'Carol', recipient: carol));
+final withoutBob = withCarol.withoutMember(bob.recipient); // new keys
+```
+
+Its plaintext (`tsm-shared-vault-keys/1`) holds the key file, the
+repository key and the members, so any member writes it again; removing a
+member makes new keys, to which the vault is re-keyed in the same commit.
+
 ### Import and export
 
 ```dart
@@ -626,13 +652,14 @@ vault (`@host:<host>/.tom-secrets/device`) or in a key file.
 
 ## Status
 
-Version 0.2.13. The test suite (`dart test`) covers the model, resolution, the
+Version 0.2.14. The test suite (`dart test`) covers the model, resolution, the
 merge and the GitHub cycle against a fake GitHub server, the offline cache,
 compaction, the outer encryption against the fixtures in `test/fixtures/outer/`,
 the importers against synthetic exports, trust rotation, and the approval
 material byte for byte against the protocol's vectors (signatures, approval
-codes, the link handshake, RFC 9382's SPAKE2 vectors), and the member keys
-against keys `filippo.io/age` v1.3.2 made.
+codes, the link handshake, RFC 9382's SPAKE2 vectors), the member keys
+against keys `filippo.io/age` v1.3.2 made, and the `age` reader against the
+age testkit's hybrid vectors (`test/fixtures/age/`, C2SP CCTV).
 
 ### The live check on github.com
 
