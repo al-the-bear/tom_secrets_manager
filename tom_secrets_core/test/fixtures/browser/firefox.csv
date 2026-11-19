@@ -1,0 +1,3 @@
+"url","username","password","httpRealm","formActionOrigin","guid","timeCreated","timeLastUsed","timePasswordChanged"
+"https://mail.example.com","demo-user","demo-mail-pw",,"https://mail.example.com","{00000000-0000-4000-8000-000000000001}","1700000000000","1700000000000","1700000000000"
+"https://forum.example.net","demo","demo-forum-pw",,"https://forum.example.net","{00000000-0000-4000-8000-000000000002}","1700000000000","1700000000000","1700000000000"

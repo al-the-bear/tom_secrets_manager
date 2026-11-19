@@ -715,6 +715,24 @@ void _mergeHistory(
 }
 
 /// A history entry of [ours] with [version]'s content and times.
+/// A copy of [from] (an entry of another file) added to [group] of [into]:
+/// its fields (protected ones protected), attachments, tags, expiry, custom
+/// data, times and history. It keeps [from]'s UUID unless [into] holds that
+/// UUID already, then it gets a new one. An open conflict record stays
+/// behind.
+KdbxEntry tomSecretsCopyEntry(KdbxFile into, KdbxGroup group, KdbxEntry from) {
+  final entry = KdbxEntry.create(into, group);
+  if (_entryByUuid(into, from.uuid.uuid) == null) entry.assignUuid(from.uuid);
+  group.addEntry(entry);
+  _copyAttrs(entry, _entryRecord(from, '').attrs);
+  for (final version in from.history) {
+    entry.history.add(_detachedCopy(into, entry, version));
+  }
+  entry.times.lastModificationTime.set(from.times.lastModificationTime.get());
+  entry.times.creationTime.set(from.times.creationTime.get());
+  return entry;
+}
+
 KdbxEntry _detachedCopy(KdbxFile ours, KdbxEntry owner, KdbxEntry version) {
   final copy = KdbxEntry.create(
     ours,

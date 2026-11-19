@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.10
+
+- The other imports and the exports (part-password-manager, DP-40):
+  Bitwarden's JSON export, plain or password-protected (PBKDF2 or
+  Argon2id, HKDF, AES-256-CBC with HMAC; a wrong password and the
+  account-restricted export refused), folders as groups, cards and
+  identities as 1Password's, SSH keys typed (`tomSecretsReadBitwardenJson`);
+  the browsers' CSV exports with the CSV hash identity
+  (`tomSecretsReadBrowserCsv`, `TomSecretsBrowser`); another KDBX file as a
+  group or merged (`tomSecretsImportKdbxAsGroup`,
+  `tomSecretsImportKdbxMerged`, `tomSecretsCopyEntry`); exports to KDBX
+  under new credentials, CSV and Bitwarden JSON (`tomSecretsExportKdbx`,
+  `tomSecretsExportCsv`, `tomSecretsExportBitwardenJson`,
+  `TomSecretsExport`).
+
 ## 0.2.9
 
 - The health report (part-password-manager, DP-39, DP-179):

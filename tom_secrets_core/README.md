@@ -153,8 +153,11 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | --- | --- |
 | 1Password 1PUX and CSV | `tomSecretsRead1Pux`, `tomSecretsRead1PasswordCsv` |
 | Enpass JSON and CSV | `tomSecretsReadEnpassJson`, `tomSecretsReadEnpassCsv` |
+| Bitwarden JSON, plain or password-protected | `tomSecretsReadBitwardenJson`, `tomSecretsBitwardenNeedsPassword` |
+| Browser CSV (Chrome, Edge, Firefox, Safari) | `tomSecretsReadBrowserCsv`, `TomSecretsBrowser` |
+| Another KDBX file, as a group or merged | `tomSecretsImportKdbxAsGroup`, `tomSecretsImportKdbxMerged` |
 | One import for every source, with preview and re-import | `tomSecretsImport`, `TomSecretsImportReport` |
-| Enpass JSON export | `tomSecretsExportEnpassJson` |
+| Exports: KDBX under a new password, CSV, Bitwarden JSON, Enpass JSON | `tomSecretsExportKdbx`, `tomSecretsExportCsv`, `tomSecretsExportBitwardenJson`, `tomSecretsExportEnpassJson` |
 | Passkeys in KeePassXC's fields | `TomSecretsPasskey`, `tomSecretsPasskeyPem` |
 | First run, fresh or from a pairing | `TomSecretsFirstRun.run`, `TomSecretsFirstRun.runPaired` |
 | Device settings container | `TomSecretsDeviceSettings`, `TomSecretsDeviceContainer`, `TomSecretsDeviceKeys` |
@@ -496,8 +499,19 @@ only in the source are updated (old values into the history), items changed
 on both sides become a conflict. Saving the vault after the user confirms is
 the caller's. Passkeys that carry their private key are written into
 KeePassXC's `KPEX_PASSKEY_*` fields (`tomSecretsPasskeyPem` converts PEM, DER,
-a raw P-256 scalar or a JWK). The fixtures in `test/fixtures/1password/` and
-`test/fixtures/enpass/` are synthetic.
+a raw P-256 scalar or a JWK).
+
+Bitwarden's JSON export (`tomSecretsReadBitwardenJson`, awaited: a
+password-protected export derives its key) and the browsers' CSV exports
+(`tomSecretsReadBrowserCsv`) read into the same source model. Another KDBX
+file is copied into a new group (`tomSecretsImportKdbxAsGroup`) or, a copy
+of the same vault, merged like two machines' edits
+(`tomSecretsImportKdbxMerged`). The exports write a vault or a group as
+KDBX under new credentials (`tomSecretsExportKdbx`), CSV
+(`tomSecretsExportCsv`) or Bitwarden's JSON
+(`tomSecretsExportBitwardenJson`), each naming what it does not carry; CSV
+and the JSON exports hold every password in plaintext. The fixtures in
+`test/fixtures/` (1Password, Enpass, Bitwarden, browser) are synthetic.
 
 ### First run and device settings
 

@@ -23,15 +23,19 @@
   - [TomSecretsPasskeyFields](#tomsecretspasskeyfields)
   - [TomSecretsPasskeyException](#tomsecretspasskeyexception)
   - [TomSecretsPasskey](#tomsecretspasskey)
+  - [TomSecretsBitwardenKeys](#tomsecretsbitwardenkeys)
+  - [TomSecretsBrowser](#tomsecretsbrowser)
+  - [TomSecretsKdbxImportResult](#tomsecretskdbximportresult)
+  - [TomSecretsExport](#tomsecretsexport)
 - [Global Functions and Constants](#global-functions-and-constants)
 
 ---
 
 ## Overview
 
-The import and export module reads 1Password (1PUX, CSV) and Enpass (JSON, CSV) exports into one source model and writes it into a vault the same way for every source, with re-import matching, a dry-run preview and a report that names entries but never values; passkeys are kept in KeePassXC's `KPEX_PASSKEY_*` fields; a vault or a group is written back in Enpass's JSON export layout.
+The import and export module reads 1Password (1PUX, CSV), Enpass (JSON, CSV), Bitwarden (JSON, plain or password-protected) and the browsers' CSV exports into one source model and writes it into a vault the same way for every source, with re-import matching, a dry-run preview and a report that names entries but never values; passkeys are kept in KeePassXC's `KPEX_PASSKEY_*` fields; another KDBX file is imported as a group or merged; a vault or a group is exported as KDBX, CSV, Bitwarden's JSON or Enpass's JSON.
 
-Source files: `lib/src/import.dart`, `lib/src/import_1password.dart`, `lib/src/import_enpass.dart`, `lib/src/export_enpass.dart`, `lib/src/passkey.dart`.
+Source files: `lib/src/import.dart`, `lib/src/import_1password.dart`, `lib/src/import_enpass.dart`, `lib/src/export_enpass.dart`, `lib/src/passkey.dart`, `lib/src/import_bitwarden.dart`, `lib/src/import_browser_csv.dart`, `lib/src/import_kdbx.dart`, `lib/src/export.dart`.
 
 ---
 
@@ -56,7 +60,11 @@ Object
 ├── TomSecretsEnpassExport
 ├── TomSecretsPasskeyFields
 ├── TomSecretsPasskeyException
-└── TomSecretsPasskey
+├── TomSecretsPasskey
+├── TomSecretsBitwardenKeys
+├── TomSecretsBrowser (enum)
+├── TomSecretsKdbxImportResult
+└── TomSecretsExport
 ```
 
 ---
@@ -473,6 +481,83 @@ A passkey with its private key.
 
 ---
 
+### TomSecretsBitwardenKeys
+
+The encryption and MAC keys of a Bitwarden export password.
+
+**Kind:** `final class`
+
+#### Constructors
+
+| Constructor | Kind | Description |
+| --- | --- | --- |
+| `TomSecretsBitwardenKeys(encryption, mac)` | `const` | The two 32-byte keys. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `encryption` | `Uint8List` | The AES-256 key. |
+| `mac` | `Uint8List` | The HMAC-SHA256 key. |
+
+---
+
+### TomSecretsBrowser
+
+A browser whose password export is read.
+
+**Kind:** `enum`
+
+#### Values
+
+| Value | Description |
+| --- | --- |
+| `chrome` | Google Chrome (and other Chromium browsers). |
+| `edge` | Microsoft Edge. |
+| `firefox` | Mozilla Firefox. |
+| `safari` | Apple Safari (and the macOS Passwords app). |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `source` | `String` | The source name in `tsm.import.<source>.id`. |
+| `displayName` | `String` | How the user reads it. |
+
+---
+
+### TomSecretsKdbxImportResult
+
+What `tomSecretsImportKdbxAsGroup` did.
+
+**Kind:** `final class`
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `group` | `List<String>` | The new group's path from the root. |
+| `entries` | `int` | How many entries were copied. |
+| `groups` | `int` | How many groups were made below the new group. |
+
+---
+
+### TomSecretsExport
+
+A plaintext export (CSV, Bitwarden JSON) and what it left behind.
+
+**Kind:** `final class`
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `text` | `String` | The file's text. |
+| `items` | `int` | How many entries it holds. |
+| `lost` | `List<String>` | What it does not carry. |
+
+---
+
 ## Global Functions and Constants
 
 ### Constants
@@ -487,6 +572,14 @@ A passkey with its private key.
 | `tomSecretsEnpassJsonLosses` | `List<String>` | What an Enpass JSON import loses, named in every report. |
 | `tomSecretsEnpassCsvLosses` | `List<String>` | What an Enpass CSV import loses besides `tomSecretsEnpassJsonLosses`. |
 | `tomSecretsEnpassCategories` | `Map<String, (TomSecretsImportKind, String)>` | Enpass's categories: how each is typed, and the subgroup another category goes into. |
+| `tomSecretsBitwardenSource` | `String` | `bitwarden`, the source name of Bitwarden imports. |
+| `tomSecretsBitwardenLosses` | `List<String>` | What a Bitwarden JSON import loses, named in every report. |
+| `tomSecretsBitwardenCardFields` | `List<(String, String, bool)>` | The card fields: Bitwarden's key, the custom field's name, protected. |
+| `tomSecretsBitwardenIdentityFields` | `List<(String, String, bool)>` | The identity fields: Bitwarden's key, the custom field's name, protected. |
+| `tomSecretsCardsCategory` | `String` | `Credit Cards`, the subgroup of cards (as 1Password's). |
+| `tomSecretsIdentitiesCategory` | `String` | `Identities`, the subgroup of identities (as 1Password's). |
+| `tomSecretsBrowserCsvLosses` | `List<String>` | What a browser CSV import loses, named in every report. |
+| `tomSecretsCsvExportColumns` | `List<String>` | The CSV export's columns: `Title`, `URL`, `Username`, `Password`, `Notes`, `OTPAuth`, `Group`, `Tags`. |
 
 ### Functions
 
@@ -506,3 +599,15 @@ A passkey with its private key.
 | `tomSecretsBase64Url` | `String tomSecretsBase64Url(String text)` | `text` (base64, base64url, padded or not) as base64url without padding. |
 | `tomSecretsDecodeBase64` | `Uint8List tomSecretsDecodeBase64(String text)` | The bytes of base64 or base64url `text`, padded or not. |
 | `tomSecretsPasskeyPem` | `String tomSecretsPasskeyPem(Object key)` | `key` as PKCS#8 PEM: a PEM (PKCS#8 as it is; SEC1 `EC PRIVATE KEY` converted), base64 or base64url DER (PKCS#8 or SEC1), 32 raw bytes or their base64 (a P-256 scalar), or a JWK (a map or its JSON text; `EC` on `P-256`, or `OKP` on `Ed25519`). |
+| `tomSecretsBitwardenNeedsPassword` | `bool tomSecretsBitwardenNeedsPassword(String text)` | Whether a Bitwarden export is password-protected (its password is needed). |
+| `tomSecretsReadBitwardenJson` | `Future<TomSecretsImportSource> tomSecretsReadBitwardenJson(String text, {String? password})` | Reads Bitwarden's JSON export, a password-protected one with `password`; folders become groups, types map as 1Password's, the item id into `tsm.import.bitwarden.id`; a wrong password and an account-restricted export are refused. |
+| `tomSecretsBitwardenExportKeys` | `Future<TomSecretsBitwardenKeys> tomSecretsBitwardenExportKeys({required String password, required String salt, int kdfType = 0, int iterations = 600000, int? memoryMiB, int? parallelism})` | The keys of a password-protected export: PBKDF2-SHA256 (0) or Argon2id over the SHA-256 of the salt (1), then HKDF-Expand with `enc` and `mac`. |
+| `tomSecretsBitwardenDecrypt` | `Future<Uint8List> tomSecretsBitwardenDecrypt(String cipherString, TomSecretsBitwardenKeys keys)` | Decrypts a type-2 cipher string (AES-256-CBC, HMAC-SHA256 checked first). |
+| `tomSecretsBrowserOfCsv` | `TomSecretsBrowser? tomSecretsBrowserOfCsv(String text)` | The browser a CSV header looks like (Firefox, Safari), or null for Chrome and Edge. |
+| `tomSecretsReadBrowserCsv` | `TomSecretsImportSource tomSecretsReadBrowserCsv(String text, {TomSecretsBrowser browser = TomSecretsBrowser.chrome})` | Reads a browser's password export (Chrome, Edge, Firefox, Safari), identified by the same hash as an Enpass or 1Password CSV row. |
+| `tomSecretsImportKdbxAsGroup` | `TomSecretsKdbxImportResult tomSecretsImportKdbxAsGroup(KdbxFile target, KdbxFile source, {required String name, List<String> parent = const []})` | Copies another KDBX file's groups and entries into a new group (` (2)` where the name is taken). |
+| `tomSecretsImportKdbxMerged` | `TomSecretsMergeResult tomSecretsImportKdbxMerged(KdbxFile target, KdbxFile source, {DateTime? now})` | Merges a copy of the same vault edited elsewhere entry by entry; another vault is refused. |
+| `tomSecretsExportEntries` | `List<(KdbxEntry, List<String>)> tomSecretsExportEntries(KdbxFile file, {KdbxGroup? group})` | The entries an export writes, with their group paths: no recycle bin, product groups or metadata entry. |
+| `tomSecretsExportCsv` | `TomSecretsExport tomSecretsExportCsv(KdbxFile file, {KdbxGroup? group})` | A vault or group as CSV, one row per entry. |
+| `tomSecretsExportBitwardenJson` | `TomSecretsExport tomSecretsExportBitwardenJson(KdbxFile file, {KdbxGroup? group, DateTime? now, Random? random})` | A vault or group as Bitwarden's unencrypted JSON export: folders, item types, custom fields, password history. |
+| `tomSecretsExportKdbx` | `Future<Uint8List> tomSecretsExportKdbx(KdbxFile file, Credentials credentials, {required String name, KdbxGroup? group, KdbxArgon2 argon2 = tomSecretsDefaultArgon2})` | A vault or group as a KDBX file of its own under new credentials. |

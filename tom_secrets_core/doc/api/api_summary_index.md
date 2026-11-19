@@ -249,6 +249,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsCompactionFiles` | The files the app places in a vault repository: the workflow, its script and the configuration `settings`, by path. | [→](api_summary_sync.md#functions) |
 | `tomSecretsCompactionSettingsOf` | `settings` read from the configuration file's `text`, or the defaults when there is none. | [→](api_summary_sync.md#functions) |
 | `tomSecretsParseTokenExpiration` | The time in a `GitHub-Authentication-Token-Expiration` header (`2026-12-01 10:00:00 UTC`, or with a numeric offset), in UTC; null when it cannot be read. | [→](api_summary_sync.md#functions) |
+| `tomSecretsCopyEntry` | A copy of another file's entry with its fields, attachments and history. | [→](api_summary_sync.md#functions) |
 
 ### Global Variables
 
@@ -390,6 +391,10 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsPasskeyFields` | abstract final class | KeePassXC's passkey attributes. | [→](api_summary_import_export.md#tomsecretspasskeyfields) |
 | `TomSecretsPasskeyException` | final class | A passkey's private key that cannot be read. | [→](api_summary_import_export.md#tomsecretspasskeyexception) |
 | `TomSecretsPasskey` | final class | A passkey with its private key. | [→](api_summary_import_export.md#tomsecretspasskey) |
+| `TomSecretsBitwardenKeys` | final class | The encryption and MAC keys of a Bitwarden export password. | [→](api_summary_import_export.md#tomsecretsbitwardenkeys) |
+| `TomSecretsBrowser` | enum | A browser whose password export is read. | [→](api_summary_import_export.md#tomsecretsbrowser) |
+| `TomSecretsKdbxImportResult` | final class | What `tomSecretsImportKdbxAsGroup` did. | [→](api_summary_import_export.md#tomsecretskdbximportresult) |
+| `TomSecretsExport` | final class | A plaintext export (CSV, Bitwarden JSON) and what it left behind. | [→](api_summary_import_export.md#tomsecretsexport) |
 
 ### Functions
 
@@ -409,6 +414,18 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsBase64Url` | `text` (base64, base64url, padded or not) as base64url without padding. | [→](api_summary_import_export.md#functions) |
 | `tomSecretsDecodeBase64` | The bytes of base64 or base64url `text`, padded or not. | [→](api_summary_import_export.md#functions) |
 | `tomSecretsPasskeyPem` | `key` as PKCS#8 PEM: a PEM (PKCS#8 as it is; SEC1 `EC PRIVATE KEY` converted), base64 or base64url DER (PKCS#8 or SEC1), 32 raw bytes or their base64 (a P-256 scalar), or a JWK (a map or its JSON text; `EC` on `P-256`, or `OKP` on `Ed25519`). | [→](api_summary_import_export.md#functions) |
+| `tomSecretsBitwardenNeedsPassword` | Whether a Bitwarden export is password-protected (its password is needed). | [→](api_summary_import_export.md#functions) |
+| `tomSecretsReadBitwardenJson` | Reads Bitwarden's JSON export, a password-protected one with `password`; folders become groups, types map as 1Password's, the item id into `tsm.import.bitwarden.id`; a wrong password and an account-restricted export are refused. | [→](api_summary_import_export.md#functions) |
+| `tomSecretsBitwardenExportKeys` | The keys of a password-protected export: PBKDF2-SHA256 (0) or Argon2id over the SHA-256 of the salt (1), then HKDF-Expand with `enc` and `mac`. | [→](api_summary_import_export.md#functions) |
+| `tomSecretsBitwardenDecrypt` | Decrypts a type-2 cipher string (AES-256-CBC, HMAC-SHA256 checked first). | [→](api_summary_import_export.md#functions) |
+| `tomSecretsBrowserOfCsv` | The browser a CSV header looks like (Firefox, Safari), or null for Chrome and Edge. | [→](api_summary_import_export.md#functions) |
+| `tomSecretsReadBrowserCsv` | Reads a browser's password export (Chrome, Edge, Firefox, Safari), identified by the same hash as an Enpass or 1Password CSV row. | [→](api_summary_import_export.md#functions) |
+| `tomSecretsImportKdbxAsGroup` | Copies another KDBX file's groups and entries into a new group (` (2)` where the name is taken). | [→](api_summary_import_export.md#functions) |
+| `tomSecretsImportKdbxMerged` | Merges a copy of the same vault edited elsewhere entry by entry; another vault is refused. | [→](api_summary_import_export.md#functions) |
+| `tomSecretsExportEntries` | The entries an export writes, with their group paths: no recycle bin, product groups or metadata entry. | [→](api_summary_import_export.md#functions) |
+| `tomSecretsExportCsv` | A vault or group as CSV, one row per entry. | [→](api_summary_import_export.md#functions) |
+| `tomSecretsExportBitwardenJson` | A vault or group as Bitwarden's unencrypted JSON export: folders, item types, custom fields, password history. | [→](api_summary_import_export.md#functions) |
+| `tomSecretsExportKdbx` | A vault or group as a KDBX file of its own under new credentials. | [→](api_summary_import_export.md#functions) |
 
 ### Global Variables
 
@@ -422,6 +439,14 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsEnpassJsonLosses` | `List<String>` | What an Enpass JSON import loses, named in every report. | [→](api_summary_import_export.md#constants) |
 | `tomSecretsEnpassCsvLosses` | `List<String>` | What an Enpass CSV import loses besides `tomSecretsEnpassJsonLosses`. | [→](api_summary_import_export.md#constants) |
 | `tomSecretsEnpassCategories` | `Map<String, (TomSecretsImportKind, String)>` | Enpass's categories: how each is typed, and the subgroup another category goes into. | [→](api_summary_import_export.md#constants) |
+| `tomSecretsBitwardenSource` | `String` | `bitwarden`, the source name of Bitwarden imports. | [→](api_summary_import_export.md#constants) |
+| `tomSecretsBitwardenLosses` | `List<String>` | What a Bitwarden JSON import loses, named in every report. | [→](api_summary_import_export.md#constants) |
+| `tomSecretsBitwardenCardFields` | `List<(String, String, bool)>` | The card fields: Bitwarden's key, the custom field's name, protected. | [→](api_summary_import_export.md#constants) |
+| `tomSecretsBitwardenIdentityFields` | `List<(String, String, bool)>` | The identity fields: Bitwarden's key, the custom field's name, protected. | [→](api_summary_import_export.md#constants) |
+| `tomSecretsCardsCategory` | `String` | `Credit Cards`, the subgroup of cards (as 1Password's). | [→](api_summary_import_export.md#constants) |
+| `tomSecretsIdentitiesCategory` | `String` | `Identities`, the subgroup of identities (as 1Password's). | [→](api_summary_import_export.md#constants) |
+| `tomSecretsBrowserCsvLosses` | `List<String>` | What a browser CSV import loses, named in every report. | [→](api_summary_import_export.md#constants) |
+| `tomSecretsCsvExportColumns` | `List<String>` | The CSV export's columns: `Title`, `URL`, `Username`, `Password`, `Notes`, `OTPAuth`, `Group`, `Tags`. | [→](api_summary_import_export.md#constants) |
 
 ---
 
@@ -470,12 +495,14 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsApprovalChannel` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsapprovalchannel) |
 | `TomSecretsApproverKey` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsapproverkey) |
 | `TomSecretsApproverPublicKey` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsapproverpublickey) |
+| `TomSecretsBitwardenKeys` | Import and Export | [→](api_summary_import_export.md#tomsecretsbitwardenkeys) |
 | `TomSecretsBranchAhead` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsbranchahead) |
 | `TomSecretsBranchCompacted` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsbranchcompacted) |
 | `TomSecretsBranchMove` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsbranchmove) |
 | `TomSecretsBranchRewritten` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsbranchrewritten) |
 | `TomSecretsBreachCheck` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsbreachcheck) |
 | `TomSecretsBreachCheckException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsbreachcheckexception) |
+| `TomSecretsBrowser` | Import and Export | [→](api_summary_import_export.md#tomsecretsbrowser) |
 | `TomSecretsCachedVault` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretscachedvault) |
 | `TomSecretsCharacterClass` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretscharacterclass) |
 | `TomSecretsClientTokenRecord` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsclienttokenrecord) |
@@ -501,6 +528,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsExplainedCandidate` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsexplainedcandidate) |
 | `TomSecretsExplainOutcome` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsexplainoutcome) |
 | `TomSecretsExplanation` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsexplanation) |
+| `TomSecretsExport` | Import and Export | [→](api_summary_import_export.md#tomsecretsexport) |
 | `TomSecretsFieldValue` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsfieldvalue) |
 | `TomSecretsFileLocator` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsfilelocator) |
 | `TomSecretsFirstRun` | First Run and Device Settings | [→](api_summary_device.md#tomsecretsfirstrun) |
@@ -537,6 +565,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsImportTarget` | Import and Export | [→](api_summary_import_export.md#tomsecretsimporttarget) |
 | `TomSecretsImportVault` | Import and Export | [→](api_summary_import_export.md#tomsecretsimportvault) |
 | `TomSecretsIndexedEntry` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsindexedentry) |
+| `TomSecretsKdbxImportResult` | Import and Export | [→](api_summary_import_export.md#tomsecretskdbximportresult) |
 | `TomSecretsKeeAgentSettings` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretskeeagentsettings) |
 | `TomSecretsKeyFile` | Key Files and Outer Encryption | [→](api_summary_protection.md#tomsecretskeyfile) |
 | `TomSecretsKeyFileException` | Key Files and Outer Encryption | [→](api_summary_protection.md#tomsecretskeyfileexception) |
@@ -643,8 +672,12 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsBase32Decode` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32Encode` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase64Url` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsBitwardenDecrypt` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsBitwardenExportKeys` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsBitwardenNeedsPassword` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsBlobId` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsBreachCheckExcluded` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsBrowserOfCsv` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsClassifyMove` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsClientTokenHash` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsClientTokenId` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
@@ -655,13 +688,18 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsCompactionSettingsOf` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsCompositeKey` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
 | `tomSecretsConflictsOf` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
+| `tomSecretsCopyEntry` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsDecodeBase64` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsDecodeStored` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
 | `tomSecretsDefaultHost` | First Run and Device Settings | [→](api_summary_device.md#functions) |
 | `tomSecretsDeviceCommitter` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsEncodeStored` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
 | `tomSecretsEntryUrls` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsExportBitwardenJson` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsExportCsv` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsExportEnpassJson` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsExportEntries` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsExportKdbx` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsGenerateSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsGitHubRemote` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsGitHubTokenExpiryHandle` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
@@ -673,6 +711,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsImportCategoryField` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsImportedAtField` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsImportGroupName` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsImportKdbxAsGroup` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsImportKdbxMerged` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsImportVersionField` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsIsPairingAddress` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsIsPasskeyField` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
@@ -713,6 +753,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsPinText` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRead1PasswordCsv` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsRead1Pux` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsReadBitwardenJson` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsReadBrowserCsv` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsReadEnpassCsv` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsReadEnpassJson` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsReceivePairing` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
@@ -741,13 +783,20 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | Name | Module | Link |
 | --- | --- | --- |
 | `tomSecretsAmbiguousCharacters` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsBitwardenCardFields` | Import and Export | [→](api_summary_import_export.md#constants) |
+| `tomSecretsBitwardenIdentityFields` | Import and Export | [→](api_summary_import_export.md#constants) |
+| `tomSecretsBitwardenLosses` | Import and Export | [→](api_summary_import_export.md#constants) |
+| `tomSecretsBitwardenSource` | Import and Export | [→](api_summary_import_export.md#constants) |
 | `tomSecretsBreachCheckField` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsBrowserCsvLosses` | Import and Export | [→](api_summary_import_export.md#constants) |
 | `tomSecretsBuiltInDimensions` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsCardsCategory` | Import and Export | [→](api_summary_import_export.md#constants) |
 | `tomSecretsCompactedFromTrailer` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsCompactionConfigPath` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsCompactionScriptPath` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsCompactionWorkflowPath` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsConflictKey` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
+| `tomSecretsCsvExportColumns` | Import and Export | [→](api_summary_import_export.md#constants) |
 | `tomSecretsDecisions` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsDefaultArgon2` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsDefaultValue` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
@@ -762,6 +811,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsFormatKey` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsFormatVersion` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsGrantsGroup` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsIdentitiesCategory` | Import and Export | [→](api_summary_import_export.md#constants) |
 | `tomSecretsLinkKeyMigration` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsLinkMaxFrame` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsLinkProtocolName` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
