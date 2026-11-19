@@ -89,7 +89,7 @@ tom_secrets_manager/
     bin/                   the executable: hardening, handover, launch
     lib/src/               endpoints, approvals, links, audit, vaults, identity, log
     test/                  the service's suite, in-process and as a compiled process
-  _copilot_guidelines/     development notes for contributors
+  _agent_guidelines/     development notes for contributors
   LICENSE                  BSD-3-Clause
 ```
 
