@@ -849,12 +849,13 @@ void main() {
         return run(['git', 'rev-parse', 'HEAD'], cwd: work);
       }
 
-      /// The workflow's steps: a fresh clone, then the script.
+      /// The workflow's steps: a fresh clone, then the script. Each run
+      /// clones into a directory of its own, as a fresh runner does, so
+      /// nothing is deleted while another process (an editor's git, the
+      /// file indexer) may still be reading the previous clone.
+      var runs = 0;
       Future<String> workflowRun() async {
-        final vault = '${dir.path}/vault';
-        if (Directory(vault).existsSync()) {
-          Directory(vault).deleteSync(recursive: true);
-        }
+        final name = 'vault${++runs}';
         await run([
           'git',
           'clone',
@@ -862,9 +863,9 @@ void main() {
           '--branch',
           'main',
           origin,
-          'vault',
+          name,
         ]);
-        return run(['bash', '.tsm/compact.sh'], cwd: vault);
+        return run(['bash', '.tsm/compact.sh'], cwd: '${dir.path}/$name');
       }
 
       Future<List<String>> originLog(String format) async => (await run(
