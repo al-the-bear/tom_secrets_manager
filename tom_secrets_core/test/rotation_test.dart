@@ -146,4 +146,157 @@ void main() {
       expect(keys.keyId, tomSecretsKeyId(keys.keyFile));
     });
   });
+
+  group('the guided rotation of the own vaults (prepare, switch, finish)', () {
+    test(
+      'a vault entry keeps next and previous keys; copyWith moves them',
+      () async {
+        final file = newTestVault(demoCredentials, 'primary');
+        final list = TomSecretsPrimaryVaults(file);
+        final oldOuter = TomSecretsRepositoryKey.generate().toBase64();
+        final newOuter = TomSecretsRepositoryKey.generate().toBase64();
+        final nextFile = TomSecretsKeyFile.generate().toBytes();
+        list.put(
+          TomSecretsVaultKeys(
+            name: 'fleet',
+            locator: 'github:demo/vaults/fleet.kdbx.tsmx',
+            password: 'demo-pw',
+            outerKey: oldOuter,
+            nextKeyFile: nextFile,
+            nextOuterKey: newOuter,
+          ),
+        );
+        final back = TomSecretsPrimaryVaults(
+          await KdbxFormat().read(await file.save(), demoCredentials),
+        ).byName('fleet')!;
+        expect(back.hasNext, isTrue);
+        expect(back.nextKeyFile, nextFile);
+        expect(back.nextOuterKey, newOuter);
+        expect(back.writtenOuterKeys, oldOuter);
+
+        final switched = back.copyWith(
+          keyFile: back.nextKeyFile,
+          outerKey: back.nextOuterKey,
+          previousOuterKey: back.outerKey,
+          clearNext: true,
+        );
+        expect(switched.hasNext, isFalse);
+        expect(switched.writtenOuterKeys, '$newOuter,$oldOuter');
+        list.put(switched);
+        final finished = list.byName('fleet')!.copyWith(clearPrevious: true);
+        expect(finished.previousOuterKey, isNull);
+        expect(finished.outerKey, newOuter);
+        expect(finished.password, 'demo-pw');
+      },
+    );
+
+    test('the primary\'s own next keys: written, read back, cleared', () async {
+      final file = newTestVault(demoCredentials, 'primary');
+      expect(TomSecretsPrimaryNextKeys.of(file), isNull);
+      final keyFile = TomSecretsKeyFile.generate().toBytes();
+      final outer = TomSecretsRepositoryKey.generate().toBase64();
+      TomSecretsPrimaryNextKeys(
+        keyFile: keyFile,
+        outerKey: outer,
+      ).writeTo(file);
+      final read = TomSecretsPrimaryNextKeys.of(
+        await KdbxFormat().read(await file.save(), demoCredentials),
+      )!;
+      expect(read.keyFile, keyFile);
+      expect(read.outerKey, outer);
+      expect(read.previousOuterKey, isNull);
+      expect(TomSecretsPrimaryVaults(file).list(), isEmpty);
+      expect(TomSecretsPrimaryNextKeys.clear(file), isTrue);
+      expect(TomSecretsPrimaryNextKeys.of(file), isNull);
+      expect(TomSecretsPrimaryNextKeys.clear(file), isFalse);
+    });
+
+    test('two repository keys: every write gets a slot for each, either '
+        'reads it, the key ids as pairing records them', () async {
+      final oldKey = TomSecretsRepositoryKey.generate();
+      final newKey = TomSecretsRepositoryKey.generate();
+      final joined = tomSecretsJoinOuterKeys([
+        newKey.toBase64(),
+        null,
+        oldKey.toBase64(),
+        newKey.toBase64(),
+      ])!;
+      expect(tomSecretsOuterKeyList(joined), [
+        newKey.toBase64(),
+        oldKey.toBase64(),
+      ]);
+      const locator = 'github:demo/vaults/fleet.kdbx.tsmx';
+      final vault = newTestVault(demoCredentials, 'fleet');
+      final stored = await tomSecretsEncodeStored(
+        locator,
+        vault,
+        outerKey: joined,
+      );
+      expect(tomSecretsOuterKeyIds(stored), [newKey.keyIdHex, oldKey.keyIdHex]);
+      for (final one in [oldKey, newKey]) {
+        await tomSecretsDecodeStored(
+          locator,
+          stored,
+          demoCredentials,
+          outerKey: one.toBase64(),
+        );
+      }
+      final keyFile = TomSecretsKeyFile.generate().toBytes();
+      expect(tomSecretsVaultKeyIds(keyFile: keyFile, outerKey: joined), [
+        TomSecretsKeyFile.parse(keyFile).hash,
+        newKey.keyIdHex,
+        oldKey.keyIdHex,
+      ]);
+      expect(tomSecretsJoinOuterKeys([null, '']), isNull);
+    });
+
+    test('a device takes the next keys: its record gets the new key id, it '
+        'leaves the pending; a device that did not stays missing', () async {
+      final file = newTestVault(demoCredentials, 'primary');
+      final now = DateTime.utc(2026, 11, 20, 9);
+      final nextFile = TomSecretsKeyFile.generate().toBytes();
+      TomSecretsPrimaryVaults(file).put(
+        TomSecretsVaultKeys(
+          name: 'fleet',
+          locator: 'github:demo/vaults/fleet.kdbx',
+          keyFile: TomSecretsKeyFile.generate().toBytes(),
+          nextKeyFile: nextFile,
+        ),
+      );
+      final newId = TomSecretsKeyFile.parse(nextFile).hash;
+      final records = TomSecretsDeviceRecords(file);
+      for (final d in ['bomber', 'bigbeast']) {
+        records.put(TomSecretsDeviceRecord(device: d, paired: now));
+      }
+      TomSecretsRotations(file).start(
+        TomSecretsRotation(
+          kind: TomSecretsRotationKind.vaultKeys,
+          target: 'fleet',
+          oldKeyId: 'old',
+          newKeyId: newId,
+          started: now,
+          endsAt: now.add(tomSecretsRotationPeriod),
+          by: 'mbp',
+          pending: const ['bomber', 'bigbeast'],
+        ),
+      );
+      expect(records.missingKey(newId).map((r) => r.device), [
+        'bomber',
+        'bigbeast',
+      ]);
+      expect(tomSecretsTakeNextKeys(file, device: 'bomber', now: now), isTrue);
+      expect(tomSecretsTakeNextKeys(file, device: 'bomber', now: now), isFalse);
+      // The first device, never paired, gets a record.
+      expect(tomSecretsTakeNextKeys(file, device: 'mbp', now: now), isTrue);
+      expect(records.byDevice('mbp')!.keyIds, [newId]);
+      expect(records.missingKey(newId).map((r) => r.device), ['bigbeast']);
+      final record = TomSecretsRotations(
+        file,
+      ).of(TomSecretsRotationKind.vaultKeys, 'fleet')!;
+      expect(record.pending, ['bigbeast']);
+      // Nothing running: nothing taken.
+      final plain = newTestVault(demoCredentials, 'other');
+      expect(tomSecretsTakeNextKeys(plain, device: 'mbp', now: now), isFalse);
+    });
+  });
 }

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.17
+
+- The guided rotation of the own vaults (part-key-rotation, DP-84): a
+  vault entry's next keys (`TomSecretsVaultKeys.nextPassword`,
+  `nextKeyFile`, `nextOuterKey`, `hasNext`) and the old repository key a
+  two-slot file keeps (`previousOuterKey`, `writtenOuterKeys`), `copyWith`;
+  the primary's own next keys (`TomSecretsPrimaryNextKeys` in
+  `.tom-secrets/next-keys`); `tomSecretsTakeNextKeys` (a device's record
+  gets the new key ids, it leaves the rotations' pending);
+  `TomSecretsDeviceRecords.takeKeyIds`, `missingKey`.
+- An outer key text may name several repository keys, the newest first
+  (`tomSecretsOuterKeyList`, `tomSecretsJoinOuterKeys`):
+  `tomSecretsOuterCodecFor` writes a slot for each. `tomSecretsVaultKeyIds`
+  (the key ids as pairing records them).
+
 ## 0.2.16
 
 - The `age` passphrase recipient (part-sharing): `scrypt` stanzas,

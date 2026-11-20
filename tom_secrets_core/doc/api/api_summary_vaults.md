@@ -58,6 +58,7 @@
   - [TomSecretsVaultFields](#tomsecretsvaultfields)
   - [TomSecretsVaultKeys](#tomsecretsvaultkeys)
   - [TomSecretsPrimaryVaults](#tomsecretsprimaryvaults)
+  - [TomSecretsPrimaryNextKeys](#tomsecretsprimarynextkeys)
   - [TomSecretsAutoTypeKey](#tomsecretsautotypekey)
   - [TomSecretsAutoTypeModifier](#tomsecretsautotypemodifier)
   - [TomSecretsAutoTypeAction](#tomsecretsautotypeaction)
@@ -130,6 +131,7 @@ Object
 ├── TomSecretsVaultFields
 ├── TomSecretsVaultKeys
 ├── TomSecretsPrimaryVaults
+├── TomSecretsPrimaryNextKeys
 ├── TomSecretsHealthIssue (enum)
 ├── TomSecretsHealthPolicy
 ├── TomSecretsPasswordStrength
@@ -1184,6 +1186,10 @@ The fields of a vault entry.
 | `githubToken` | `KdbxKey` | A GitHub token for the vault's repository, when it differs from the primary's. |
 | `githubTokenExpires` | `KdbxKey` | When `githubToken` expires (ISO 8601), as recorded when it was entered. |
 | `keyFile` | `KdbxKey` | The attachment holding the key file. |
+| `nextPassword` | `KdbxKey` | **[C]** The next master password of a guided rotation, until its switch. |
+| `nextOuterKey` | `KdbxKey` | **[C]** The next repository key (base64) of a guided rotation. |
+| `nextKeyFile` | `KdbxKey` | **[C]** The attachment holding the next key file of a guided rotation. |
+| `previousOuterKey` | `KdbxKey` | **[C]** The repository key (base64) the vault's file keeps a second slot for after a guided rotation's switch, until its finish. |
 
 ---
 
@@ -1197,7 +1203,7 @@ What the primary keeps about one further vault.
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsVaultKeys({name, locator, password, keyFile, outerKey, githubToken, githubTokenExpires, expires})` | — | A vault `name` at `locator` opened with `password` (and `keyFile`). |
+| `TomSecretsVaultKeys({name, locator, password, keyFile, outerKey, githubToken, githubTokenExpires, expires, nextPassword, nextKeyFile, nextOuterKey, previousOuterKey})` | — | A vault `name` at `locator` opened with `password` (and `keyFile`). |
 
 #### Properties
 
@@ -1211,7 +1217,19 @@ What the primary keeps about one further vault.
 | `githubToken` | `String?` | A GitHub token for its repository, or null (the primary's applies). |
 | `githubTokenExpires` | `DateTime?` | When `githubToken` expires, as recorded when it was entered, or null. |
 | `expires` | `DateTime?` | When its key file and repository key are due for rotation: the entry's KDBX Expires, or null when the entry does not expire. |
+| `nextPassword` | `String?` | **[C]** The next master password of a guided rotation (prepared, not switched yet), or null. |
+| `nextKeyFile` | `Uint8List?` | **[C]** The next key file of a guided rotation, or null. |
+| `nextOuterKey` | `String?` | **[C]** The next repository key (base64) of a guided rotation, or null. |
+| `previousOuterKey` | `String?` | **[C]** The old repository key whose slot the file keeps during a guided rotation's migration period, or null. |
+| `hasNext` | `bool` | **[C]** Whether a guided rotation prepared next keys for it. |
+| `writtenOuterKeys` | `String?` | **[C]** The repository keys its file is written with: `outerKey`, and `previousOuterKey` during a migration period (`,`-separated, the newest first). |
 | `credentials` | `Credentials` | The credentials that open the vault (`Credentials.composite` takes the key file's bytes and derives the key itself). |
+
+#### Methods
+
+| Method | Return Type | Description |
+| --- | --- | --- |
+| `copyWith({githubToken, githubTokenExpires, password, keyFile, removeKeyFile, outerKey, nextPassword, nextKeyFile, nextOuterKey, clearNext, previousOuterKey, clearPrevious, expires})` | `TomSecretsVaultKeys` | **[C]** The same keys with the changes given; `clearNext` drops the next keys, `clearPrevious` the previous repository key. |
 
 ---
 
@@ -1242,6 +1260,26 @@ A primary vault's further vaults.
 | `byName(name)` | `TomSecretsVaultKeys?` | The vault `name`, or null. |
 | `put(keys)` | `void` | Writes `keys` (a new entry, or the entry of the same name): adding a vault, or changing its password in the same save as the vault itself. |
 | `remove(name)` | `bool` | Removes the vault `name`; answers whether it was there. |
+
+---
+
+### TomSecretsPrimaryNextKeys
+
+**[C]** The primary vault's own keys during a guided rotation: the new key file and repository key every device takes into its keychain before the switch, and after the switch the old repository key its file keeps a slot for until the finish; the entry `primary` of `.tom-secrets/next-keys`.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsPrimaryNextKeys({keyFile, outerKey, previousOuterKey})` | const | The primary's next keys. |
+| `TomSecretsPrimaryNextKeys.of(file)` | static | The primary `file`'s next keys, or null when no rotation of them runs. |
+| `TomSecretsPrimaryNextKeys.clear(file)` | static `bool` | Removes them for good; whether there were any. |
+| `keyFile` | `Uint8List?` | The new key file, or null. |
+| `outerKey` | `String?` | The new repository key (base64), or null. |
+| `previousOuterKey` | `String?` | After the switch: the old repository key the file keeps a slot for. |
+| `writeTo(file)` | `void` | Writes them into the primary `file` (over earlier ones). |
 
 ---
 
@@ -1637,6 +1675,7 @@ An entry auto-type may type into a window, and why.
 | `tomSecretsAmbiguousCharacters` | `String` | The characters `TomSecretsPasswordPolicy.excludeAmbiguous` leaves out, because they are easily confused when read or typed. |
 | `tomSecretsProductGroup` | `String` | The root group holding the product's own groups (never resolved into). |
 | `tomSecretsVaultsGroup` | `String` | The subgroup holding the further vaults. |
+| `tomSecretsNextKeysGroup` | `String` | **[C]** The subgroup holding the primary's own next keys during a guided rotation of them: `next-keys`. |
 | `tomSecretsPublicSuffixListVersion` | `String` | The version of the Public Suffix List the URL matching carries (regenerated with `tool/update_public_suffix_list.py`). |
 | `tomSecretsKeeAgentSettingsName` | `String` | `KeeAgent.settings`, the attachment KeePassXC's SSH agent reads an entry's settings from. |
 | `tomSecretsStrengthMaxLength` | `int` | The longest prefix of a password the strength estimator reads (100). |

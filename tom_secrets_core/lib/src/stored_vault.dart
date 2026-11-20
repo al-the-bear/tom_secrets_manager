@@ -11,12 +11,19 @@ import 'dart:typed_data';
 
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 
+import 'key_file.dart';
 import 'locator.dart';
 import 'outer.dart';
 
 /// The outer layer of a vault file named [fileName]: a `.tsmx` file opened
 /// with [outerKey] (base64), written under [cipher] until it decodes a file
 /// (then under that file's), or null for a plain `.kdbx`.
+///
+/// **[C]** [outerKey] may name several repository keys, separated by `,`
+/// ([tomSecretsJoinOuterKeys]): during a guided rotation's migration period
+/// the new and the old key (part-key-rotation, DP-84). The file opens with
+/// whichever has a slot, and every write gets a slot for each, so a device
+/// holding only the old key still reads it.
 TomSecretsOuterCodec? tomSecretsOuterCodecFor(
   String fileName,
   String? outerKey, {
@@ -25,11 +32,42 @@ TomSecretsOuterCodec? tomSecretsOuterCodecFor(
     ? TomSecretsOuterCodec(
         path: fileName,
         keys: [
-          if (outerKey != null) TomSecretsRepositoryKey.fromBase64(outerKey),
+          for (final k in tomSecretsOuterKeyList(outerKey))
+            TomSecretsRepositoryKey.fromBase64(k),
         ],
         cipher: cipher,
       )
     : null;
+
+/// **[C]** The repository keys (base64) an outer key text names: one, or
+/// several separated by `,`, the newest first; none for null or empty.
+List<String> tomSecretsOuterKeyList(String? outerKey) => [
+  for (final k in (outerKey ?? '').split(','))
+    if (k.trim().isNotEmpty) k.trim(),
+];
+
+/// **[C]** [keys] (base64, the newest first; nulls and repeats left out) as
+/// one outer key text for [tomSecretsOuterCodecFor], or null for none.
+String? tomSecretsJoinOuterKeys(Iterable<String?> keys) {
+  final out = <String>[];
+  for (final k in keys) {
+    for (final one in tomSecretsOuterKeyList(k)) {
+      if (!out.contains(one)) out.add(one);
+    }
+  }
+  return out.isEmpty ? null : out.join(',');
+}
+
+/// **[C]** The ids of a vault's keys as device records and rotation records
+/// name them (part-sharing, part-key-rotation): the key file's hash
+/// (`TomSecretsKeyFile.hash`) and each repository key's id
+/// (`TomSecretsRepositoryKey.keyIdHex`).
+List<String> tomSecretsVaultKeyIds({List<int>? keyFile, String? outerKey}) => [
+  if (keyFile != null)
+    TomSecretsKeyFile.parse(Uint8List.fromList(keyFile)).hash,
+  for (final k in tomSecretsOuterKeyList(outerKey))
+    TomSecretsRepositoryKey.fromBase64(k).keyIdHex,
+];
 
 /// The credentials of a vault with [password] and the bytes of a [keyFile],
 /// either of them optional; or of its [compositeKey] alone (what the OS

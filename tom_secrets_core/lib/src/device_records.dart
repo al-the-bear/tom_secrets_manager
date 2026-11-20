@@ -216,6 +216,47 @@ final class TomSecretsDeviceRecords {
     return true;
   }
 
+  /// **[C]** Records that [device] holds the keys [ids] (a guided rotation's
+  /// next keys it took, part-key-rotation): added to its record's key ids;
+  /// a device without a record yet (the first one, never paired) gets one,
+  /// paired at [now]. Whether the record changed.
+  bool takeKeyIds(
+    String device,
+    Iterable<String> ids, {
+    required DateTime now,
+  }) {
+    final record = byDevice(device);
+    final have = record?.keyIds ?? const <String>[];
+    final add = [
+      for (final id in ids)
+        if (!have.contains(id)) id,
+    ];
+    if (add.isEmpty && record != null) return false;
+    put(
+      TomSecretsDeviceRecord(
+        device: device,
+        platform: record?.platform,
+        paired: record?.paired ?? now,
+        pairedBy: record?.pairedBy,
+        keyIds: [...have, ...add],
+        approverKeyId: record?.approverKeyId,
+        approverKeySince: record?.approverKeySince,
+        linkKeySince: record?.linkKeySince,
+        revoked: record?.revoked,
+        githubAuth: record?.githubAuth,
+        githubTokenExpires: record?.githubTokenExpires,
+      ),
+    );
+    return true;
+  }
+
+  /// **[C]** The devices not revoked that do not hold the key [keyId]: those
+  /// a guided rotation still waits for.
+  List<TomSecretsDeviceRecord> missingKey(String keyId) => [
+    for (final r in list())
+      if (!r.isRevoked && !r.keyIds.contains(keyId)) r,
+  ];
+
   /// Marks [device] revoked at [at]; whether it had a record.
   bool revoke(String device, DateTime at) {
     final record = byDevice(device);

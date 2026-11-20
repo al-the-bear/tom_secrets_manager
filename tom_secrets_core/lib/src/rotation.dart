@@ -19,7 +19,9 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 
-import 'primary.dart' show tomSecretsProductGroup;
+import 'device_records.dart';
+import 'primary.dart';
+import 'stored_vault.dart';
 
 /// The subgroup of the product group holding the rotation records.
 const String tomSecretsRotationsGroup = 'rotations';
@@ -267,4 +269,61 @@ final class TomSecretsRotations {
       pending: pending,
     );
   }
+}
+
+/// **[C]** A device taking the keys of the guided rotations running in the
+/// primary [file] (part-key-rotation, step 1): the ids of every further
+/// vault's next keys and, while a rotation runs, its current ones (a device
+/// that syncs after the switch holds the new keys from the primary), and
+/// [primaryKeyIds] (the primary's own keys this device holds, next ones
+/// included, which only its keychain knows) are added to [device]'s record;
+/// [device] leaves the `pending` of every rotation whose new key it holds.
+/// Answers whether the primary changed (and must be written).
+bool tomSecretsTakeNextKeys(
+  KdbxFile file, {
+  required String device,
+  required DateTime now,
+  Iterable<String> primaryKeyIds = const [],
+}) {
+  final rotations = TomSecretsRotations(file);
+  final running = rotations.list();
+  final ids = <String>{...primaryKeyIds};
+  for (final v in TomSecretsPrimaryVaults(file).list()) {
+    if (v.hasNext) {
+      ids.addAll(
+        tomSecretsVaultKeyIds(keyFile: v.nextKeyFile, outerKey: v.nextOuterKey),
+      );
+    }
+    if (v.previousOuterKey != null || running.isNotEmpty) {
+      ids.addAll(
+        tomSecretsVaultKeyIds(keyFile: v.keyFile, outerKey: v.outerKey),
+      );
+    }
+  }
+  if (ids.isEmpty && running.isEmpty) return false;
+  final records = TomSecretsDeviceRecords(file);
+  final relevant = {
+    for (final r in running) ...[r.newKeyId],
+  };
+  var changed = false;
+  if (running.isNotEmpty || ids.isNotEmpty) {
+    final taken = ids.where(relevant.contains).toList();
+    if (taken.isNotEmpty) {
+      changed = records.takeKeyIds(device, taken, now: now);
+    }
+  }
+  for (final r in running) {
+    if (ids.contains(r.newKeyId) && r.pending.contains(device)) {
+      rotations.update(
+        r.copyWith(
+          pending: [
+            for (final p in r.pending)
+              if (p != device) p,
+          ],
+        ),
+      );
+      changed = true;
+    }
+  }
+  return changed;
 }

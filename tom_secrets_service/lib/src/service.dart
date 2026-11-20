@@ -45,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.19.0';
+const String tomSecretsServiceVersion = '0.20.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -349,7 +349,15 @@ final class TomSecretsService
   late final TomSecretsVaultSet _vaults = TomSecretsVaultSet(
     opener: config.opener ?? TomSecretsLocatorOpener(github: _github),
     clock: config.clock,
-  );
+  )..onPrimaryKeysChanged = _primaryKeysTaken;
+
+  /// The set took up the primary's next keys (part-key-rotation): they are
+  /// its keys in the keychain from now on.
+  Future<void> _primaryKeysTaken(TomSecretsHeldKeys keys) async {
+    await _keepPrimaryKeys(_primaryLocator, keys);
+    log.info('primary_next_keys_taken', {});
+  }
+
   Timer? _refreshTimer;
   final Map<String, String> _reminded = {};
   late final TomSecretsDeviceKeys _deviceKeys = TomSecretsDeviceKeys(
@@ -640,13 +648,47 @@ final class TomSecretsService
   Future<void> unlock(TomSecretsHeldKeys given) async {
     final primaryLocator = _primaryLocator;
     final TomSecretsOpenedVault primary;
-    final keys = await _withKeychainKeys(primaryLocator, given);
+    var keys = await _withKeychainKeys(primaryLocator, given);
+    TomSecretsOpenedVault? opened;
+    Object? refused;
+    StackTrace? refusedTrace;
     try {
-      primary = await _vaults.openPrimary(primaryLocator, keys);
-    } on Object {
-      keys.dispose();
-      rethrow;
+      opened = await _vaults.openPrimary(primaryLocator, keys);
+    } on Object catch (e, trace) {
+      if (e is! KdbxInvalidKeyException && e is! TomKeyRequiredException) {
+        keys.dispose();
+        rethrow;
+      }
+      refused = e;
+      refusedTrace = trace;
     }
+    if (opened == null ||
+        opened.offlineReason is TomSecretsKeyChangedException) {
+      // Another device switched a guided rotation of the primary's keys
+      // (part-key-rotation): the next keys this device took before are in
+      // its keychain.
+      final next = await _withNextKeychainKeys(primaryLocator, keys);
+      if (next != null) {
+        try {
+          final withNext = await _vaults.openPrimary(primaryLocator, next);
+          if (withNext.offlineReason == null) {
+            keys.dispose();
+            keys = next;
+            opened = withNext;
+            await _keepPrimaryKeys(primaryLocator, next);
+          } else {
+            next.dispose();
+          }
+        } on Object {
+          next.dispose();
+        }
+      }
+    }
+    if (opened == null) {
+      keys.dispose();
+      Error.throwWithStackTrace(refused!, refusedTrace!);
+    }
+    primary = opened;
     try {
       final key = await _deviceKeys.keyFor(
         primary: primary.file,
@@ -716,8 +758,134 @@ final class TomSecretsService
       'unavailable': states.where((s) => s == 'unavailable').length,
     });
     _emit({'op': 'unlocked'});
+    await _takeNextKeys();
     await _readTokenExpiries();
     _remindKeys();
+  }
+
+  /// **[C]** This device taking the keys of the guided rotations running in
+  /// the primary (part-key-rotation, step 1), at every unlock, refresh and
+  /// save of the primary: the primary's own next keys go into the keychain
+  /// beside its keys (`<handle>.next`, where the unlock and the refresh find
+  /// them after another device switched), the set holds them, and the ids
+  /// of the keys this device now holds go into its device record, so the
+  /// app lists the devices still missing. A finished rotation's next keys
+  /// leave the keychain.
+  Future<void> _takeNextKeys() async {
+    final primary = _vaults.primary;
+    final trust = _trust;
+    if (primary == null || trust == null) return;
+    final next = TomSecretsPrimaryNextKeys.of(primary.file);
+    _vaults.primaryNextKeys = next;
+    final ids = <String>[];
+    if (next != null) {
+      if (await _keepPrimaryNextKeys(next)) {
+        ids.addAll(
+          tomSecretsVaultKeyIds(keyFile: next.keyFile, outerKey: next.outerKey),
+        );
+      }
+    } else {
+      await _dropPrimaryNextKeys();
+    }
+    if (await _serial(_vaults.adoptPrimaryNext)) {
+      final status = _vaults.statusOf(_vaults.primaryName ?? '');
+      if (status != null) _emitState(status);
+    }
+    if (tomSecretsTakeNextKeys(
+      primary.file,
+      device: trust.device,
+      now: now,
+      primaryKeyIds: ids,
+    )) {
+      log.info('next_keys_taken', {'device': trust.device});
+      await savePrimary();
+    }
+  }
+
+  /// Keeps the primary's next keys in the keychain beside its keys; answers
+  /// whether this device holds them now (none needed, or kept).
+  Future<bool> _keepPrimaryNextKeys(TomSecretsPrimaryNextKeys next) async {
+    final keychain = config.keychain;
+    if (keychain == null) return false;
+    try {
+      final vault = TomSecretsVaultLocator.parse(_primaryLocator);
+      if (next.keyFile != null) {
+        await keychain.write(
+          '${vault.keyFileHandle}.next',
+          base64.encode(next.keyFile!),
+        );
+      }
+      if (next.outerKey != null) {
+        await keychain.write(
+          '${vault.repositoryKeyHandle}.next',
+          next.outerKey!,
+        );
+      }
+      return true;
+    } on TomSecretStoreException catch (e) {
+      log.error('keychain_failed', e);
+      return false;
+    }
+  }
+
+  Future<void> _dropPrimaryNextKeys() async {
+    final keychain = config.keychain;
+    if (keychain == null) return;
+    try {
+      final vault = TomSecretsVaultLocator.parse(_primaryLocator);
+      await keychain.delete('${vault.keyFileHandle}.next');
+      await keychain.delete('${vault.repositoryKeyHandle}.next');
+    } on TomSecretStoreException catch (e) {
+      log.error('keychain_failed', e);
+    }
+  }
+
+  /// The primary's keys [held] with the next keys this device took into
+  /// its keychain before (`<handle>.next`), or null when it holds none.
+  Future<TomSecretsHeldKeys?> _withNextKeychainKeys(
+    String locator,
+    TomSecretsHeldKeys held,
+  ) async {
+    final keychain = config.keychain;
+    if (keychain == null) return null;
+    try {
+      final vault = TomSecretsVaultLocator.parse(locator);
+      final keyFile = await keychain.read('${vault.keyFileHandle}.next');
+      final outerKey = await keychain.read('${vault.repositoryKeyHandle}.next');
+      if ((keyFile == null || keyFile.isEmpty) &&
+          (outerKey == null || outerKey.isEmpty)) {
+        return null;
+      }
+      if (keyFile != null && keyFile.isNotEmpty && held.compositeKey != null) {
+        // The OS unlock's composite key binds the old key file.
+        return null;
+      }
+      return TomSecretsHeldKeys(
+        password: held.password == null
+            ? null
+            : TomProtectedValue.of(held.password!.reveal()),
+        keyFile: keyFile != null && keyFile.isNotEmpty
+            ? TomProtectedValue.fromBytes(base64.decode(keyFile))
+            : (held.keyFile == null
+                  ? null
+                  : TomProtectedValue.fromBytes(
+                      Uint8List.fromList(held.keyFile!.withRevealed((b) => b)),
+                    )),
+        outerKey: outerKey != null && outerKey.isNotEmpty
+            ? TomProtectedValue.of(outerKey)
+            : (held.outerKey == null
+                  ? null
+                  : TomProtectedValue.of(held.outerKey!.reveal())),
+        compositeKey: held.compositeKey == null
+            ? null
+            : TomProtectedValue.fromBytes(
+                Uint8List.fromList(held.compositeKey!.withRevealed((b) => b)),
+              ),
+      );
+    } on Object catch (e) {
+      log.error('keychain_failed', e);
+      return null;
+    }
   }
 
   bool _ticking = false;
@@ -786,6 +954,9 @@ final class TomSecretsService
         // Outside the refresh's turn: a host that did not answer must not
         // hold up the saves.
         if (!isLocked) await deliverToHosts();
+        if (!isLocked && report.reopened.contains(_vaults.primaryName)) {
+          await _takeNextKeys();
+        }
         return report;
       });
 
@@ -874,7 +1045,7 @@ final class TomSecretsService
           keyFile.withRevealed(base64.encode),
         );
       }
-      final outerKey = keys.outerKeyText;
+      final outerKey = keys.newestOuterKey;
       if (vault.fileName.endsWith(tomSecretsOuterSuffix) && outerKey != null) {
         await keychain.write(vault.repositoryKeyHandle, outerKey);
       }
@@ -1476,6 +1647,11 @@ final class TomSecretsService
             githubToken: token,
             githubTokenExpires: expiresAt,
             expires: k.expires,
+            // A guided rotation's keys stay (part-key-rotation).
+            nextPassword: k.nextPassword,
+            nextKeyFile: k.nextKeyFile,
+            nextOuterKey: k.nextOuterKey,
+            previousOuterKey: k.previousOuterKey,
           ),
         );
       }
@@ -1844,7 +2020,7 @@ final class TomSecretsService
       if (old.keyFileHandle != vault.keyFileHandle) {
         await keychain.delete(old.keyFileHandle);
       }
-      final outerKey = keys.outerKeyText;
+      final outerKey = keys.newestOuterKey;
       if (outerKey != null) {
         await keychain.write(vault.repositoryKeyHandle, outerKey);
       }
@@ -2078,7 +2254,10 @@ final class TomSecretsService
     }
     _emit({'op': 'store_changed', 'store': store, 'revision': result.revision});
     // The primary holds the grants and the approval records.
-    if (store == _vaults.primaryName) await _approvals?.reload();
+    if (store == _vaults.primaryName) {
+      await _approvals?.reload();
+      await _takeNextKeys();
+    }
     return result;
   }
 }
@@ -2209,13 +2388,25 @@ TomSecretsHeldKeys? _newKeysOf(
     keys.dispose();
     return null;
   }
+  // [C] During a guided rotation's migration period the old repository key
+  // the file keeps a slot for (part-key-rotation).
+  final previous = m['previousOuterKey'];
+  if (previous != null && previous is! String) {
+    keys.dispose();
+    return null;
+  }
   try {
     TomSecretsRepositoryKey.fromBase64(outerKey);
+    if (previous is String) TomSecretsRepositoryKey.fromBase64(previous);
   } on Object {
     keys.dispose();
     return null;
   }
-  return keys.withOuterKey(TomProtectedValue.of(outerKey));
+  return keys.withOuterKey(
+    TomProtectedValue.of(
+      tomSecretsJoinOuterKeys([outerKey, previous as String?])!,
+    ),
+  );
 }
 
 const int _maxId = 9007199254740991; // 2^53 - 1

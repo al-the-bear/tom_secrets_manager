@@ -1180,6 +1180,8 @@ The device records of the primary vault `file`.
 | `byDevice(device)` | `TomSecretsDeviceRecord?` | The record of `device`, or null. |
 | `put(record)` | `void` | Writes `record`, replacing the record of the same device (a device paired again is updated, never duplicated). |
 | `setGitHub(device, auth, expires)` | `bool` | Records how `device` reaches GitHub; whether it had a record and it changed. |
+| `takeKeyIds(device, ids, {required now})` | `bool` | **[C]** Records that `device` holds the keys `ids` (a guided rotation's next keys it took); a device without a record gets one, paired at `now`. Whether the record changed. |
+| `missingKey(keyId)` | `List<TomSecretsDeviceRecord>` | **[C]** The devices not revoked that do not hold the key `keyId`: those a guided rotation still waits for. |
 | `revoke(device, at)` | `bool` | Marks `device` revoked at `at`; whether it had a record. |
 
 ---
@@ -1779,6 +1781,7 @@ A share (single-entry export): entries for another person, who sent them, when; 
 | `tomSecretsRecipientsFileName` | `String tomSecretsRecipientsFileName(String fileName)` | The recipients file beside the vault file `fileName` (`team.kdbx`, `team.kdbx.tsmx` → `team.keys.age`). |
 | `tomSecretsNewSharedVault` | `KdbxFile tomSecretsNewSharedVault(String name, TomSecretsSharedVaultKeys keys, {String? purpose, KdbxArgon2 argon2 = tomSecretsDefaultArgon2})` | A new shared vault `name` (kind `shared`) opened by `keys`' key file alone. |
 | `tomSecretsKeyId` | `String tomSecretsKeyId(List<int> bytes)` | The key id of `bytes` (a key file's, a repository key's): the first 8 bytes of their SHA-256 in hex. |
+| `tomSecretsTakeNextKeys` | `bool tomSecretsTakeNextKeys(KdbxFile file, {required String device, required DateTime now, Iterable<String> primaryKeyIds = const []})` | **[C]** A device taking the keys of the guided rotations running in the primary `file`: the ids of the new keys it holds (the vaults' next and, while a rotation runs, current keys, and `primaryKeyIds`) go into its device record, and it leaves every rotation's `pending` whose new key it holds. Whether the primary changed. |
 | `tomSecretsAgeEncryptPassphrase` | `Future<Uint8List> tomSecretsAgeEncryptPassphrase(List<int> plaintext, String passphrase, {int workFactor = tomSecretsAgeDefaultWorkFactor})` | `plaintext` as an `age` v1 file under `passphrase`: one `scrypt` stanza, `workFactor` its log2 N (1 to 22, `ArgumentError` otherwise); scrypt runs in another isolate. |
 | `tomSecretsAgeIsPassphrase` | `bool tomSecretsAgeIsPassphrase(List<int> file)` | Whether the `age` file `file` (binary or armoured) is written under a passphrase, so a reader asks for one. |
 | `tomSecretsShareOf` | `TomSecretsShare tomSecretsShareOf(List<KdbxEntry> entries, {TomSecretsShareSender? from, DateTime? now})` | The share of `entries`: every field but the product's other `tsm.*` fields and overlay fields, the tags, attachments and expiry. |

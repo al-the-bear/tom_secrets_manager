@@ -789,9 +789,9 @@ final class TomSecretsHeldKeys {
         keyFile: keys.keyFile == null
             ? null
             : TomProtectedValue.fromBytes(Uint8List.fromList(keys.keyFile!)),
-        outerKey: keys.outerKey == null
+        outerKey: keys.writtenOuterKeys == null
             ? null
-            : TomProtectedValue.of(keys.outerKey!),
+            : TomProtectedValue.of(keys.writtenOuterKeys!),
       );
 
   /// The master password, or null.
@@ -834,8 +834,28 @@ final class TomSecretsHeldKeys {
     );
   }
 
-  /// The outer key as the codec takes it.
+  /// The outer key as the codec takes it: the repository key, and during a
+  /// guided rotation's migration period also the old one, `,`-separated,
+  /// the newest first (`tomSecretsOuterCodecFor`).
   String? get outerKeyText => outerKey?.reveal();
+
+  /// **[C]** The newest repository key alone (base64), or null: what the
+  /// keychain keeps and the app is given as `outerKey`.
+  String? get newestOuterKey =>
+      tomSecretsOuterKeyList(outerKeyText).firstOrNull;
+
+  /// **[C]** The older repository keys the file keeps slots for during a
+  /// migration period, `,`-separated, or null.
+  String? get previousOuterKeys {
+    final rest = tomSecretsOuterKeyList(outerKeyText).skip(1).toList();
+    return rest.isEmpty ? null : rest.join(',');
+  }
+
+  /// **[C]** The ids of the repository keys held (`keyIdHex`).
+  List<String> get outerKeyIds => [
+    for (final k in tomSecretsOuterKeyList(outerKeyText))
+      TomSecretsRepositoryKey.fromBase64(k).keyIdHex,
+  ];
 
   /// The `keys` object of `vaultKeySet`: `password`, `keyFile` (base64),
   /// `outerKey` (base64) and an OS unlock's `compositeKey` (base64), written
@@ -849,7 +869,16 @@ final class TomSecretsHeldKeys {
         : TomSecretsSecretSlot.ofBytes(keyFile!)),
     'outerKey': ?(outerKey == null
         ? null
-        : TomSecretsSecretSlot.ofText(outerKey!)),
+        : TomSecretsSecretSlot.ofText(
+            previousOuterKeys == null
+                ? outerKey!
+                : TomProtectedValue.of(newestOuterKey!),
+          )),
+    'previousOuterKey': ?(previousOuterKeys == null
+        ? null
+        : TomSecretsSecretSlot.ofText(
+            TomProtectedValue.of(previousOuterKeys!),
+          )),
     'compositeKey': ?(compositeKey == null
         ? null
         : TomSecretsSecretSlot.ofBytes(compositeKey!)),
@@ -1065,6 +1094,90 @@ final class TomSecretsVaultSet {
   /// Whether the primary is open.
   bool get isUnlocked => _primary != null;
 
+  /// **[C]** The primary's own next keys of a guided rotation
+  /// (part-key-rotation), as the service took them from the primary: the
+  /// refresh tries them when the primary no longer opens with the keys held
+  /// (another device switched it), and [adoptPrimaryNext] takes them up.
+  TomSecretsPrimaryNextKeys? primaryNextKeys;
+
+  /// **[C]** Called with the primary's keys when the set took up its next
+  /// keys (the service keeps them in the keychain).
+  Future<void> Function(TomSecretsHeldKeys keys)? onPrimaryKeysChanged;
+
+  /// **[C]** The primary's keys held now with [next] taken up: its key file
+  /// (else the one held) and its repository keys (the next one, and the
+  /// previous one while the file keeps its slot); the password or the OS
+  /// unlock's composite key as held.
+  TomSecretsHeldKeys? primaryKeysWith(TomSecretsPrimaryNextKeys next) {
+    final held = _primaryKeys;
+    if (held == null) return null;
+    final keyFile = next.keyFile;
+    // A composite key binds the old key file: with a new one it does not
+    // open the vault, which then needs the master password.
+    if (keyFile != null && held.compositeKey != null) return null;
+    return TomSecretsHeldKeys(
+      password: held.password == null
+          ? null
+          : TomProtectedValue.of(held.password!.reveal()),
+      keyFile: keyFile != null
+          ? TomProtectedValue.fromBytes(Uint8List.fromList(keyFile))
+          : (held.keyFile == null
+                ? null
+                : TomProtectedValue.fromBytes(
+                    Uint8List.fromList(held.keyFile!.withRevealed((b) => b)),
+                  )),
+      outerKey: switch (tomSecretsJoinOuterKeys([
+        next.outerKey ?? held.newestOuterKey,
+        next.previousOuterKey,
+      ])) {
+        null => null,
+        final k => TomProtectedValue.of(k),
+      },
+      compositeKey: held.compositeKey == null
+          ? null
+          : TomProtectedValue.fromBytes(
+              Uint8List.fromList(held.compositeKey!.withRevealed((b) => b)),
+            ),
+    );
+  }
+
+  /// **[C]** Takes up the primary's next repository key once its file keeps
+  /// a slot for it (another device switched a rotation of the repository
+  /// key alone: the file still opens with the old key, part-key-rotation),
+  /// and drops a previous repository key once no rotation of the primary
+  /// runs any more (the finish). Answers whether the keys held changed.
+  Future<bool> adoptPrimaryNext() async {
+    final primary = _primary;
+    final held = _primaryKeys;
+    if (primary == null || held == null) return false;
+    final next = primaryNextKeys;
+    TomSecretsHeldKeys? keys;
+    if (next == null) {
+      if (held.previousOuterKeys != null) {
+        keys = held.withOuterKey(TomProtectedValue.of(held.newestOuterKey!));
+      }
+    } else if (next.outerKey != null &&
+        next.keyFile == null &&
+        primary.locator.endsWith(tomSecretsOuterSuffix) &&
+        !tomSecretsOuterKeyList(held.outerKeyText).contains(next.outerKey)) {
+      final nextId = TomSecretsRepositoryKey.fromBase64(
+        next.outerKey!,
+      ).keyIdHex;
+      List<String> slots;
+      try {
+        slots = tomSecretsOuterKeyIds(primary.stored);
+      } on Object {
+        slots = const [];
+      }
+      if (slots.contains(nextId)) keys = primaryKeysWith(next);
+    }
+    if (keys == null) return false;
+    _primaryKeys = keys;
+    if (_primaryName != null) _restatusSlots(_primaryName!);
+    await onPrimaryKeysChanged?.call(keys);
+    return true;
+  }
+
   /// The open primary vault, or null.
   TomSecretsOpenedVault? get primary => _primary;
 
@@ -1277,7 +1390,7 @@ final class TomSecretsVaultSet {
         keys.name,
         keys.locator,
         held.credentials,
-        outerKey: keys.outerKey,
+        outerKey: keys.writtenOuterKeys,
       );
       if (store != null) {
         _held[keys.name] = held;
@@ -1312,7 +1425,16 @@ final class TomSecretsVaultSet {
         source: opened.source,
         fetchedAt: opened.fetchedAt,
         revision: _revisionOf(opened),
-        keyChanged: keyChanged,
+        keyChanged:
+            keyChanged ||
+            _slotsMissing(
+              opened,
+              TomSecretsHeldKeys(
+                outerKey: outerKey == null
+                    ? null
+                    : TomProtectedValue.of(outerKey),
+              ),
+            ),
       );
       return store;
     } on KdbxInvalidKeyException {
@@ -1353,11 +1475,13 @@ final class TomSecretsVaultSet {
     final opened = await opener.open(
       listed.locator,
       keys.credentials,
-      outerKey: listed.outerKey,
+      outerKey: listed.writtenOuterKeys,
     );
     _held.remove(name)?.dispose();
     _held[name] = keys.withOuterKey(
-      listed.outerKey == null ? null : TomProtectedValue.of(listed.outerKey!),
+      listed.writtenOuterKeys == null
+          ? null
+          : TomProtectedValue.of(listed.writtenOuterKeys!),
     );
     _opened[name] = opened;
     _fetched(name, opened.offlineReason);
@@ -1542,6 +1666,18 @@ final class TomSecretsVaultSet {
         'needs_unlock',
         'the key of $name changed on another device; its copy is read-only '
             'until the new key is here',
+        reason: 'key_changed',
+      );
+    }
+    if (newKeys == null && _slotsMissing(opened, keys)) {
+      // A guided rotation's migration period (part-key-rotation, DP-84): the
+      // file keeps a slot for a repository key this device does not hold.
+      // It reads the file with the old key, but a write would drop the new
+      // key's slot, so it writes nothing until the new key is here.
+      throw TomSecretsSaveException(
+        'needs_unlock',
+        'the repository key of $name changed on another device; it is '
+            'read-only here until the new key is here',
         reason: 'key_changed',
       );
     }
@@ -2531,6 +2667,7 @@ final class TomSecretsVaultSet {
           // while offline.
           _held.remove(name)?.dispose();
           _held[name] = fresh;
+          _restatusSlots(name);
         } else {
           fresh.dispose();
         }
@@ -2550,10 +2687,60 @@ final class TomSecretsVaultSet {
     );
   }
 
+  /// **[C]** Whether the `.tsmx` file of [opened] is written under a newer
+  /// repository key than [keys] hold: its first slot (writers put the
+  /// newest key first) is for a key this device does not hold, because
+  /// another device switched a guided rotation of its repository key and
+  /// this one has only the old key. The old key's slot left after the
+  /// finish is no such case: the device holding the new key writes the file
+  /// again without it.
+  static bool _slotsMissing(
+    TomSecretsOpenedVault opened,
+    TomSecretsHeldKeys keys,
+  ) {
+    if (!opened.locator.endsWith(tomSecretsOuterSuffix)) return false;
+    final List<String> slots;
+    try {
+      slots = tomSecretsOuterKeyIds(opened.stored);
+    } on Object {
+      return false;
+    }
+    return slots.isNotEmpty && !keys.outerKeyIds.contains(slots.first);
+  }
+
+  /// The status of [name] again, its `keyChanged` from the keys held now
+  /// (the refresh took up new keys after it reopened the file).
+  void _restatusSlots(String name) {
+    final status = _status[name];
+    final opened = _opened[name];
+    if (status == null || opened == null) return;
+    final keyChanged =
+        opened.offlineReason is TomSecretsKeyChangedException ||
+        _slotsMissingFor(name, opened);
+    if (keyChanged == status.keyChanged) return;
+    _status[name] = TomSecretsStoreStatus(
+      name: status.name,
+      state: status.state,
+      locator: status.locator,
+      source: status.source,
+      fetchedAt: status.fetchedAt,
+      revision: status.revision,
+      notPushed: status.notPushed,
+      rewrittenHead: status.rewrittenHead,
+      keyChanged: keyChanged,
+    );
+  }
+
+  bool _slotsMissingFor(String name, TomSecretsOpenedVault opened) {
+    final keys = name == _primaryName ? _primaryKeys : _held[name];
+    return keys != null && _slotsMissing(opened, keys);
+  }
+
   static bool _sameKeys(TomSecretsVaultKeys a, TomSecretsVaultKeys b) =>
       a.locator == b.locator &&
       a.password == b.password &&
       a.outerKey == b.outerKey &&
+      a.previousOuterKey == b.previousOuterKey &&
       _sameBytes(a.keyFile, b.keyFile);
 
   static bool _sameBytes(Uint8List? a, Uint8List? b) {
@@ -2612,6 +2799,10 @@ final class TomSecretsVaultSet {
         outerKey: outerKey,
       );
       final keyChanged = opened.offlineReason is TomSecretsKeyChangedException;
+      if (keyChanged && isPrimary) {
+        final taken = await _openPrimaryWithNext(name, locator);
+        if (taken != null) return taken;
+      }
       _fetched(name, keyChanged ? null : opened.offlineReason);
       if (opened.offlineReason != null && held != null) {
         // The copy held is at least as new as the cached one.
@@ -2626,16 +2817,32 @@ final class TomSecretsVaultSet {
         return _Outcome.unchanged;
       }
       if (!reopen && held != null && _revisionOf(held) == _revisionOf(opened)) {
-        _setStatus(name, locator, opened.state, from: opened);
+        _setStatus(
+          name,
+          locator,
+          opened.state,
+          from: opened,
+          keyChanged: _slotsMissingFor(name, opened),
+        );
         return _Outcome.unchanged;
       }
       _opened[name] = opened;
       if (isPrimary) _primary = opened;
-      _setStatus(name, locator, opened.state, from: opened);
+      _setStatus(
+        name,
+        locator,
+        opened.state,
+        from: opened,
+        keyChanged: _slotsMissingFor(name, opened),
+      );
       return _Outcome.reopened;
     } on Object catch (e) {
       final keyChanged =
           e is KdbxInvalidKeyException || e is TomKeyRequiredException;
+      if (keyChanged && isPrimary) {
+        final taken = await _openPrimaryWithNext(name, locator);
+        if (taken != null) return taken;
+      }
       if (keyChanged) {
         _fetched(name, null);
       } else {
@@ -2682,6 +2889,40 @@ final class TomSecretsVaultSet {
       return _opened.remove(name) == null
           ? _Outcome.unchanged
           : _Outcome.dropped;
+    }
+  }
+
+  /// **[C]** Opens the primary [name] at [locator] with its next keys
+  /// ([primaryNextKeys]) after it no longer opened with the keys held:
+  /// another device switched a guided rotation of them. On success the set
+  /// holds the next keys ([onPrimaryKeysChanged]) and answers `reopened`;
+  /// null when there are none, or they do not open it either.
+  Future<_Outcome?> _openPrimaryWithNext(String name, String locator) async {
+    final next = primaryNextKeys;
+    if (next == null) return null;
+    final keys = primaryKeysWith(next);
+    if (keys == null) return null;
+    try {
+      final opened = await opener.open(
+        locator,
+        keys.credentials,
+        outerKey: keys.outerKeyText,
+      );
+      if (opened.offlineReason != null) {
+        keys.dispose();
+        return null;
+      }
+      _primaryKeys?.dispose();
+      _primaryKeys = keys;
+      _opened[name] = opened;
+      _primary = opened;
+      _fetched(name, null);
+      _setStatus(name, locator, opened.state, from: opened);
+      await onPrimaryKeysChanged?.call(keys);
+      return _Outcome.reopened;
+    } on Object {
+      keys.dispose();
+      return null;
     }
   }
 

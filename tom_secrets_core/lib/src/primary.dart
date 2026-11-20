@@ -35,6 +35,20 @@ abstract final class TomSecretsVaultFields {
 
   /// The attachment holding the key file.
   static const keyFile = KdbxKey('keyfile');
+
+  /// **[C]** The next master password of a guided rotation
+  /// (part-key-rotation), until its switch.
+  static const nextPassword = KdbxKey('tsm.next-password');
+
+  /// **[C]** The next repository key (base64) of a guided rotation.
+  static const nextOuterKey = KdbxKey('tsm.next-outer-key');
+
+  /// **[C]** The attachment holding the next key file of a guided rotation.
+  static const nextKeyFile = KdbxKey('next-keyfile');
+
+  /// **[C]** The repository key (base64) the vault's file keeps a second slot
+  /// for after a guided rotation's switch, until its finish.
+  static const previousOuterKey = KdbxKey('tsm.previous-outer-key');
 }
 
 /// What the primary keeps about one further vault.
@@ -49,6 +63,10 @@ final class TomSecretsVaultKeys {
     this.githubToken,
     this.githubTokenExpires,
     this.expires,
+    this.nextPassword,
+    this.nextKeyFile,
+    this.nextOuterKey,
+    this.previousOuterKey,
   });
 
   /// The entry's title: the vault's name.
@@ -76,6 +94,66 @@ final class TomSecretsVaultKeys {
   /// KDBX Expires (part-key-rotation), or null when the entry does not
   /// expire.
   final DateTime? expires;
+
+  /// **[C]** The next master password of a guided rotation (prepared, not
+  /// switched yet), or null.
+  final String? nextPassword;
+
+  /// **[C]** The next key file of a guided rotation, or null.
+  final Uint8List? nextKeyFile;
+
+  /// **[C]** The next repository key (base64) of a guided rotation, or null.
+  final String? nextOuterKey;
+
+  /// **[C]** The old repository key (base64) whose slot the file keeps
+  /// during a guided rotation's migration period (after the switch, until
+  /// the finish), or null.
+  final String? previousOuterKey;
+
+  /// **[C]** Whether a guided rotation prepared next keys for it.
+  bool get hasNext =>
+      nextPassword != null || nextKeyFile != null || nextOuterKey != null;
+
+  /// **[C]** The repository keys its file is written with: [outerKey], and
+  /// [previousOuterKey] during a migration period (`,`-separated, the
+  /// newest first: `tomSecretsJoinOuterKeys`), or null.
+  String? get writtenOuterKeys {
+    final keys = [?outerKey, ?previousOuterKey];
+    return keys.isEmpty ? null : keys.join(',');
+  }
+
+  /// **[C]** The same keys with the changes given; `clearNext` drops the next
+  /// keys, `clearPrevious` the previous repository key.
+  TomSecretsVaultKeys copyWith({
+    String? githubToken,
+    DateTime? githubTokenExpires,
+    String? password,
+    Uint8List? keyFile,
+    bool removeKeyFile = false,
+    String? outerKey,
+    String? nextPassword,
+    Uint8List? nextKeyFile,
+    String? nextOuterKey,
+    bool clearNext = false,
+    String? previousOuterKey,
+    bool clearPrevious = false,
+    DateTime? expires,
+  }) => TomSecretsVaultKeys(
+    name: name,
+    locator: locator,
+    password: password ?? this.password,
+    keyFile: removeKeyFile ? null : (keyFile ?? this.keyFile),
+    outerKey: outerKey ?? this.outerKey,
+    githubToken: githubToken ?? this.githubToken,
+    githubTokenExpires: githubTokenExpires ?? this.githubTokenExpires,
+    expires: expires ?? this.expires,
+    nextPassword: clearNext ? null : (nextPassword ?? this.nextPassword),
+    nextKeyFile: clearNext ? null : (nextKeyFile ?? this.nextKeyFile),
+    nextOuterKey: clearNext ? null : (nextOuterKey ?? this.nextOuterKey),
+    previousOuterKey: clearPrevious
+        ? null
+        : (previousOuterKey ?? this.previousOuterKey),
+  );
 
   /// The credentials that open the vault (`Credentials.composite` takes the
   /// key file's bytes and derives the key itself).
@@ -154,6 +232,10 @@ final class TomSecretsPrimaryVaults {
       expires: e.times.expires.get() == true
           ? e.times.expiryTime.get()?.toUtc()
           : null,
+      nextPassword: text(TomSecretsVaultFields.nextPassword),
+      nextKeyFile: e.getBinary(TomSecretsVaultFields.nextKeyFile)?.value,
+      nextOuterKey: text(TomSecretsVaultFields.nextOuterKey),
+      previousOuterKey: text(TomSecretsVaultFields.previousOuterKey),
     );
   }
 
@@ -201,6 +283,17 @@ final class TomSecretsPrimaryVaults {
           bytes: keys.keyFile!,
         );
       }
+      set(TomSecretsVaultFields.nextPassword, keys.nextPassword);
+      set(TomSecretsVaultFields.nextOuterKey, keys.nextOuterKey);
+      set(TomSecretsVaultFields.previousOuterKey, keys.previousOuterKey);
+      target.removeBinary(TomSecretsVaultFields.nextKeyFile);
+      if (keys.nextKeyFile != null) {
+        target.createBinary(
+          isProtected: true,
+          name: TomSecretsVaultFields.nextKeyFile.key,
+          bytes: keys.nextKeyFile!,
+        );
+      }
     });
   }
 
@@ -212,4 +305,111 @@ final class TomSecretsPrimaryVaults {
     file.deleteEntry(entry);
     return true;
   }
+}
+
+/// **[C]** The subgroup of the product group holding the primary's own next
+/// keys during a guided rotation of them (part-key-rotation).
+const String tomSecretsNextKeysGroup = 'next-keys';
+
+/// **[C]** The primary vault's own keys during a guided rotation: the new key
+/// file and repository key every device takes into its keychain before the
+/// switch (the primary's keys live on the devices, not in the primary), and
+/// after the switch the old repository key its file keeps a slot for until
+/// the finish. Kept in `.tom-secrets/next-keys` as the entry `primary`.
+final class TomSecretsPrimaryNextKeys {
+  /// The primary's next keys: [keyFile] and [outerKey] (base64), and after
+  /// the switch [previousOuterKey].
+  const TomSecretsPrimaryNextKeys({
+    this.keyFile,
+    this.outerKey,
+    this.previousOuterKey,
+  });
+
+  /// The new key file, or null (the key file does not change, or the
+  /// primary has none).
+  final Uint8List? keyFile;
+
+  /// The new repository key (base64), or null.
+  final String? outerKey;
+
+  /// After the switch: the old repository key the file keeps a slot for.
+  final String? previousOuterKey;
+
+  static const _entry = 'primary';
+
+  static KdbxGroup? _group(KdbxFile file, {bool create = false}) {
+    final root = file.body.rootGroup;
+    var product = root.groups
+        .where((g) => g.name.get() == tomSecretsProductGroup)
+        .firstOrNull;
+    if (product == null) {
+      if (!create) return null;
+      product = file.createGroup(parent: root, name: tomSecretsProductGroup);
+    }
+    final group = product.groups
+        .where((g) => g.name.get() == tomSecretsNextKeysGroup)
+        .firstOrNull;
+    if (group != null || !create) return group;
+    return file.createGroup(parent: product, name: tomSecretsNextKeysGroup);
+  }
+
+  /// The primary [file]'s next keys, or null when no rotation of them runs.
+  static TomSecretsPrimaryNextKeys? of(KdbxFile file) {
+    final e = _group(file)?.entries.where((e) => e.label == _entry).firstOrNull;
+    if (e == null) return null;
+    String? text(KdbxKey key) {
+      final t = e.getString(key)?.getText();
+      return t == null || t.isEmpty ? null : t;
+    }
+
+    return TomSecretsPrimaryNextKeys(
+      keyFile: e.getBinary(TomSecretsVaultFields.keyFile)?.value,
+      outerKey: text(TomSecretsVaultFields.outerKey),
+      previousOuterKey: text(TomSecretsVaultFields.previousOuterKey),
+    );
+  }
+
+  /// Writes these keys into the primary [file] (over earlier ones).
+  void writeTo(KdbxFile file) {
+    final group = _group(file, create: true)!;
+    var entry = group.entries.where((e) => e.label == _entry).firstOrNull;
+    if (entry == null) {
+      entry = KdbxEntry.create(file, group);
+      group.addEntry(entry);
+      entry.label = _entry;
+    }
+    final target = entry;
+    target.modify(() {
+      target.setString(
+        TomSecretsVaultFields.outerKey,
+        outerKey == null ? null : ProtectedValue.fromString(outerKey!),
+      );
+      target.setString(
+        TomSecretsVaultFields.previousOuterKey,
+        previousOuterKey == null
+            ? null
+            : ProtectedValue.fromString(previousOuterKey!),
+      );
+      target.removeBinary(TomSecretsVaultFields.keyFile);
+      if (keyFile != null) {
+        target.createBinary(
+          isProtected: true,
+          name: TomSecretsVaultFields.keyFile.key,
+          bytes: keyFile!,
+        );
+      }
+    });
+  }
+
+  /// Removes the primary [file]'s next keys for good (no recycle bin: they
+  /// are keys); answers whether there were any.
+  static bool clear(KdbxFile file) {
+    final e = _group(file)?.entries.where((e) => e.label == _entry).firstOrNull;
+    if (e == null) return false;
+    file.deletePermanently(e);
+    return true;
+  }
+
+  @override
+  String toString() => 'TomSecretsPrimaryNextKeys(***)';
 }

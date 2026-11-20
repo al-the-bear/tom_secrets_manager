@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.20.0
+
+- The guided rotation of the own vaults (part-key-rotation, protocol.md
+  6.4, decision 43): every device's service takes the next keys from the
+  primary at each unlock, refresh and save of it (`tomSecretsTakeNextKeys`:
+  its device record, the rotation's pending); the primary's own next keys
+  go into the keychain (`<handle>.next`), and after another device switched
+  the refresh and the unlock open the primary with them and keep them as
+  its keys; a repository key rotated alone is taken up once the file has a
+  slot for it and dropped after the finish.
+- Two-slot `.tsmx` files: the held keys of a vault in a migration period
+  name the new and the old repository key, every write keeps both slots;
+  `vaultKeys` answers `previousOuterKey`, `save`'s `keys` takes it; a
+  device whose file is under a newer key than it holds reads it with
+  `keyChanged` and its saves are refused (`needs_unlock`, `key_changed`).
+- `token.set` keeps a vault entry's next and previous keys.
+
 ## 0.19.0
 
 - The inbox folders of shared vaults (part-sharing, protocol.md 6.4,

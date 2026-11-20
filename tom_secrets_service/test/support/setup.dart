@@ -130,6 +130,22 @@ final class Demo {
     return demo;
   }
 
+  /// **[C]** Another device on the same vault files as [first] (its own
+  /// runtime and data directories, device container and admin key): the
+  /// guided rotation's second machine.
+  static Demo sameFilesAs(Demo first) {
+    final dir = Directory.systemTemp.createTempSync('tsm');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    return Demo._(dir.path)
+      ..bootstrap = TomSecretsBootstrap(
+        primary: first.bootstrap.primary,
+        dataDirectory: '${dir.path}/data',
+        deviceKey: first.bootstrap.deviceKey,
+      );
+  }
+
   /// The directory.
   final String dir;
 

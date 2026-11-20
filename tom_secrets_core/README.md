@@ -150,7 +150,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | The `age` v1 file format (phase C): hybrid `mlkem768x25519` and classical `X25519` recipients, a passphrase (`scrypt`), the armour; checked against the age testkit and `filippo.io/age` | `tomSecretsAgeEncrypt`, `tomSecretsAgeEncryptPassphrase`, `tomSecretsAgeDecrypt`, `tomSecretsAgeArmor`, `TomSecretsAgeIdentity` |
 | Single-entry exports (phase C): entries as a share for members' keys, a passphrase or a classical key, as armoured text, a QR code or a `.tsmshare` file; the `inbox/<member>/` folders' names and expiry | `TomSecretsShare`, `tomSecretsShareOf`, `tomSecretsWriteShare`, `tomSecretsReadShare`, `tomSecretsImportShare`, `tomSecretsShareFitsQr`, `tomSecretsInboxPath`, `tomSecretsInboxExpired` |
 | Shared vaults (phase C): a key file alone, the recipients file `<vault>.keys.age` to the members' hybrid keys, adding and removing members | `TomSecretsSharedVaultKeys`, `tomSecretsWriteRecipientsFile`, `tomSecretsReadRecipientsFile`, `tomSecretsNewSharedVault` |
-| The rotation record of the guided rotation with a migration period (phase C): one per target in `.tom-secrets/rotations` (the lock), its switch, migration end and who is still pending | `TomSecretsRotations`, `TomSecretsRotation`, `tomSecretsKeyId` |
+| The rotation record of the guided rotation with a migration period (phase C): one per target in `.tom-secrets/rotations` (the lock), its switch, migration end and who is still pending; the next keys in the primary, taken by every device, two-slot `.tsmx` files | `TomSecretsRotations`, `TomSecretsRotation`, `tomSecretsKeyId`, `TomSecretsPrimaryNextKeys`, `tomSecretsTakeNextKeys`, `tomSecretsJoinOuterKeys` |
 | Member keys (phase C): hybrid `age` v1.3 keys (`age1pq1…`, X25519 + ML-KEM-768), other people's classical `age1…` keys for exports, fingerprints, the published key file, the `member-key` and `member` entries | `TomSecretsMemberKey`, `TomSecretsAgeRecipient`, `tomSecretsMemberKeyFile`, `tomSecretsReadMemberKeys`, `tomSecretsAddMemberKey`, `tomSecretsAddMember` |
 
 ### Import, export and device
@@ -540,6 +540,17 @@ recipient side by side in each recipients file (`withMember`, then
 `withoutRecipient` at the finish); a shared vault's key with `rotated()`
 (new keys, the same members).
 
+The **guided rotation of the own vaults** keeps the next keys in the
+primary: a vault's entry holds them beside its keys
+(`TomSecretsVaultKeys.nextKeyFile`, `nextOuterKey`) and, after the switch,
+the old repository key whose slot the file keeps (`previousOuterKey`); the
+primary's own next keys are `TomSecretsPrimaryNextKeys`. Every device takes
+them with `tomSecretsTakeNextKeys` (the key ids into its device record,
+`TomSecretsDeviceRecords.missingKey` lists who still lacks one). An outer
+key text may name several repository keys, the newest first
+(`tomSecretsJoinOuterKeys`): `tomSecretsOuterCodecFor` then writes a slot
+for each, so a device holding only the old key keeps reading the file.
+
 A **share** (a single-entry export, BP-34) carries chosen entries to another
 person as one `age` file: their fields, tags, attachments, expiry, type and
 `tsm.key`, never the vault's metadata or history. It is written to members'
@@ -688,7 +699,7 @@ vault (`@host:<host>/.tom-secrets/device`) or in a key file.
 
 ## Status
 
-Version 0.2.16. The test suite (`dart test`) covers the model, resolution, the
+Version 0.2.17. The test suite (`dart test`) covers the model, resolution, the
 merge and the GitHub cycle against a fake GitHub server, the offline cache,
 compaction, the outer encryption against the fixtures in `test/fixtures/outer/`,
 the importers against synthetic exports, trust rotation, and the approval
