@@ -583,7 +583,7 @@ packages:
       path: "../tom_secrets_core"
       relative: true
     source: path
-    version: "0.2.18"
+    version: "0.2.20"
   typed_data:
     dependency: transitive
     description:

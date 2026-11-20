@@ -18,17 +18,21 @@
 // corrects, three dart_pg 2.1 behaviours: RSA primes written p > q (GnuPG:
 // "Bad secret key"), the expiry counted from the signature instead of the
 // key's creation, and a GnuPG Ed25519 key with a short signature `r`
-// refused as unreadable. The live round trip below runs where `gpg` is on
-// the PATH and is skipped elsewhere.
+// refused as unreadable. A key dart_pg's decoder refuses (a GnuPG RSA 1024
+// key, a v3 key) is read by the package's own minimal reader (pgp_raw.dart)
+// with GnuPG's values and flagged short. The live round trip below runs
+// where `gpg` is on the PATH and is skipped elsewhere.
 
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:dart_pg/dart_pg.dart' as pg;
 // ignore: implementation_imports
 import 'package:dart_pg/src/packet/key/rsa_secret_material.dart';
 import 'package:test/test.dart';
+import 'package:tom_secrets_core/src/pgp_raw.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 import 'support/vaults.dart';
@@ -310,6 +314,126 @@ void main() {
       );
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    test('a GnuPG RSA 1024 key dart_pg refuses reads with GnuPG\'s values '
+        'and is flagged short by the health report', () {
+      expect(
+        () => pg.OpenPGP.readPublicKey(fixture('gpg_rsa1024.pub.asc')),
+        throwsA(anything),
+        reason: 'the fallback is what reads it',
+      );
+      final info = TomSecretsPgpKeyInfo.parse(fixture('gpg_rsa1024.pub.asc'));
+      // gpg --with-colons: pub:u:1024:1:4513D8293B331721:1795182590:1826718590
+      expect(info.fingerprint, '40EA17C83EEE73742F07F5F44513D8293B331721');
+      expect(info.keyId, '4513D8293B331721');
+      expect(info.userIds, [
+        'Old Rsa <old-rsa@example.com>',
+        'Old Rsa Second <old-rsa2@example.com>',
+      ], reason: 'the older user id was set primary');
+      expect(info.algorithm, 'rsaEncryptSign');
+      expect(info.bits, 1024);
+      expect(info.version, 4);
+      expect(info.isPrivate, isFalse);
+      expect(info.keyDescription, 'RSA 1024');
+      expect(info.shortness, 'RSA 1024 bits: below 3072');
+      expect(info.created, DateTime.utc(2026, 11, 20, 13, 49, 50));
+      expect(info.expires, DateTime.utc(2027, 11, 20, 13, 49, 50));
+
+      final file = newTestVault(demoCredentials, 'vault');
+      final e = _entry(file, 'Old');
+      final written = tomSecretsWritePgpKey(
+        e,
+        privateArmored: fixture('gpg_rsa1024.priv.asc'),
+        passphrase: 'demo-gpg-pass',
+      )!;
+      expect(written.isPrivate, isTrue);
+      expect(written.fingerprint, info.fingerprint);
+      expect(e.times.expires.get(), isTrue);
+      expect(e.times.expiryTime.get(), info.expires);
+      // The public key derived from the secret key is GnuPG's export.
+      final public = utf8.decode(
+        e.getBinary(const KdbxKey(tomSecretsPgpPublicAttachment))!.value,
+      );
+      List<(int, String)> packets(String armored) => [
+        for (final p in pgpReadPackets(_dearmor(armored)))
+          (p.tag, base64.encode(p.body)),
+      ];
+      expect(packets(public), packets(fixture('gpg_rsa1024.pub.asc')));
+      expect(tomSecretsPgpKeyOf(e)!.isPrivate, isTrue);
+
+      final report = tomSecretsHealthReport([
+        TomSecretsHealthEntry('vault', e),
+      ], now: DateTime.utc(2026, 11, 21));
+      final short = report.of(TomSecretsHealthIssue.shortKey).single;
+      expect(short.entry.label, 'Old');
+      expect(short.detail, 'RSA 1024 bits: below 3072');
+    });
+
+    test('a v3 RSA key (old-format framing) reads: its MD5 fingerprint, the '
+        'key id from the modulus, the expiry from its validity days', () {
+      final n = Uint8List.fromList([
+        0xC1,
+        for (var i = 1; i < 128; i++) (i * 37 + 11) & 0xff,
+      ]);
+      final e = Uint8List.fromList([0x01, 0x00, 0x01]);
+      final created = DateTime.utc(1999, 1, 2, 3, 4, 5);
+      final t = created.millisecondsSinceEpoch ~/ 1000;
+      final key = [
+        3,
+        t >> 24 & 0xff, t >> 16 & 0xff, t >> 8 & 0xff, t & 0xff,
+        0, 10, // valid for 10 days
+        1, // RSA
+        (1024 >> 8), 1024 & 0xff, ...n,
+        0, 17, ...e,
+      ];
+      final uid = utf8.encode('Pgp Two <two@example.com>');
+      final block = Uint8List.fromList([
+        0x99, key.length >> 8, key.length & 0xff, ...key, // old format, tag 6
+        0xB4, uid.length, ...uid, // old format, tag 13
+      ]);
+      final armored =
+          '-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n'
+          '${base64.encode(block)}\n'
+          '=${base64.encode(_crc24(block))}\n'
+          '-----END PGP PUBLIC KEY BLOCK-----\n';
+      final info = TomSecretsPgpKeyInfo.parse(armored);
+      expect(info.version, 3);
+      expect(info.keyId, _hexOf(n.sublist(n.length - 8)));
+      expect(
+        info.fingerprint,
+        crypto.md5.convert([...n, ...e]).toString().toUpperCase(),
+      );
+      expect(info.bits, 1024);
+      expect(info.userIds, ['Pgp Two <two@example.com>']);
+      expect(info.created, created);
+      expect(info.expires, created.add(const Duration(days: 10)));
+      expect(info.shortness, 'RSA 1024 bits: below 3072');
+    });
+
+    test('the packet reader takes partial lengths and five-octet lengths', () {
+      final body = utf8.encode('Partial <partial@example.com>!!!');
+      expect(body, hasLength(32));
+      final framed = Uint8List.fromList([
+        0xC0 | 13,
+        0xE0 | 3, ...body.sublist(0, 8), // a partial chunk of 8 octets
+        0xE0 | 4, ...body.sublist(8, 24), // one of 16
+        8, ...body.sublist(24), // the last 8
+        0xC0 | 13,
+        255, 0, 0, 0, 4, ...utf8.encode('five'),
+      ]);
+      final packets = pgpReadPackets(framed);
+      expect(packets.map((p) => p.tag), [13, 13]);
+      expect(utf8.decode(packets[0].body), utf8.decode(body));
+      expect(utf8.decode(packets[1].body), 'five');
+      expect(pgpReadPackets(pgpWritePackets(packets)).map((p) => p.body), [
+        body,
+        utf8.encode('five'),
+      ]);
+      expect(
+        () => pgpReadPackets(Uint8List.fromList([0xC0 | 13, 20, 1, 2])),
+        throwsFormatException,
+      );
+    });
+
     final gpg = _gpg();
     test(
       'live: generated keys sign, verify, encrypt and decrypt in GnuPG',
@@ -400,4 +524,31 @@ String? _gpg() {
   } on ProcessException {
     return null;
   }
+}
+
+Uint8List _dearmor(String armored) {
+  final lines = armored.split('\n').map((l) => l.trim()).toList();
+  final start = lines.indexOf('') + 1;
+  final body = lines
+      .sublist(start)
+      .takeWhile((l) => !l.startsWith('=') && !l.startsWith('-----'))
+      .join();
+  return base64.decode(body);
+}
+
+String _hexOf(List<int> bytes) => [
+  for (final b in bytes) b.toRadixString(16).padLeft(2, '0'),
+].join().toUpperCase();
+
+/// The armour checksum (RFC 4880 6.1).
+List<int> _crc24(List<int> data) {
+  var crc = 0xB704CE;
+  for (final b in data) {
+    crc ^= b << 16;
+    for (var i = 0; i < 8; i++) {
+      crc <<= 1;
+      if (crc & 0x1000000 != 0) crc ^= 0x1864CFB;
+    }
+  }
+  return [crc >> 16 & 0xff, crc >> 8 & 0xff, crc & 0xff];
 }

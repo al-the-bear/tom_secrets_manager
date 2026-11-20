@@ -14,9 +14,9 @@
 ///   `Password`, since OpenPGP tools expect one.
 /// - **Read:** fingerprint, key id, user ids, algorithm and length, creation
 ///   and expiry; an imported short key (RSA below 3072 bits, a curve below
-///   256) is kept and flagged by the health report, never refused. A key the
-///   library does not read (RSA below 2048 bits, an old version) is kept as
-///   it is, without its information.
+///   256) is kept and flagged by the health report, never refused. A key
+///   `dart_pg` refuses (RSA below 2048 bits, a v3 key) is read by the
+///   package's own minimal reader (`pgp_raw.dart`) by the same rules.
 /// - **Served:** `getFile` of the entry without a field answers the secret
 ///   key (else the public key).
 /// - **GnuPG:** a generated key imports into GnuPG and signs, verifies,
@@ -54,6 +54,7 @@ import 'package:dart_pg/src/type/packet.dart' as pgp;
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 
 import 'mapping.dart';
+import 'pgp_raw.dart';
 
 /// The attachment holding a PGP key entry's armoured secret key.
 const String tomSecretsPgpPrivateAttachment = 'private-key.asc';
@@ -154,20 +155,50 @@ final class TomSecretsPgpKeyInfo {
   /// key signature's, else the primary user id's, else the latest user id
   /// self-signature's), counted from the key's creation. Signatures are not
   /// verified: the information describes the key, it vouches for nothing.
-  /// Throws [TomSecretsPgpKeyException] for text that is no key block.
+  /// A key `dart_pg` refuses (an RSA key below 2048 bits, a v3 key) is read
+  /// by this package's own minimal reader by the same rules. Throws
+  /// [TomSecretsPgpKeyException] for text that is no key block.
   factory TomSecretsPgpKeyInfo.parse(String armored) {
+    final pga.Armor armor;
     try {
-      final armor = pga.Armor.decode(armored);
+      armor = pga.Armor.decode(armored);
+    } on Object catch (e) {
+      throw TomSecretsPgpKeyException('no armoured OpenPGP key ($e)');
+    }
+    final isPrivate = armor.type == pga.ArmorType.privateKey;
+    try {
       return _fromPackets(
         pgp.PacketList.decode(armor.data),
-        isPrivate: armor.type == pga.ArmorType.privateKey,
+        isPrivate: isPrivate,
       );
     } on TomSecretsPgpKeyException {
       rethrow;
     } on Object catch (e) {
-      throw TomSecretsPgpKeyException('an unreadable OpenPGP key ($e)');
+      try {
+        return _fromRaw(
+          pgpReadRawKey(pgpReadPackets(armor.data)),
+          isPrivate: isPrivate,
+        );
+      } on Object catch (raw) {
+        throw TomSecretsPgpKeyException('an unreadable OpenPGP key ($e; $raw)');
+      }
     }
   }
+
+  static TomSecretsPgpKeyInfo _fromRaw(
+    PgpRawKey key, {
+    required bool isPrivate,
+  }) => TomSecretsPgpKeyInfo._(
+    fingerprint: _hex(key.fingerprint),
+    keyId: _hex(key.keyId),
+    userIds: key.userIds,
+    algorithm: key.algorithm,
+    bits: key.bits,
+    created: key.created,
+    expires: key.expires,
+    isPrivate: isPrivate,
+    version: key.version,
+  );
 
   static TomSecretsPgpKeyInfo _fromPackets(
     List<pgp.PacketInterface> packets, {
@@ -261,14 +292,18 @@ bool _sameBytes(Uint8List a, Uint8List b) {
 /// signatures kept (as `gpg --export` writes it). Read from the packets, so
 /// it needs neither the passphrase nor a key `dart_pg` verifies.
 String tomSecretsPgpPublicOf(String privateArmored) {
-  final packets = pgp.PacketList.decode(pga.Armor.decode(privateArmored).data);
-  return pga.Armor.encode(
-    pga.ArmorType.publicKey,
-    pgp.PacketList([
-      for (final p in packets)
+  final data = pga.Armor.decode(privateArmored).data;
+  Uint8List public;
+  try {
+    public = pgp.PacketList([
+      for (final p in pgp.PacketList.decode(data))
         if (p is pgp.SecretKeyPacket) p.publicKey else p,
-    ]).encode(),
-  );
+    ]).encode();
+  } on Object {
+    // A key dart_pg refuses (an RSA key below 2048 bits, a v3 key).
+    public = pgpWritePackets(pgpPublicPackets(pgpReadPackets(data)));
+  }
+  return pga.Armor.encode(pga.ArmorType.publicKey, public);
 }
 
 /// [privateArmored] (locked with [passphrase]) with every RSA secret key

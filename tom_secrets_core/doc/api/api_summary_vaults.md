@@ -1083,7 +1083,7 @@ A PGP key refused as unreadable: `message`.
 
 | Member | Type | Description |
 | --- | --- | --- |
-| `TomSecretsPgpKeyInfo.parse(armored)` | factory | The information of an armoured secret or public key block; throws `TomSecretsPgpKeyException` for text that is no key block and for one `dart_pg` does not read (RSA below 2048 bits, an old version). |
+| `TomSecretsPgpKeyInfo.parse(armored)` | factory | The information of an armoured secret or public key block; a key `dart_pg` refuses (an RSA key below 2048 bits, a v3 key) is read by the package's own minimal reader by the same rules; throws `TomSecretsPgpKeyException` for text that is no key block. |
 | `fingerprint`, `keyId` | `String` | The primary key's fingerprint and id, upper-case hex. |
 | `userIds` | `List<String>` | Its user ids, the primary one first (flagged primary, else the one with the latest self-signature). |
 | `algorithm` | `String` | The primary key's algorithm, e.g. `ecdsa`, `rsaEncryptSign`. |

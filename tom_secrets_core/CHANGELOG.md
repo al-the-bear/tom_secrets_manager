@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.20
+
+- A PGP key `dart_pg` refuses (an RSA key below 2048 bits, a v3 key) is read
+  by a minimal reader of the package's own (packet framing with partial
+  lengths, v3 and v4 key packets, user ids, self-signature subpackets), by
+  the same rules: it shows its fingerprint, user ids and expiry, gets
+  Expires, and the health report flags it short. Its public key is derived
+  from the secret key as GnuPG exports it.
+
 ## 0.2.19
 
 - PGP keys checked against GnuPG 2.5: a generated RSA key's primes are
