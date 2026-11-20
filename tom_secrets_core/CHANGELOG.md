@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.19
+
+- PGP keys checked against GnuPG 2.5: a generated RSA key's primes are
+  written p < q, which GnuPG requires (it refused `dart_pg`'s keys as "Bad
+  secret key"); the expiry counts from the key's creation (RFC 9580
+  5.2.3.13), as GnuPG shows it; key information is read from the packets
+  (the primary user id, else the latest self-signature), so a GnuPG Ed25519
+  key whose signature has a short `r` reads instead of being refused.
+  `tomSecretsPgpPublicOf` derives the public key block without the
+  passphrase. Ed25519 is no longer flagged short; DSA and ElGamal keys are
+  measured against 3072 bits. `dart_pg` is held below 2.2.0. A live test
+  runs the round trip where `gpg` is on the PATH.
+
 ## 0.2.18
 
 - Typed certificates and PGP keys (part-structure, part-sharing, BP-33,

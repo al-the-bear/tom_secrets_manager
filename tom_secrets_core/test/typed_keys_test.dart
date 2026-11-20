@@ -8,11 +8,26 @@
 // `getFile` serves for them, and the health report flagging short keys
 // without refusing them. Demo keys only; the generated certificates were
 // checked once with OpenSSL 4.1 (x509, verify, req -verify, ec -check).
+//
+// GnuPG (checked with GnuPG 2.5.24): a generated ECDSA P-384 and RSA 4096
+// key import into GnuPG with their passphrase and sign, verify, encrypt to
+// the subkey and decrypt there, and `dart_pg` verifies and decrypts what
+// GnuPG made; fingerprints, key ids and expiry match `gpg --with-colons`.
+// GnuPG-made Ed25519/Curve25519 and RSA 3072 keys read with GnuPG's
+// fingerprint, user ids and expiry. That check found, and pgp_key.dart
+// corrects, three dart_pg 2.1 behaviours: RSA primes written p > q (GnuPG:
+// "Bad secret key"), the expiry counted from the signature instead of the
+// key's creation, and a GnuPG Ed25519 key with a short signature `r`
+// refused as unreadable. The live round trip below runs where `gpg` is on
+// the PATH and is skipped elsewhere.
 
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dart_pg/dart_pg.dart' as pg;
+// ignore: implementation_imports
+import 'package:dart_pg/src/packet/key/rsa_secret_material.dart';
 import 'package:test/test.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
@@ -219,4 +234,170 @@ void main() {
       );
     });
   });
+
+  group('GnuPG', () {
+    String fixture(String name) =>
+        File('test/fixtures/gnupg/$name').readAsStringSync();
+
+    test('a GnuPG Ed25519 key whose signature has a short r reads as gpg '
+        'shows it; its public key derived from the secret key', () {
+      final info = TomSecretsPgpKeyInfo.parse(fixture('gpg_ed25519.pub.asc'));
+      // gpg --with-colons: pub:...:255:22:6A9FD15517BFB0DB:1795180265:1826716265
+      expect(info.fingerprint, '678D6914C2EB75E748B8CFDB6A9FD15517BFB0DB');
+      expect(info.keyId, '6A9FD15517BFB0DB');
+      expect(info.userIds, ['Gpg Ed <gpg-ed@example.com>']);
+      expect(info.keyDescription, 'Ed25519');
+      expect(info.shortness, isNull, reason: "Curve25519's 255 bits");
+      expect(info.created, DateTime.utc(2026, 11, 20, 13, 11, 5));
+      expect(info.expires, DateTime.utc(2027, 11, 20, 13, 11, 5));
+
+      final file = newTestVault(demoCredentials, 'vault');
+      final e = _entry(file, 'Gpg Ed');
+      final written = tomSecretsWritePgpKey(
+        e,
+        privateArmored: fixture('gpg_ed25519.priv.asc'),
+        passphrase: 'demo-gpg-pass',
+      )!;
+      expect(written.isPrivate, isTrue);
+      expect(written.fingerprint, info.fingerprint);
+      expect(e.times.expiryTime.get(), info.expires);
+      final public = utf8.decode(
+        e.getBinary(const KdbxKey(tomSecretsPgpPublicAttachment))!.value,
+      );
+      expect(public, contains('PUBLIC KEY BLOCK'));
+      expect(TomSecretsPgpKeyInfo.parse(public).fingerprint, info.fingerprint);
+    });
+
+    test('a GnuPG RSA 3072 key with two user ids and none primary: the '
+        'expiry from the latest self-signature, counted from creation', () {
+      final info = TomSecretsPgpKeyInfo.parse(fixture('gpg_rsa3072.pub.asc'));
+      // gpg --with-colons: pub:...:3072:1:1BA7C1EDDABA2F3E:1795180266:1858252266
+      expect(info.fingerprint, '2783F0B103F4CBE01DA9EA281BA7C1EDDABA2F3E');
+      expect(info.userIds, [
+        'Gpg Rsa Second <gpg-rsa2@example.com>',
+        'Gpg Rsa <gpg-rsa@example.com>',
+      ]);
+      expect(info.bits, 3072);
+      expect(info.shortness, isNull);
+      expect(info.expires, DateTime.utc(2028, 11, 19, 13, 11, 6));
+    });
+
+    test('a generated RSA key holds its primes as p < q, as libgcrypt '
+        'requires, and still opens with its passphrase only', () {
+      final k = tomSecretsGeneratePgpKey(
+        userId: 'Demo <demo@example.com>',
+        algorithm: TomSecretsPgpKeyAlgorithm.rsa,
+      );
+      expect(k.info.bits, 4096);
+      final key = pg.OpenPGP.decryptPrivateKey(k.privateArmored, k.passphrase);
+      final materials = [
+        key.secretKeyPacket.secretKeyMaterial,
+        for (final s in key.subkeys) (s.keyPacket as dynamic).secretKeyMaterial,
+      ].cast<RSASecretMaterial>();
+      expect(materials, hasLength(2));
+      for (final m in materials) {
+        expect(m.primeP < m.primeQ, isTrue);
+        expect((m.primeP * m.coefficient) % m.primeQ, BigInt.one);
+        expect(m.isValid, isTrue);
+      }
+      expect(
+        () => pg.OpenPGP.decryptPrivateKey(k.privateArmored, 'wrong'),
+        throwsA(anything),
+      );
+      expect(
+        TomSecretsPgpKeyInfo.parse(k.publicArmored).fingerprint,
+        k.info.fingerprint,
+      );
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    final gpg = _gpg();
+    test(
+      'live: generated keys sign, verify, encrypt and decrypt in GnuPG',
+      () async {
+        final home = Directory.systemTemp.createTempSync('tsmgpg');
+        addTearDown(() {
+          Process.runSync('${File(gpg!).parent.path}/gpgconf', [
+            '--homedir',
+            home.path,
+            '--kill',
+            'all',
+          ]);
+          home.deleteSync(recursive: true);
+        });
+        ProcessResult run(List<String> args) => Process.runSync(gpg!, [
+          '--homedir',
+          home.path,
+          '--batch',
+          '--pinentry-mode',
+          'loopback',
+          '--trust-model',
+          'always',
+          ...args,
+        ]);
+        File('${home.path}/msg.txt').writeAsStringSync('demo message');
+        for (final algorithm in TomSecretsPgpKeyAlgorithm.values) {
+          final k = tomSecretsGeneratePgpKey(
+            userId: 'Demo ${algorithm.name} <${algorithm.name}@example.com>',
+            algorithm: algorithm,
+            expiresAfter: const Duration(days: 30),
+          );
+          final p = '${home.path}/${algorithm.name}';
+          File('$p.asc').writeAsStringSync(k.privateArmored);
+          File('$p.pass').writeAsStringSync(k.passphrase);
+          var r = run(['--passphrase-file', '$p.pass', '--import', '$p.asc']);
+          expect(r.stderr, contains('secret key imported'));
+          r = run(['--with-colons', '--list-keys', k.info.fingerprint]);
+          final pub = (r.stdout as String)
+              .split('\n')
+              .firstWhere((l) => l.startsWith('pub:'))
+              .split(':');
+          expect(pub[4], k.info.keyId);
+          expect(
+            int.parse(pub[6]),
+            k.info.expires!.millisecondsSinceEpoch ~/ 1000,
+          );
+          r = run([
+            '--passphrase-file',
+            '$p.pass',
+            '-u',
+            k.info.fingerprint,
+            '--detach-sign',
+            '-o',
+            '$p.sig',
+            '${home.path}/msg.txt',
+          ]);
+          expect(r.exitCode, 0, reason: '${r.stderr}');
+          r = run(['--verify', '$p.sig', '${home.path}/msg.txt']);
+          expect(r.stderr, contains('Good signature'));
+          r = run([
+            '-r',
+            k.info.fingerprint,
+            '-o',
+            '$p.enc',
+            '--encrypt',
+            '${home.path}/msg.txt',
+          ]);
+          expect(r.exitCode, 0, reason: '${r.stderr}');
+          r = run(['--passphrase-file', '$p.pass', '-d', '$p.enc']);
+          expect(r.stdout, 'demo message', reason: '${r.stderr}');
+        }
+      },
+      skip: gpg == null ? 'gpg is not on the PATH' : false,
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+  });
+}
+
+/// The `gpg` executable on the PATH, or null.
+String? _gpg() {
+  try {
+    final r = Process.runSync('gpg', ['--version']);
+    if (r.exitCode != 0) return null;
+    final which = Process.runSync(Platform.isWindows ? 'where' : 'which', [
+      'gpg',
+    ]);
+    return (which.stdout as String).split('\n').first.trim();
+  } on ProcessException {
+    return null;
+  }
 }

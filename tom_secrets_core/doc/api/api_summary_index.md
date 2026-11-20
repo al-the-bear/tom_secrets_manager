@@ -147,6 +147,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsGeneratePgpKey` | A new OpenPGP key (DP-179): ECDSA P-384 with an ECDH subkey, or RSA 4096; its secret key locked with `passphrase` (default 32 random characters). | [→](api_summary_vaults.md#functions) |
 | `tomSecretsWritePgpKey` | Makes `entry` a `pgp-key` entry: the secret and public key as attachments (the public key read from the secret one when not given), the passphrase in `Password`, Expires the key's expiry. Answers what the key says, or null for one the library does not read. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsPgpKeyOf` | What the key of a `pgp-key` entry says (read from its public key), or null. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsPgpPublicOf` | The public key block of a secret key block, as `gpg --export` writes it. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsTypedFileField` | The field `getFile` serves for a typed key entry asked without a field: a certificate's private key (or PKCS#12 bundle, else its certificate), a PGP key's secret key (else its public key); null for other entries. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsSshKeyOf` | An entry's SSH key. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsWriteSshKey` | Makes an entry an SSH key entry. | [→](api_summary_vaults.md#functions) |
@@ -964,6 +965,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsPasswordOf` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsPasswordStrength` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsPgpKeyOf` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsPgpPublicOf` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsPinText` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRead1PasswordCsv` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsRead1Pux` | Import and Export | [→](api_summary_import_export.md#functions) |

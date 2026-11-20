@@ -334,7 +334,9 @@ certificate's `notAfter`. A **PGP key** entry (`pgp-key`) holds the armoured
 secret key as `private-key.asc`, the public key as `public-key.asc` and the
 passphrase in `Password`; Expires is the key's own expiry. Both are
 generated as DP-179 says, and a short imported key is flagged by the health
-report, never refused:
+report, never refused. A generated PGP key imports into GnuPG and signs,
+verifies, encrypts and decrypts there; a GnuPG-made key reads with the
+fingerprint, user ids and expiry `gpg --list-keys --with-colons` shows:
 
 ```dart
 final cert = tomSecretsGenerateCertificate(commonName: 'api.example'); // P-384

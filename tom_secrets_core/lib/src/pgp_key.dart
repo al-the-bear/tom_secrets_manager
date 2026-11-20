@@ -19,13 +19,38 @@
 ///   it is, without its information.
 /// - **Served:** `getFile` of the entry without a field answers the secret
 ///   key (else the public key).
+/// - **GnuPG:** a generated key imports into GnuPG and signs, verifies,
+///   encrypts and decrypts there; a GnuPG-made key reads with the same
+///   fingerprint, user ids and expiry `gpg --with-colons` shows. Three
+///   `dart_pg` 2.1 behaviours are corrected here: an RSA key's primes are
+///   written with p < q (libgcrypt refuses the other order as a bad secret
+///   key), the expiry counts from the key's creation (RFC 9580 5.2.3.13;
+///   `dart_pg` counts from the signature's), and the information is read
+///   from the packets, so a GnuPG Ed25519 key whose signature has a short
+///   `r` or `s` (one in 128) is not refused.
 library;
+
+// Why: the packet classes are not exported by dart_pg, and the fixes above
+// need them; the dependency is held below 2.2.0 for that reason.
+// ignore_for_file: implementation_imports
 
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:dart_pg/dart_pg.dart' as pg;
+import 'package:dart_pg/src/common/armor.dart' as pga;
+import 'package:dart_pg/src/enum/armor_type.dart' as pga;
+import 'package:dart_pg/src/packet/key/rsa_secret_material.dart' as pgp;
+import 'package:dart_pg/src/packet/packet_list.dart' as pgp;
+import 'package:dart_pg/src/packet/public_key.dart' as pgp;
+import 'package:dart_pg/src/packet/public_subkey.dart' as pgp;
+import 'package:dart_pg/src/packet/secret_key.dart' as pgp;
+import 'package:dart_pg/src/packet/secret_subkey.dart' as pgp;
+import 'package:dart_pg/src/packet/signature.dart' as pgp;
+import 'package:dart_pg/src/packet/user_attribute.dart' as pgp;
+import 'package:dart_pg/src/packet/user_id.dart' as pgp;
+import 'package:dart_pg/src/type/packet.dart' as pgp;
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 
 import 'mapping.dart';
@@ -92,53 +117,199 @@ final class TomSecretsPgpKeyInfo {
   /// Whether [algorithm] is RSA.
   bool get isRsa => algorithm.startsWith('rsa');
 
-  /// The key in words, e.g. `ECDSA P-384` or `RSA 4096`.
+  /// Whether [algorithm] works over a finite field (RSA, DSA, ElGamal),
+  /// whose keys are measured against 3072 bits rather than a curve's 256.
+  bool get isFiniteField =>
+      isRsa || algorithm == 'dsa' || algorithm == 'elgamal';
+
+  /// The key in words, e.g. `ECDSA 384`, `RSA 4096` or `Ed25519`.
   String get keyDescription => isRsa
       ? 'RSA $bits'
       : switch (algorithm) {
           'ecdsa' => 'ECDSA $bits',
           'eddsaLegacy' || 'ed25519' => 'Ed25519',
           'ed448' => 'Ed448',
+          'dsa' => 'DSA $bits',
+          'elgamal' => 'ElGamal $bits',
           _ => '$algorithm $bits',
         };
 
-  /// Why its primary key is shorter than today's guidance (DP-179: RSA
-  /// below 3072 bits, a curve below 256), or null.
+  /// Why its primary key is shorter than today's guidance (DP-179: RSA,
+  /// DSA and ElGamal below 3072 bits, a curve below 256; Curve25519's 255
+  /// bits count as 256, as for SSH keys), or null.
   String? get shortness {
-    if (isRsa && bits < 3072) return 'RSA $bits bits: below 3072';
-    if (!isRsa && bits > 0 && bits < 256) {
+    if (isFiniteField && bits < 3072) {
+      return '${keyDescription.split(' ').first} $bits bits: below 3072';
+    }
+    if (!isFiniteField && bits > 0 && bits < 255) {
       return '$algorithm $bits bits: below 256';
     }
     return null;
   }
 
   /// The information of the armoured key [armored] (a secret or a public key
-  /// block). Throws [TomSecretsPgpKeyException] for one the library does not
-  /// read.
+  /// block), read from its packets as GnuPG reads it: the primary key's
+  /// fingerprint, id, algorithm, length and creation; the user ids, the
+  /// primary one first; the expiry from the latest self-signature (a direct
+  /// key signature's, else the primary user id's, else the latest user id
+  /// self-signature's), counted from the key's creation. Signatures are not
+  /// verified: the information describes the key, it vouches for nothing.
+  /// Throws [TomSecretsPgpKeyException] for text that is no key block.
   factory TomSecretsPgpKeyInfo.parse(String armored) {
-    final isPrivate = armored.contains('PRIVATE KEY BLOCK');
-    String hex(Uint8List bytes) => [
-      for (final b in bytes) b.toRadixString(16).padLeft(2, '0'),
-    ].join().toUpperCase();
     try {
-      final key = isPrivate
-          ? pg.OpenPGP.readPrivateKey(armored)
-          : pg.OpenPGP.readPublicKey(armored);
-      return TomSecretsPgpKeyInfo._(
-        fingerprint: hex(key.fingerprint),
-        keyId: hex(key.keyID),
-        userIds: [for (final u in key.users) u.userID],
-        algorithm: key.keyAlgorithm.name,
-        bits: key.keyStrength,
-        created: key.creationTime.toUtc(),
-        expires: key.expirationTime?.toUtc(),
-        isPrivate: isPrivate,
-        version: key.version,
+      final armor = pga.Armor.decode(armored);
+      return _fromPackets(
+        pgp.PacketList.decode(armor.data),
+        isPrivate: armor.type == pga.ArmorType.privateKey,
       );
+    } on TomSecretsPgpKeyException {
+      rethrow;
     } on Object catch (e) {
       throw TomSecretsPgpKeyException('an unreadable OpenPGP key ($e)');
     }
   }
+
+  static TomSecretsPgpKeyInfo _fromPackets(
+    List<pgp.PacketInterface> packets, {
+    required bool isPrivate,
+  }) {
+    final first = packets.firstOrNull;
+    final key = switch (first) {
+      pgp.SecretKeyPacket(:final publicKey) => publicKey,
+      pgp.PublicKeyPacket() => first,
+      _ => throw const TomSecretsPgpKeyException('no primary key packet'),
+    };
+    bool own(pgp.SignaturePacket s) =>
+        _sameBytes(s.issuerKeyID, key.keyID) ||
+        _sameBytes(s.issuerFingerprint, key.fingerprint);
+    final direct = <pgp.SignaturePacket>[];
+    final users = <String, List<pgp.SignaturePacket>>{};
+    String? user;
+    var inUser = false;
+    for (final packet in packets.skip(1)) {
+      if (packet is pgp.PublicSubkeyPacket ||
+          packet is pgp.SecretSubkeyPacket) {
+        break;
+      }
+      switch (packet) {
+        case pgp.UserIDPacket(:final userID):
+          user = userID;
+          inUser = true;
+          users.putIfAbsent(userID, () => []);
+        case pgp.UserAttributePacket():
+          user = null;
+          inUser = true;
+        case final pgp.SignaturePacket s when own(s):
+          if (!inUser && s.isDirectKey) direct.add(s);
+          if (user != null && s.isCertification) users[user]!.add(s);
+      }
+    }
+    pgp.SignaturePacket? latest(Iterable<pgp.SignaturePacket> sigs) =>
+        sigs.fold<pgp.SignaturePacket?>(
+          null,
+          (a, b) => a == null || b.creationTime.isAfter(a.creationTime) ? b : a,
+        );
+    final lastOf = {
+      for (final MapEntry(:key, :value) in users.entries) key: ?latest(value),
+    };
+    final primaries = {
+      for (final MapEntry(:key, :value) in lastOf.entries)
+        if (value.isPrimaryUserID) key: value,
+    };
+    final pick = latest(primaries.isEmpty ? lastOf.values : primaries.values);
+    final primaryUser = [
+      for (final MapEntry(:key, :value) in lastOf.entries)
+        if (identical(value, pick)) key,
+    ].firstOrNull;
+    final directSig = latest(direct);
+    final seconds = (directSig?.keyExpirationTime ?? 0) > 0
+        ? directSig!.keyExpirationTime
+        : pick?.keyExpirationTime ?? 0;
+    final created = key.creationTime.toUtc();
+    return TomSecretsPgpKeyInfo._(
+      fingerprint: _hex(key.fingerprint),
+      keyId: _hex(key.keyID),
+      userIds: [
+        ?primaryUser,
+        for (final u in users.keys)
+          if (u != primaryUser) u,
+      ],
+      algorithm: key.keyAlgorithm.name,
+      bits: key.keyStrength,
+      created: created,
+      expires: seconds > 0 ? created.add(Duration(seconds: seconds)) : null,
+      isPrivate: isPrivate,
+      version: key.keyVersion,
+    );
+  }
+}
+
+String _hex(Uint8List bytes) => [
+  for (final b in bytes) b.toRadixString(16).padLeft(2, '0'),
+].join().toUpperCase();
+
+bool _sameBytes(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+/// The public key block of the secret key block [privateArmored]: every
+/// secret key packet replaced by its public key packet, user ids and
+/// signatures kept (as `gpg --export` writes it). Read from the packets, so
+/// it needs neither the passphrase nor a key `dart_pg` verifies.
+String tomSecretsPgpPublicOf(String privateArmored) {
+  final packets = pgp.PacketList.decode(pga.Armor.decode(privateArmored).data);
+  return pga.Armor.encode(
+    pga.ArmorType.publicKey,
+    pgp.PacketList([
+      for (final p in packets)
+        if (p is pgp.SecretKeyPacket) p.publicKey else p,
+    ]).encode(),
+  );
+}
+
+/// [privateArmored] (locked with [passphrase]) with every RSA secret key
+/// packet holding its primes as p < q and u = p⁻¹ mod q, locked again with
+/// [passphrase]. `dart_pg` 2.1 generates them as p > q (pointycastle's
+/// order), which libgcrypt refuses ("Bad secret key"); the public key and
+/// every signature stay as they are, since the primes are only swapped.
+String _rsaPrimesForGnuPG(String privateArmored, String passphrase) {
+  final decrypted = pg.OpenPGP.decryptPrivateKey(privateArmored, passphrase);
+  var swapped = false;
+  pgp.PacketInterface ordered(pgp.PacketInterface packet) {
+    if (packet is! pgp.SecretKeyPacket) return packet;
+    final m = packet.secretKeyMaterial;
+    if (m is! pgp.RSASecretMaterial || m.primeP < m.primeQ) return packet;
+    swapped = true;
+    final o = pgp.RSASecretMaterial(
+      m.exponent,
+      m.primeQ,
+      m.primeP,
+      m.publicMaterial,
+    );
+    return packet is pgp.SecretSubkeyPacket
+        ? pgp.SecretSubkeyPacket(
+            packet.publicKey as pgp.PublicSubkeyPacket,
+            o.toBytes,
+            secretKeyMaterial: o,
+          )
+        : pgp.SecretKeyPacket(
+            packet.publicKey,
+            o.toBytes,
+            secretKeyMaterial: o,
+          );
+  }
+
+  final packets = [for (final p in decrypted.packetList) ordered(p)];
+  if (!swapped) return privateArmored;
+  final unlocked = pga.Armor.encode(
+    pga.ArmorType.privateKey,
+    pgp.PacketList(packets).encode(),
+  );
+  return pg.OpenPGP.readPrivateKey(unlocked).encrypt(passphrase).armor();
 }
 
 /// The key a PGP key is generated with (DP-179).
@@ -196,7 +367,9 @@ TomSecretsGeneratedPgpKey tomSecretsGeneratePgpKey({
     keyExpiry: expiresAfter?.inSeconds ?? 0,
     time: now,
   );
-  final privateArmored = key.armor();
+  final privateArmored = algorithm == TomSecretsPgpKeyAlgorithm.rsa
+      ? _rsaPrimesForGnuPG(key.armor(), secret)
+      : key.armor();
   final publicArmored = key.publicKey.armor();
   return TomSecretsGeneratedPgpKey._(
     privateArmored: privateArmored,
@@ -239,7 +412,7 @@ TomSecretsPgpKeyInfo? tomSecretsWritePgpKey(
   var public = publicArmored;
   if (public == null && privateArmored != null) {
     try {
-      public = pg.OpenPGP.readPrivateKey(privateArmored).publicKey.armor();
+      public = tomSecretsPgpPublicOf(privateArmored);
     } on Object {
       public = null;
     }

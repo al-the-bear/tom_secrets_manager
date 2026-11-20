@@ -1075,7 +1075,7 @@ A PGP key refused as unreadable: `message`.
 
 ### TomSecretsPgpKeyInfo
 
-**[C]** What an OpenPGP key says (part-structure, DP-179), read through `dart_pg`.
+**[C]** What an OpenPGP key says (part-structure, DP-179), read from its packets as GnuPG reads it (signatures are not verified: the information describes the key, it vouches for nothing).
 
 **Kind:** `final class`
 
@@ -1083,18 +1083,19 @@ A PGP key refused as unreadable: `message`.
 
 | Member | Type | Description |
 | --- | --- | --- |
-| `TomSecretsPgpKeyInfo.parse(armored)` | factory | The information of an armoured secret or public key block; throws `TomSecretsPgpKeyException` for one the library does not read (RSA below 2048 bits, an old version). |
+| `TomSecretsPgpKeyInfo.parse(armored)` | factory | The information of an armoured secret or public key block; throws `TomSecretsPgpKeyException` for text that is no key block and for one `dart_pg` does not read (RSA below 2048 bits, an old version). |
 | `fingerprint`, `keyId` | `String` | The primary key's fingerprint and id, upper-case hex. |
-| `userIds` | `List<String>` | Its user ids. |
+| `userIds` | `List<String>` | Its user ids, the primary one first (flagged primary, else the one with the latest self-signature). |
 | `algorithm` | `String` | The primary key's algorithm, e.g. `ecdsa`, `rsaEncryptSign`. |
 | `bits` | `int` | Its length in bits (the curve's for ECC). |
 | `created` | `DateTime` | When it was made. |
-| `expires` | `DateTime?` | When it expires, or null. |
+| `expires` | `DateTime?` | When it expires (the latest self-signature's key expiration, counted from `created`), or null. |
 | `isPrivate` | `bool` | Whether it was read from a secret key block. |
 | `version` | `int` | The key version (4 or 6). |
 | `isRsa` | `bool` | Whether it is RSA. |
-| `keyDescription` | `String` | E.g. `ECDSA 384`, `RSA 4096`. |
-| `shortness` | `String?` | Why its key is short (RSA below 3072 bits, a curve below 256), or null. |
+| `isFiniteField` | `bool` | Whether it is RSA, DSA or ElGamal (measured against 3072 bits). |
+| `keyDescription` | `String` | E.g. `ECDSA 384`, `RSA 4096`, `Ed25519`, `DSA 2048`. |
+| `shortness` | `String?` | Why its key is short (RSA, DSA or ElGamal below 3072 bits, a curve below 256; Curve25519 counts as 256), or null. |
 
 ---
 
@@ -1816,9 +1817,10 @@ An entry auto-type may type into a window, and why.
 | `tomSecretsWriteCertificate` | `TomSecretsCertificateInfo? tomSecretsWriteCertificate(KdbxEntry entry, {String? certificatePem, String? privateKeyPem, Uint8List? pkcs12, String? passphrase})` | Makes `entry` a `certificate` entry: the PEM certificate and private key, or a PKCS#12 bundle, as attachments, the passphrase in `Password`, Expires from `notAfter` (a bundle's by hand). Answers what the certificate says, or null for a bundle. |
 | `tomSecretsCertificateOf` | `TomSecretsCertificateInfo? tomSecretsCertificateOf(KdbxEntry entry)` | What the certificate of a `certificate` entry says, or null (a PKCS#12 bundle, a broken PEM). |
 | `tomSecretsIsPkcs12` | `bool tomSecretsIsPkcs12(List<int> bytes)` | Whether `bytes` look like a PKCS#12 bundle (DER, not PEM text). |
-| `tomSecretsGeneratePgpKey` | `TomSecretsGeneratedPgpKey tomSecretsGeneratePgpKey({required String userId, TomSecretsPgpKeyAlgorithm algorithm = TomSecretsPgpKeyAlgorithm.ecdsaP384, Duration? expiresAfter, String? passphrase, DateTime? now})` | A new OpenPGP key (DP-179): ECDSA P-384 with an ECDH subkey, or RSA 4096; its secret key locked with `passphrase` (default 32 random characters). |
+| `tomSecretsGeneratePgpKey` | `TomSecretsGeneratedPgpKey tomSecretsGeneratePgpKey({required String userId, TomSecretsPgpKeyAlgorithm algorithm = TomSecretsPgpKeyAlgorithm.ecdsaP384, Duration? expiresAfter, String? passphrase, DateTime? now})` | A new OpenPGP key (DP-179): ECDSA P-384 with an ECDH subkey, or RSA 4096; its secret key locked with `passphrase` (default 32 random characters); an RSA key's primes written p < q, so it imports into GnuPG. |
 | `tomSecretsWritePgpKey` | `TomSecretsPgpKeyInfo? tomSecretsWritePgpKey(KdbxEntry entry, {String? privateArmored, String? publicArmored, String? passphrase})` | Makes `entry` a `pgp-key` entry: the secret and public key as attachments (the public key read from the secret one when not given), the passphrase in `Password`, Expires the key's expiry. Answers what the key says, or null for one the library does not read. |
 | `tomSecretsPgpKeyOf` | `TomSecretsPgpKeyInfo? tomSecretsPgpKeyOf(KdbxEntry entry)` | What the key of a `pgp-key` entry says (read from its public key), or null. |
+| `tomSecretsPgpPublicOf` | `String tomSecretsPgpPublicOf(String privateArmored)` | The public key block of a secret key block, as `gpg --export` writes it: every secret key packet replaced by its public key packet; needs no passphrase. |
 | `tomSecretsTypedFileField` | `String? tomSecretsTypedFileField(KdbxEntry entry)` | The field `getFile` serves for a typed key entry asked without a field: a certificate's private key (or PKCS#12 bundle, else its certificate), a PGP key's secret key (else its public key); null for other entries. |
 | `tomSecretsSshKeyOf` | `({String name, Uint8List bytes, TomSecretsSshKeyInfo info})? tomSecretsSshKeyOf(KdbxEntry entry)` | An entry's SSH key: the attachment its `KeeAgent.settings` names, else the first attachment holding a private key. |
 | `tomSecretsWriteSshKey` | `void tomSecretsWriteSshKey(KdbxEntry entry, {required String attachmentName, required Uint8List privateKey, String? passphrase})` | Makes an entry an SSH key entry: `tsm.type` `ssh-key`, the key as a protected attachment, `KeeAgent.settings` naming it, the passphrase in `Password`. |
