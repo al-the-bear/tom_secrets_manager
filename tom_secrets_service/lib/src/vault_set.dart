@@ -1124,7 +1124,7 @@ final class TomSecretsVaultSet {
           : (held.keyFile == null
                 ? null
                 : TomProtectedValue.fromBytes(
-                    Uint8List.fromList(held.keyFile!.withRevealed((b) => b)),
+                    held.keyFile!.withRevealed(Uint8List.fromList),
                   )),
       outerKey: switch (tomSecretsJoinOuterKeys([
         next.outerKey ?? held.newestOuterKey,
@@ -1136,7 +1136,7 @@ final class TomSecretsVaultSet {
       compositeKey: held.compositeKey == null
           ? null
           : TomProtectedValue.fromBytes(
-              Uint8List.fromList(held.compositeKey!.withRevealed((b) => b)),
+              held.compositeKey!.withRevealed(Uint8List.fromList),
             ),
     );
   }

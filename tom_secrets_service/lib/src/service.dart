@@ -45,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.20.0';
+const String tomSecretsServiceVersion = '0.20.1';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -869,7 +869,7 @@ final class TomSecretsService
             : (held.keyFile == null
                   ? null
                   : TomProtectedValue.fromBytes(
-                      Uint8List.fromList(held.keyFile!.withRevealed((b) => b)),
+                      held.keyFile!.withRevealed(Uint8List.fromList),
                     )),
         outerKey: outerKey != null && outerKey.isNotEmpty
             ? TomProtectedValue.of(outerKey)
@@ -879,7 +879,7 @@ final class TomSecretsService
         compositeKey: held.compositeKey == null
             ? null
             : TomProtectedValue.fromBytes(
-                Uint8List.fromList(held.compositeKey!.withRevealed((b) => b)),
+                held.compositeKey!.withRevealed(Uint8List.fromList),
               ),
       );
     } on Object catch (e) {

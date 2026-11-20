@@ -604,7 +604,7 @@ session) the service never locks itself, the maximum unlocked time included.
 
 ## Status
 
-Version 0.20.0. The suite runs with `testkit :test` from the package folder.
+Version 0.20.1. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real

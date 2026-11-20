@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.1
+
+- The guided rotation (part-key-rotation): the primary's keys taken up with
+  its next keys (`TomSecretsVaultSet.primaryKeysWith`, the keychain
+  fallback) kept a key file and an OS unlock's composite key as zeros (a
+  copy made after `withRevealed` wiped the bytes), so a primary with a key
+  file did not open once its repository key was taken up; copied inside
+  the callback now.
+
 ## 0.20.0
 
 - The guided rotation of the own vaults (part-key-rotation, protocol.md

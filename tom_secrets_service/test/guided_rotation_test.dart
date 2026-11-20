@@ -463,7 +463,14 @@ void main() {
     final newId = TomSecretsRepositoryKey.fromBase64(newKey).keyIdHex;
     final tsmx = '${demo.primaryPath}$tomSecretsOuterSuffix';
     final locator = 'file:$tsmx';
-    final plain = await _openPrimary(demo);
+    // With a key file too: the keys taken up keep it (a copy made inside
+    // withRevealed, never of the bytes it wipes after).
+    final keyFile = TomSecretsKeyFile.generate().toBytes();
+    final plain = await _openPrimary(demo)
+      ..credentials = tomSecretsVaultCredentials(
+        password: primaryPassword,
+        keyFile: keyFile,
+      );
     File(tsmx).writeAsBytesSync(
       await tomSecretsEncodeStored(locator, plain, outerKey: oldKey),
     );
@@ -473,10 +480,13 @@ void main() {
       deviceKey: demo.bootstrap.deviceKey,
     );
     final handle = TomSecretsVaultLocator.parse(locator).repositoryKeyHandle;
+    final keyFileHandle = TomSecretsVaultLocator.parse(locator).keyFileHandle;
     final mbpKeys = TomInMemorySecretStore();
     await mbpKeys.write(handle, oldKey);
+    await mbpKeys.write(keyFileHandle, base64.encode(keyFile));
     final bomberKeys = TomInMemorySecretStore();
     await bomberKeys.write(handle, oldKey);
+    await bomberKeys.write(keyFileHandle, base64.encode(keyFile));
     final mbp = await _start(demo, 'mbp', keychain: mbpKeys);
     final second = Demo.sameFilesAs(demo);
     final bomber = await _start(second, 'bomber', keychain: bomberKeys);
@@ -507,6 +517,7 @@ void main() {
       'baseRevision': copy.file['revision'],
       'keys': {
         'password': primaryPassword,
+        'keyFile': base64.encode(keyFile),
         'outerKey': newKey,
         'previousOuterKey': oldKey,
       },
@@ -540,8 +551,13 @@ void main() {
     });
     expect(await slots(), [newId]);
     await bomber.admin.request('reload');
+    expect(
+      bomber.service.vaults.statusOf('primary')!.state,
+      TomSecretsStoreState.current,
+    );
     await bomber.service.savePrimary();
     expect(await slots(), [newId]);
     expect(await bomberKeys.read('$handle.next'), isNull);
+    expect(await _get(second, 'primary/Db/Main'), 'demo-db-pw');
   });
 }
