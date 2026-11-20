@@ -78,6 +78,15 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsSshKeyInfo` | final class | A private key file's type, public key and fingerprint. | [→](api_summary_vaults.md#tomsecretssshkeyinfo) |
 | `TomSecretsSshKeyAlgorithm` | enum | Ed25519 or RSA, for a generated key. | [→](api_summary_vaults.md#tomsecretssshkeyalgorithm) |
 | `TomSecretsGeneratedSshKey` | final class | A generated SSH key. | [→](api_summary_vaults.md#tomsecretsgeneratedsshkey) |
+| `TomSecretsCertificateKeyType` | enum | A certificate's key algorithm | [→](api_summary_vaults.md#tomsecretscertificatekeytype) |
+| `TomSecretsCertificateException` | final class | A certificate refused as unreadable: `message`. | [→](api_summary_vaults.md#tomsecretscertificateexception) |
+| `TomSecretsCertificateInfo` | final class | **[C]** What an X.509 certificate says (part-structure, DP-179). | [→](api_summary_vaults.md#tomsecretscertificateinfo) |
+| `TomSecretsCertificateAlgorithm` | enum | The key a certificate is generated with (DP-179) | [→](api_summary_vaults.md#tomsecretscertificatealgorithm) |
+| `TomSecretsGeneratedCertificate` | final class | A generated certificate: `certificatePem` (self-signed), `privateKeyPem` (unencrypted: the vault protects it), `csrPem` (a PKCS#10 request for a CA) and `info`. | [→](api_summary_vaults.md#tomsecretsgeneratedcertificate) |
+| `TomSecretsPgpKeyException` | final class | A PGP key refused as unreadable: `message`. | [→](api_summary_vaults.md#tomsecretspgpkeyexception) |
+| `TomSecretsPgpKeyInfo` | final class | **[C]** What an OpenPGP key says (part-structure, DP-179), read through `dart_pg`. | [→](api_summary_vaults.md#tomsecretspgpkeyinfo) |
+| `TomSecretsPgpKeyAlgorithm` | enum | The key a PGP key is generated with (DP-179) | [→](api_summary_vaults.md#tomsecretspgpkeyalgorithm) |
+| `TomSecretsGeneratedPgpKey` | final class | A generated PGP key: `privateArmored` (locked with `passphrase`), `publicArmored`, the generated `passphrase` and `info`. | [→](api_summary_vaults.md#tomsecretsgeneratedpgpkey) |
 | `TomSecretsSshAgentServing` | enum | Whether the ssh-agent serves an entry's key, and why not. | [→](api_summary_vaults.md#tomsecretssshagentserving) |
 | `TomSecretsSshPrivateKey` | final class | A decoded private key the agent signs with. | [→](api_summary_vaults.md#tomsecretssshprivatekey) |
 | `TomSecretsSshKeyException` | final class | A key file that cannot be used. | [→](api_summary_vaults.md#tomsecretssshkeyexception) |
@@ -131,6 +140,14 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsBase32Encode` | RFC 4648 base32 without padding. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsMatchLogins` | The login entries of a page, in their order. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsGenerateSshKey` | A new SSH key, Ed25519 or RSA 4096. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsGenerateCertificate` | A new certificate (DP-179): its key on ECDSA P-384, or RSA 4096; self-signed with SHA-384 (SHA-256 for RSA), with a CSR beside it. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsWriteCertificate` | Makes `entry` a `certificate` entry: the PEM certificate and private key, or a PKCS#12 bundle, as attachments, the passphrase in `Password`, Expires from `notAfter` (a bundle's by hand). Answers what the certificate says, or null for a bundle. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsCertificateOf` | What the certificate of a `certificate` entry says, or null (a PKCS#12 bundle, a broken PEM). | [→](api_summary_vaults.md#functions) |
+| `tomSecretsIsPkcs12` | Whether `bytes` look like a PKCS#12 bundle (DER, not PEM text). | [→](api_summary_vaults.md#functions) |
+| `tomSecretsGeneratePgpKey` | A new OpenPGP key (DP-179): ECDSA P-384 with an ECDH subkey, or RSA 4096; its secret key locked with `passphrase` (default 32 random characters). | [→](api_summary_vaults.md#functions) |
+| `tomSecretsWritePgpKey` | Makes `entry` a `pgp-key` entry: the secret and public key as attachments (the public key read from the secret one when not given), the passphrase in `Password`, Expires the key's expiry. Answers what the key says, or null for one the library does not read. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsPgpKeyOf` | What the key of a `pgp-key` entry says (read from its public key), or null. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsTypedFileField` | The field `getFile` serves for a typed key entry asked without a field: a certificate's private key (or PKCS#12 bundle, else its certificate), a PGP key's secret key (else its public key); null for other entries. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsSshKeyOf` | An entry's SSH key. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsWriteSshKey` | Makes an entry an SSH key entry. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsSshKeyCandidates` | The untyped entries holding an SSH key. | [→](api_summary_vaults.md#functions) |
@@ -178,6 +195,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsAmbiguousCharacters` | `String` | The characters `TomSecretsPasswordPolicy.excludeAmbiguous` leaves out, because they are easily confused when read or typed. | [→](api_summary_vaults.md#constants) |
 | `tomSecretsProductGroup` | `String` | The root group holding the product's own groups (never resolved into). | [→](api_summary_vaults.md#constants) |
 | `tomSecretsVaultsGroup` | `String` | The subgroup holding the further vaults. | [→](api_summary_vaults.md#constants) |
+| `tomSecretsCertificateAttachment` | `String` | The attachment holding a certificate entry's certificate (and chain): `certificate.pem`. | [→](api_summary_vaults.md#constants) |
+| `tomSecretsCertificateKeyAttachment` | `String` | The attachment holding a certificate entry's private key: `private-key.pem`. | [→](api_summary_vaults.md#constants) |
+| `tomSecretsPkcs12Attachment` | `String` | The attachment holding a certificate entry's PKCS#12 bundle: `certificate.p12`. | [→](api_summary_vaults.md#constants) |
+| `tomSecretsPgpPrivateAttachment` | `String` | The attachment holding a PGP key entry's armoured secret key: `private-key.asc`. | [→](api_summary_vaults.md#constants) |
+| `tomSecretsPgpPublicAttachment` | `String` | The attachment holding a PGP key entry's armoured public key: `public-key.asc`. | [→](api_summary_vaults.md#constants) |
 | `tomSecretsNextKeysGroup` | `String` | The subgroup holding the primary's own next keys during a guided rotation. | [→](api_summary_vaults.md#constants) |
 | `tomSecretsStrengthMaxLength` | `int` | The longest prefix of a password the strength estimator reads (100). | [→](api_summary_vaults.md#constants) |
 | `tomSecretsBreachCheckField` | `KdbxKey` | `tsm.breachCheck`, the field that keeps an entry out of the breach check (`off`). | [→](api_summary_vaults.md#constants) |
@@ -622,6 +644,10 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsBreachCheck` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsbreachcheck) |
 | `TomSecretsBreachCheckException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsbreachcheckexception) |
 | `TomSecretsCachedVault` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretscachedvault) |
+| `TomSecretsCertificateAlgorithm` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretscertificatealgorithm) |
+| `TomSecretsCertificateException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretscertificateexception) |
+| `TomSecretsCertificateInfo` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretscertificateinfo) |
+| `TomSecretsCertificateKeyType` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretscertificatekeytype) |
 | `TomSecretsCharacterClass` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretscharacterclass) |
 | `TomSecretsClientTokenRecord` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsclienttokenrecord) |
 | `TomSecretsCommit` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretscommit) |
@@ -655,6 +681,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsFirstRunProblem` | First Run and Device Settings | [→](api_summary_device.md#tomsecretsfirstrunproblem) |
 | `TomSecretsFirstRunResult` | First Run and Device Settings | [→](api_summary_device.md#tomsecretsfirstrunresult) |
 | `TomSecretsFirstRunSetup` | First Run and Device Settings | [→](api_summary_device.md#tomsecretsfirstrunsetup) |
+| `TomSecretsGeneratedCertificate` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsgeneratedcertificate) |
+| `TomSecretsGeneratedPgpKey` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsgeneratedpgpkey) |
 | `TomSecretsGeneratedSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsgeneratedsshkey) |
 | `TomSecretsGitCommitReader` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsgitcommitreader) |
 | `TomSecretsGitHubCommitReader` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsgithubcommitreader) |
@@ -736,6 +764,9 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsPasswordGenerator` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretspasswordgenerator) |
 | `TomSecretsPasswordPolicy` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretspasswordpolicy) |
 | `TomSecretsPasswordStrength` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretspasswordstrength) |
+| `TomSecretsPgpKeyAlgorithm` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretspgpkeyalgorithm) |
+| `TomSecretsPgpKeyException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretspgpkeyexception) |
+| `TomSecretsPgpKeyInfo` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretspgpkeyinfo) |
 | `TomSecretsPlainCodec` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsplaincodec) |
 | `TomSecretsPrimaryNextKeys` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsprimarynextkeys) |
 | `TomSecretsPrimaryVaults` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsprimaryvaults) |
@@ -834,6 +865,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsBlobId` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsBreachCheckExcluded` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBrowserOfCsv` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsCertificateOf` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsCheckSharedVaultMembers` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsClassifyMove` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsClientTokenHash` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
@@ -857,6 +889,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsExportEnpassJson` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsExportEntries` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsExportKdbx` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsGenerateCertificate` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsGeneratePgpKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsGenerateSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsGitHubRemote` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsGitHubTokenExpiryHandle` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
@@ -880,6 +914,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsIsInboxName` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsIsPairingAddress` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsIsPasskeyField` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsIsPkcs12` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsIsReservedName` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsIsToken` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsJoinOuterKeys` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
@@ -928,6 +963,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsPasswordHash` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsPasswordOf` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsPasswordStrength` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsPgpKeyOf` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsPinText` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRead1PasswordCsv` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsRead1Pux` | Import and Export | [→](api_summary_import_export.md#functions) |
@@ -956,11 +992,14 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsSshKeyCandidates` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsSshKeyOf` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsTakeNextKeys` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsTypedFileField` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsUuidFromHex` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsUuidHex` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsVaultCredentials` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
 | `tomSecretsVaultKeyIds` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
 | `tomSecretsVerifiedBy` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsWriteCertificate` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsWritePgpKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsWriteRecipientsFile` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsWriteShare` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsWriteSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
@@ -982,6 +1021,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsBrowserCsvLosses` | Import and Export | [→](api_summary_import_export.md#constants) |
 | `tomSecretsBuiltInDimensions` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsCardsCategory` | Import and Export | [→](api_summary_import_export.md#constants) |
+| `tomSecretsCertificateAttachment` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsCertificateKeyAttachment` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsCompactedFromTrailer` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsCompactionConfigPath` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsCompactionScriptPath` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
@@ -1023,6 +1064,9 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsPairingVersion` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsPairingWindow` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsPairingWords` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsPgpPrivateAttachment` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsPgpPublicAttachment` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsPkcs12Attachment` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsPlatforms` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsPrimaryKeyMonths` | First Run and Device Settings | [→](api_summary_device.md#constants) |
 | `tomSecretsProductGroup` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |

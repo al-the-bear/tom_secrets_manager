@@ -86,12 +86,13 @@ final class TomSecretsExpiringKey {
   }
 
   /// `github_token`, `github_app`, `vault_keys`, `approver_key`, `link_key`
-  /// or **[C]** `member_key`.
+  /// or **[C]** `member_key`, `certificate`, `pgp_key`.
   final String kind;
 
   /// The key's id: `github-token:<owner>/<repository>`,
   /// `vault-keys:<vault>`, `approver-key:<device>`, `link-key:<device>`,
-  /// `member-key:<the first 16 characters of its fingerprint>`.
+  /// `member-key:<the first 16 characters of its fingerprint>`,
+  /// `certificate:<store>/<title>`, `pgp-key:<store>/<title>`.
   final String key;
 
   /// The vault the key belongs to, when one.

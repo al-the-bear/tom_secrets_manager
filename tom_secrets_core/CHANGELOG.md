@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.18
+
+- Typed certificates and PGP keys (part-structure, part-sharing, BP-33,
+  DP-179): `tomSecretsGenerateCertificate` (ECDSA P-384, RSA 4096 where a
+  tool needs RSA; self-signed with a CSR), `TomSecretsCertificateInfo`
+  (validity, key length, fingerprint, SANs), `tomSecretsWriteCertificate` /
+  `tomSecretsCertificateOf` (`certificate.pem`, `private-key.pem` or a
+  PKCS#12 bundle; Expires from `notAfter`); `tomSecretsGeneratePgpKey`
+  (ECDSA P-384 with an ECDH subkey, RSA 4096; locked with a generated
+  passphrase), `TomSecretsPgpKeyInfo`, `tomSecretsWritePgpKey` /
+  `tomSecretsPgpKeyOf` (Expires the key's expiry); `tomSecretsTypedFileField`
+  (what `getFile` serves without a field). Through `basic_utils` (MIT) and
+  `dart_pg` (BSD-3).
+- The health report flags short certificate and PGP keys (RSA below 3072
+  bits, curves below 256), never refusing them.
+
 ## 0.2.17
 
 - The guided rotation of the own vaults (part-key-rotation, DP-84): a

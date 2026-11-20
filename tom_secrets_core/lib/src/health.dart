@@ -28,7 +28,9 @@ import 'package:http/http.dart' as http;
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'package:zxcvbn/zxcvbn.dart';
 
+import 'certificate.dart';
 import 'mapping.dart';
+import 'pgp_key.dart';
 import 'ssh_key.dart';
 
 /// What the report flags.
@@ -343,6 +345,15 @@ TomSecretsHealthReport tomSecretsHealthReport(
     if (e.type == TomSecretsEntryType.sshKey) {
       final info = tomSecretsSshKeyOf(entry)?.info;
       final why = TomSecretsKeyStrength.shortness(info?.keyType, info?.bits);
+      if (why != null) add(TomSecretsHealthIssue.shortKey, e, why);
+    }
+    // [C] Typed certificates and PGP keys (DP-179): flagged, never refused.
+    if (e.type == TomSecretsEntryType.certificate) {
+      final why = tomSecretsCertificateOf(entry)?.shortness;
+      if (why != null) add(TomSecretsHealthIssue.shortKey, e, why);
+    }
+    if (e.type == TomSecretsEntryType.pgpKey) {
+      final why = tomSecretsPgpKeyOf(entry)?.shortness;
       if (why != null) add(TomSecretsHealthIssue.shortKey, e, why);
     }
   }

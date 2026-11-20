@@ -115,6 +115,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | Health report: weak (zxcvbn), reused, old, expiring and breached passwords, short keys (DP-179); the breach check over the Have I Been Pwned range API (the hash prefix only, padded) | `tomSecretsHealthReport`, `tomSecretsPasswordStrength`, `TomSecretsKeyStrength`, `TomSecretsBreachCheck` |
 | URL matching of login entries (the Public Suffix List, `tsm.urlMatch`) | `tomSecretsMatchLogins`, `TomSecretsSiteUrl` |
 | SSH keys: the typed `ssh-key` entry with `KeeAgent.settings`, reading a key file, generating Ed25519 or RSA 4096, retyping phase A's notes | `TomSecretsSshKeyInfo`, `tomSecretsGenerateSshKey`, `tomSecretsWriteSshKey`, `tomSecretsMigrateSshKeys` |
+| Certificates and PGP keys (phase C): the typed `certificate` and `pgp-key` entries, generated on ECDSA P-384 (RSA 4096 where a tool needs RSA), read (validity, key length, fingerprint, expiry into Expires), the field `getFile` serves | `tomSecretsGenerateCertificate`, `TomSecretsCertificateInfo`, `tomSecretsWriteCertificate`, `tomSecretsGeneratePgpKey`, `TomSecretsPgpKeyInfo`, `tomSecretsWritePgpKey`, `tomSecretsTypedFileField` |
 | The ssh-agent's side of SSH: private keys decoded with their passphrase and signing, the agent protocol with `session-bind`, agent grants per host and forwarding, what the agent serves | `TomSecretsSshPrivateKey`, `TomSecretsSshAgentConnection`, `TomSecretsSshGrantSecret`, `tomSecretsSshAgentStateOf` |
 | The primary vault's list of further vaults | `TomSecretsPrimaryVaults`, `TomSecretsVaultKeys` |
 
@@ -324,6 +325,27 @@ private.dispose();
 
 final connection = TomSecretsSshAgentConnection(backend); // one per socket
 socket.add(TomSecretsSshAgentFramer.frame(await connection.handle(message)));
+```
+
+A **certificate** entry (`tsm.type` `certificate`, phase C) holds the
+certificate with its chain as `certificate.pem` and its private key as
+`private-key.pem` (or a PKCS#12 bundle as `certificate.p12`); Expires is the
+certificate's `notAfter`. A **PGP key** entry (`pgp-key`) holds the armoured
+secret key as `private-key.asc`, the public key as `public-key.asc` and the
+passphrase in `Password`; Expires is the key's own expiry. Both are
+generated as DP-179 says, and a short imported key is flagged by the health
+report, never refused:
+
+```dart
+final cert = tomSecretsGenerateCertificate(commonName: 'api.example'); // P-384
+tomSecretsWriteCertificate(entry,
+    certificatePem: cert.certificatePem, privateKeyPem: cert.privateKeyPem);
+print(cert.csrPem); // for a CA; cert.info.notAfter is in Expires
+
+final pgp = tomSecretsGeneratePgpKey(userId: 'Ops <ops@example.com>');
+tomSecretsWritePgpKey(other,
+    privateArmored: pgp.privateArmored, passphrase: pgp.passphrase);
+print(tomSecretsTypedFileField(entry)); // attachment:private-key.pem
 ```
 
 ### Key files and outer encryption
@@ -699,7 +721,7 @@ vault (`@host:<host>/.tom-secrets/device`) or in a key file.
 
 ## Status
 
-Version 0.2.17. The test suite (`dart test`) covers the model, resolution, the
+Version 0.2.18. The test suite (`dart test`) covers the model, resolution, the
 merge and the GitHub cycle against a fake GitHub server, the offline cache,
 compaction, the outer encryption against the fixtures in `test/fixtures/outer/`,
 the importers against synthetic exports, trust rotation, and the approval

@@ -1184,6 +1184,14 @@ final class TomSecretsVaultSet {
   /// The primary's store name, while unlocked.
   String? get primaryName => _primaryName;
 
+  /// **[C]** The files of the stores served now, by store, the primary
+  /// first (the key reminders read their typed keys' expiry from them).
+  Map<String, KdbxFile> get openFiles => {
+    if (_primaryName != null && _primary != null) _primaryName!: _primary!.file,
+    for (final MapEntry(:key, :value) in _opened.entries)
+      if (key != _primaryName) key: value.file,
+  };
+
   /// The resolver over the opened stores, or null while locked.
   TomSecretsResolver? get resolver => _resolver;
 

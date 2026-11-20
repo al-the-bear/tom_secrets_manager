@@ -44,6 +44,8 @@ export 'src/password_generator.dart';
 export 'src/primary.dart';
 export 'src/resolution.dart';
 export 'src/rotation.dart';
+export 'src/certificate.dart';
+export 'src/pgp_key.dart';
 export 'src/share.dart';
 export 'src/shared_vault.dart';
 export 'src/signed_objects.dart';

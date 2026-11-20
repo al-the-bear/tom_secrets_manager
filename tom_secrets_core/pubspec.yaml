@@ -3,7 +3,7 @@ description: >-
   The core of the Tom Secrets Manager: secret stores over KDBX files,
   overlays, dimensions and the resolution of secret references, the GitHub
   vault cycle and the outer encryption.
-version: 0.2.17
+version: 0.2.18
 homepage: https://enterprise-flutter.dev
 repository: https://github.com/al-the-bear/tom_secrets_manager
 
@@ -45,6 +45,13 @@ dependencies:
   # ML-DSA-65 and ML-KEM-768 (FIPS 204, 203): the signatures of grants and
   # the approval link's handshake (DP-160).
   tom_pqc: ^0.1.0
+  # Typed certificates (part-structure, DP-179): X.509 certificates, CSRs
+  # and their keys generated (ECDSA P-384, RSA 4096) and read (notAfter,
+  # the key's length); MIT.
+  basic_utils: ^5.8.2
+  # Typed PGP keys: OpenPGP keys generated (ECDSA P-384, RSA 4096) and read
+  # (fingerprint, expiry, the key's length); BSD-3.
+  dart_pg: ^2.1.0
   # The health report's password strength: zxcvbn's estimator (dictionaries,
   # patterns, keyboard walks), MIT, no dependencies.
   zxcvbn: ^1.0.0

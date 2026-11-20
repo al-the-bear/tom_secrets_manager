@@ -45,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.20.1';
+const String tomSecretsServiceVersion = '0.21.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -1219,9 +1219,36 @@ final class TomSecretsService
     return [for (final k in keys) ?k.dueAt(now)];
   }
 
+  /// The typed certificate and PGP key entries of [file] that expire, with
+  /// their reminder kind (`certificate`, `pgp_key`); the recycle bin and
+  /// history versions left out.
+  static List<(String, KdbxEntry)> _typedKeyEntries(KdbxFile file) {
+    final bin = file.recycleBin;
+    final out = <(String, KdbxEntry)>[];
+    void walk(KdbxGroup group) {
+      if (bin != null && group.uuid == bin.uuid) return;
+      for (final e in group.entries) {
+        if (e.times.expires.get() != true) continue;
+        final type = TomSecretsEntryType.of(
+          e.getString(TomSecretsEntryFields.type)?.getText(),
+        );
+        if (type == TomSecretsEntryType.certificate) {
+          out.add(('certificate', e));
+        } else if (type == TomSecretsEntryType.pgpKey) {
+          out.add(('pgp_key', e));
+        }
+      }
+      group.groups.forEach(walk);
+    }
+
+    walk(file.body.rootGroup);
+    return out;
+  }
+
   /// Every key the service knows a due date of (`tsm keys`), whether or not
   /// a reminder is due: the GitHub tokens, the vaults' key files and
-  /// repository keys, the key pairs; [expiring] are those due now.
+  /// repository keys, the key pairs, **[C]** the member key and the typed
+  /// certificates and PGP keys of the stores served; [expiring] are those due now.
   List<TomSecretsKeyDate> get keys {
     if (isLocked) return const [];
     final trust = _trust;
@@ -1297,6 +1324,18 @@ final class TomSecretsService
           keys.expires,
           vault: keys.name,
         ),
+      // [C] Typed certificates and PGP keys (part-sharing, BP-33): their
+      // own expiry, copied into the entry's Expires (a certificate's
+      // notAfter), reminded of 30 days before (otherKeyWarningDays).
+      for (final MapEntry(key: store, value: file) in _vaults.openFiles.entries)
+        for (final entry in _typedKeyEntries(file))
+          ?other(
+            entry.$1,
+            '${entry.$1 == 'certificate' ? 'certificate' : 'pgp-key'}:'
+            '$store/${entry.$2.label ?? ''}',
+            entry.$2.times.expiryTime.get(),
+            vault: store,
+          ),
       // [C] The user's member key (part-sharing): its rotation age counted
       // from its entry's creation; one in rotation (the old key kept until
       // the finish) is reminded of by its newest key only.
@@ -3294,13 +3333,26 @@ final class _ClientSession {
     }
     final TomSecretsResolution resolution;
     try {
-      resolution = resolver.resolve(
-        ref,
-        dimensions: dims == null
-            ? const {}
-            : (dims as Map).cast<String, String>(),
-        field: field as String?,
-      );
+      final dimensions = dims == null
+          ? const <String, String>{}
+          : (dims as Map).cast<String, String>();
+      var want = field as String?;
+      if (item['op'] == 'getFile' &&
+          want == null &&
+          !TomSecretReference.parse(ref).fieldGiven) {
+        // [C] getFile of a typed key without a field (part-protocol): a
+        // certificate's private key (or PKCS#12 bundle), a PGP key's secret
+        // key (else its public key). The entry is found by its title first,
+        // which every entry has.
+        final found = resolver.resolve(
+          ref,
+          dimensions: dimensions,
+          field: KdbxKeyCommon.TITLE.key,
+        );
+        found.value.dispose();
+        want = tomSecretsTypedFileField(found.entry.entry);
+      }
+      resolution = resolver.resolve(ref, dimensions: dimensions, field: want);
     } on TomSecretsResolveException catch (e) {
       return fail(_error(e.kind.wireName, e.message, e.details));
     }

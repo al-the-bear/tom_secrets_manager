@@ -215,7 +215,10 @@ service is unlocked, or `locked` when the approval timeout passes.
 - `getFile` answers an attachment or a field as bytes: `file`, binary chunks
   of 256 KiB, `end` with the SHA-256; only on a connection whose `hello`
   named `binary` and `getFile`, else `unsupported`. It is checked and
-  decided as `get` is.
+  decided as `get` is. **[C]** Asked for a typed key without a field (the
+  request's or the reference's `#field`), it answers a certificate's private
+  key (`private-key.pem`, or the PKCS#12 bundle) and a PGP key's secret key
+  (else its public key): what `tsm run --file` writes to a temporary file.
 - `match` answers the login entries of a web page that an `allow` grant of
   the client covers, never a value (URL matching:
   `tom_secrets_core`'s `tomSecretsMatchLogins`), only for the browser host
@@ -395,7 +398,7 @@ revokes the old one. Failed authentications delay the next one (1 s, 2 s,
 | `pair.identity`, `pair.record`, `pair.revoke`, `pair.list` | pairing records |
 | `audit.query` | the audit log |
 | `settings.get`, `settings.set` | the device settings (a write only from the manager app) |
-| `keys` | every key with its due date |
+| `keys` | every key with its due date; **[C]** the typed certificates and PGP keys of the stores served with their own expiry (kinds `certificate`, `pgp_key`, reminded from 30 days before) |
 | `vaultKeys`, `vaultFile`, `save`, `history.resolve` | the editing path (below) |
 | `compact` | the history of a `github:` vault repository cut now, with the repository's own `.tsm/compaction.yaml` retention or `retentionDays` instead (0 after a key change), pushed over git by this device |
 | `token.set` | a vault repository's GitHub token renewed (manager app only): checked first (it sees the repository, a short-lived `tsm-token-check-…` branch is created and deleted to prove it may write, the expiry GitHub reports), then kept where the old one was, and every store fetched again |
@@ -604,7 +607,7 @@ session) the service never locks itself, the maximum unlocked time included.
 
 ## Status
 
-Version 0.20.1. The suite runs with `testkit :test` from the package folder.
+Version 0.21.0. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real

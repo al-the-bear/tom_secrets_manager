@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.21.0
+
+- Typed certificates and PGP keys (part-sharing, part-protocol, BP-33):
+  `getFile` of such an entry without a field (neither the request's nor the
+  reference's) answers its private key: a certificate's `private-key.pem`
+  (or PKCS#12 bundle), a PGP key's secret key (else its public key). Their
+  expiry is a key reminder (`keys`, `status.expiring`, kinds `certificate`
+  and `pgp_key`, `certificate:<store>/<title>`), from 30 days before.
+- `TomSecretsVaultSet.openFiles`: the files of the stores served.
+
 ## 0.20.1
 
 - The guided rotation (part-key-rotation): the primary's keys taken up with

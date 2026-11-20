@@ -45,6 +45,15 @@
   - [TomSecretsSshKeyInfo](#tomsecretssshkeyinfo)
   - [TomSecretsSshKeyAlgorithm](#tomsecretssshkeyalgorithm)
   - [TomSecretsGeneratedSshKey](#tomsecretsgeneratedsshkey)
+  - [TomSecretsCertificateKeyType](#tomsecretscertificatekeytype)
+  - [TomSecretsCertificateException](#tomsecretscertificateexception)
+  - [TomSecretsCertificateInfo](#tomsecretscertificateinfo)
+  - [TomSecretsCertificateAlgorithm](#tomsecretscertificatealgorithm)
+  - [TomSecretsGeneratedCertificate](#tomsecretsgeneratedcertificate)
+  - [TomSecretsPgpKeyException](#tomsecretspgpkeyexception)
+  - [TomSecretsPgpKeyInfo](#tomsecretspgpkeyinfo)
+  - [TomSecretsPgpKeyAlgorithm](#tomsecretspgpkeyalgorithm)
+  - [TomSecretsGeneratedPgpKey](#tomsecretsgeneratedpgpkey)
   - [TomSecretsKeeAgentSettings](#tomsecretskeeagentsettings)
   - [TomSecretsSshAgentServing](#tomsecretssshagentserving)
   - [TomSecretsSshPrivateKey](#tomsecretssshprivatekey)
@@ -1007,6 +1016,100 @@ A generated key: `privateKey` (the OpenSSH private key file, without a passphras
 
 ---
 
+### TomSecretsCertificateKeyType
+
+A certificate's key algorithm: `ec`, `rsa`, `other`.
+
+---
+
+### TomSecretsCertificateException
+
+A certificate refused as unreadable: `message`.
+
+---
+
+### TomSecretsCertificateInfo
+
+**[C]** What an X.509 certificate says (part-structure, DP-179).
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsCertificateInfo.parse(pem)` | factory | The information of the PEM `pem` (its first certificate; a private key block beside it noted, never read); throws `TomSecretsCertificateException`. |
+| `subject`, `issuer` | `String` | The common names (else the whole names). |
+| `serialNumber` | `String` | The serial number, in hex. |
+| `notBefore`, `notAfter` | `DateTime` | The validity; `notAfter` is the entry's Expires. |
+| `keyType` | `TomSecretsCertificateKeyType` | The key's algorithm. |
+| `keyBits` | `int?` | The key's length (the curve's for EC). |
+| `curve` | `String?` | An EC key's curve, e.g. `secp384r1`. |
+| `sha256Fingerprint` | `String` | Upper-case hex with colons. |
+| `subjectAlternativeNames` | `List<String>` | The subject alternative names. |
+| `hasPrivateKey` | `bool` | Whether the PEM held a private key too. |
+| `chainLength` | `int` | How many certificates the PEM held. |
+| `selfSigned` | `bool` | Whether it is its own issuer. |
+| `keyDescription` | `String` | E.g. `ECDSA P-384`, `RSA 4096`. |
+| `shortness` | `String?` | Why its key is short (RSA below 3072 bits, a curve below 256), or null. |
+
+---
+
+### TomSecretsCertificateAlgorithm
+
+The key a certificate is generated with (DP-179): `ecdsaP384` (the default) or `rsa` (4096 bits, for a tool that needs RSA).
+
+---
+
+### TomSecretsGeneratedCertificate
+
+A generated certificate: `certificatePem` (self-signed), `privateKeyPem` (unencrypted: the vault protects it), `csrPem` (a PKCS#10 request for a CA) and `info`.
+
+---
+
+### TomSecretsPgpKeyException
+
+A PGP key refused as unreadable: `message`.
+
+---
+
+### TomSecretsPgpKeyInfo
+
+**[C]** What an OpenPGP key says (part-structure, DP-179), read through `dart_pg`.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsPgpKeyInfo.parse(armored)` | factory | The information of an armoured secret or public key block; throws `TomSecretsPgpKeyException` for one the library does not read (RSA below 2048 bits, an old version). |
+| `fingerprint`, `keyId` | `String` | The primary key's fingerprint and id, upper-case hex. |
+| `userIds` | `List<String>` | Its user ids. |
+| `algorithm` | `String` | The primary key's algorithm, e.g. `ecdsa`, `rsaEncryptSign`. |
+| `bits` | `int` | Its length in bits (the curve's for ECC). |
+| `created` | `DateTime` | When it was made. |
+| `expires` | `DateTime?` | When it expires, or null. |
+| `isPrivate` | `bool` | Whether it was read from a secret key block. |
+| `version` | `int` | The key version (4 or 6). |
+| `isRsa` | `bool` | Whether it is RSA. |
+| `keyDescription` | `String` | E.g. `ECDSA 384`, `RSA 4096`. |
+| `shortness` | `String?` | Why its key is short (RSA below 3072 bits, a curve below 256), or null. |
+
+---
+
+### TomSecretsPgpKeyAlgorithm
+
+The key a PGP key is generated with (DP-179): `ecdsaP384` (with an ECDH subkey, the default) or `rsa` (4096 bits).
+
+---
+
+### TomSecretsGeneratedPgpKey
+
+A generated PGP key: `privateArmored` (locked with `passphrase`), `publicArmored`, the generated `passphrase` and `info`.
+
+---
+
 ### TomSecretsKeeAgentSettings
 
 KeePassXC's (and KeeAgent's) per-entry SSH agent settings, the `KeeAgent.settings` attachment: `allowUseOfSshKey`, `addAtDatabaseOpen`, `removeAtDatabaseClose`, `useConfirmConstraintWhenAdding`, `useLifetimeConstraintWhenAdding`, `lifetimeConstraintDuration`, `selectedType` (`attachment` or `file`), `attachmentName`, `saveAttachmentToTempFile`, `fileName`.
@@ -1684,6 +1787,11 @@ An entry auto-type may type into a window, and why.
 | `tomSecretsSshAgentMaxBindings` | `int` | At most this many `session-bind`s per connection, 16 (OpenSSH's `AGENT_MAX_SESSION_IDS`). |
 | `tomSecretsSshAgentKeyTypes` | `Set<String>` | The key types the agent signs with. |
 | `tomSecretsDefaultAutoTypeSequence` | `String` | `{USERNAME}{TAB}{PASSWORD}{ENTER}`, typed when neither the entry nor its groups name a sequence. |
+| `tomSecretsCertificateAttachment` | `String` | The attachment holding a certificate entry's certificate (and chain): `certificate.pem`. |
+| `tomSecretsCertificateKeyAttachment` | `String` | The attachment holding a certificate entry's private key: `private-key.pem`. |
+| `tomSecretsPkcs12Attachment` | `String` | The attachment holding a certificate entry's PKCS#12 bundle: `certificate.p12`. |
+| `tomSecretsPgpPrivateAttachment` | `String` | The attachment holding a PGP key entry's armoured secret key: `private-key.asc`. |
+| `tomSecretsPgpPublicAttachment` | `String` | The attachment holding a PGP key entry's armoured public key: `public-key.asc`. |
 
 ### Functions
 
@@ -1704,6 +1812,14 @@ An entry auto-type may type into a window, and why.
 | `tomSecretsBase32Encode` | `String tomSecretsBase32Encode(List<int> bytes)` | RFC 4648 base32 without padding. |
 | `tomSecretsBase32Decode` | `Uint8List? tomSecretsBase32Decode(String text)` | RFC 4648 base32, any case, spaces, dashes and padding ignored; null when it is not base32. |
 | `tomSecretsGenerateSshKey` | `Future<TomSecretsGeneratedSshKey> tomSecretsGenerateSshKey({TomSecretsSshKeyAlgorithm algorithm = TomSecretsSshKeyAlgorithm.ed25519, String comment = '', int rsaBits = 4096, Random? random})` | A new SSH key (DP-179): Ed25519, or RSA 4096; the private key in OpenSSH's format without a passphrase. |
+| `tomSecretsGenerateCertificate` | `TomSecretsGeneratedCertificate tomSecretsGenerateCertificate({required String commonName, List<String> subjectAlternativeNames = const [], int days = 365, TomSecretsCertificateAlgorithm algorithm = TomSecretsCertificateAlgorithm.ecdsaP384, int rsaBits = 4096, DateTime? now})` | A new certificate (DP-179): its key on ECDSA P-384, or RSA 4096; self-signed with SHA-384 (SHA-256 for RSA), with a CSR beside it. |
+| `tomSecretsWriteCertificate` | `TomSecretsCertificateInfo? tomSecretsWriteCertificate(KdbxEntry entry, {String? certificatePem, String? privateKeyPem, Uint8List? pkcs12, String? passphrase})` | Makes `entry` a `certificate` entry: the PEM certificate and private key, or a PKCS#12 bundle, as attachments, the passphrase in `Password`, Expires from `notAfter` (a bundle's by hand). Answers what the certificate says, or null for a bundle. |
+| `tomSecretsCertificateOf` | `TomSecretsCertificateInfo? tomSecretsCertificateOf(KdbxEntry entry)` | What the certificate of a `certificate` entry says, or null (a PKCS#12 bundle, a broken PEM). |
+| `tomSecretsIsPkcs12` | `bool tomSecretsIsPkcs12(List<int> bytes)` | Whether `bytes` look like a PKCS#12 bundle (DER, not PEM text). |
+| `tomSecretsGeneratePgpKey` | `TomSecretsGeneratedPgpKey tomSecretsGeneratePgpKey({required String userId, TomSecretsPgpKeyAlgorithm algorithm = TomSecretsPgpKeyAlgorithm.ecdsaP384, Duration? expiresAfter, String? passphrase, DateTime? now})` | A new OpenPGP key (DP-179): ECDSA P-384 with an ECDH subkey, or RSA 4096; its secret key locked with `passphrase` (default 32 random characters). |
+| `tomSecretsWritePgpKey` | `TomSecretsPgpKeyInfo? tomSecretsWritePgpKey(KdbxEntry entry, {String? privateArmored, String? publicArmored, String? passphrase})` | Makes `entry` a `pgp-key` entry: the secret and public key as attachments (the public key read from the secret one when not given), the passphrase in `Password`, Expires the key's expiry. Answers what the key says, or null for one the library does not read. |
+| `tomSecretsPgpKeyOf` | `TomSecretsPgpKeyInfo? tomSecretsPgpKeyOf(KdbxEntry entry)` | What the key of a `pgp-key` entry says (read from its public key), or null. |
+| `tomSecretsTypedFileField` | `String? tomSecretsTypedFileField(KdbxEntry entry)` | The field `getFile` serves for a typed key entry asked without a field: a certificate's private key (or PKCS#12 bundle, else its certificate), a PGP key's secret key (else its public key); null for other entries. |
 | `tomSecretsSshKeyOf` | `({String name, Uint8List bytes, TomSecretsSshKeyInfo info})? tomSecretsSshKeyOf(KdbxEntry entry)` | An entry's SSH key: the attachment its `KeeAgent.settings` names, else the first attachment holding a private key. |
 | `tomSecretsWriteSshKey` | `void tomSecretsWriteSshKey(KdbxEntry entry, {required String attachmentName, required Uint8List privateKey, String? passphrase})` | Makes an entry an SSH key entry: `tsm.type` `ssh-key`, the key as a protected attachment, `KeeAgent.settings` naming it, the passphrase in `Password`. |
 | `tomSecretsSshKeyCandidates` | `List<KdbxEntry> tomSecretsSshKeyCandidates(KdbxFile file)` | The entries holding an SSH private key that are not typed `ssh-key`: phase A's notes and KeePassXC's entries. |
