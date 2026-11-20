@@ -42,6 +42,18 @@
   - [TomSecretsPairingGiven](#tomsecretspairinggiven)
   - [TomSecretsPairingWindow](#tomsecretspairingwindow)
   - [TomSecretsPairingReceipt](#tomsecretspairingreceipt)
+  - [TomSecretsRelayService](#tomsecretsrelayservice)
+  - [TomSecretsRelayKind](#tomsecretsrelaykind)
+  - [TomSecretsRelayId](#tomsecretsrelayid)
+  - [TomSecretsRelayException](#tomsecretsrelayexception)
+  - [TomSecretsPairingChannel](#tomsecretspairingchannel)
+  - [TomSecretsMailboxItem](#tomsecretsmailboxitem)
+  - [TomSecretsMailboxEntry](#tomsecretsmailboxentry)
+  - [TomSecretsRelay](#tomsecretsrelay)
+  - [TomSecretsRelayFolder](#tomsecretsrelayfolder)
+  - [TomSecretsRelayFileExists](#tomsecretsrelayfileexists)
+  - [TomSecretsStorageRelayFolder](#tomsecretsstoragerelayfolder)
+  - [TomSecretsGitHubRelay](#tomsecretsgithubrelay)
   - [TomSecretsDeviceRecord](#tomsecretsdevicerecord)
   - [TomSecretsDeviceRecords](#tomsecretsdevicerecords)
   - [TomSecretsMemberFields](#tomsecretsmemberfields)
@@ -737,6 +749,12 @@ The frames of a channel read one by one (`next`), for the protocols that share t
 | `next(timeout)` | `Future<Uint8List?>` | The next frame, or null when the channel ended or `timeout` passed. |
 | `cancel()` | `Future<void>` | Stops reading. |
 
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `error` | `Object?` | The error the channel ended with (a relay that failed), or null. |
+
 ---
 
 ### TomSecretsLinkSession
@@ -1066,7 +1084,7 @@ What a pairing gave the giving side.
 
 ### TomSecretsPairingWindow
 
-The giving side's pairing window: it listens on the addresses given (the LAN and VPN ones, `tomSecretsPairingAddresses`), takes the first connection and runs `tomSecretsGivePairing` over it. Any further connection is refused, and the window closes after that one attempt (the code is burnt, right or wrong) or when `window` ends.
+The giving side's pairing window: it listens on the addresses given (the LAN and VPN ones, `tomSecretsPairingAddresses`) and, when given, waits on a relay channel hosted under the code's number; it takes the first device that comes and runs `tomSecretsGivePairing` with it. Anything after is refused (the other way is closed), and the window closes after that one attempt (the code is burnt, right or wrong) or when `window` ends.
 
 **Kind:** `final class`
 
@@ -1074,7 +1092,7 @@ The giving side's pairing window: it listens on the addresses given (the LAN and
 
 | Method | Return Type | Description |
 | --- | --- | --- |
-| `open({addresses, code, device, bundleFor, port, window, stepTimeout, allowLoopback})` | `Future<TomSecretsPairingWindow>` | Opens a window on `addresses` (at `port`, 0: one the system picks) for `code`, this machine being `device`; `bundleFor` as for `tomSecretsGivePairing`. Throws `ArgumentError` for an address that is no LAN or VPN address, `SocketException` when none can be bound. |
+| `open({addresses, code, device, bundleFor, port, window, stepTimeout, allowLoopback, relayChannel, relayStepTimeout})` | `Future<TomSecretsPairingWindow>` | Opens a window on `addresses` (at `port`, 0: one the system picks) for `code`, this machine being `device`; `bundleFor` as for `tomSecretsGivePairing`; with `relayChannel` (hosted under the code's number) it also waits there and `addresses` may be empty. Throws `ArgumentError` for an address that is no LAN or VPN address, a relay channel under another number, or no address and no relay; `SocketException` when none can be bound. |
 
 #### Properties
 
@@ -1082,6 +1100,8 @@ The giving side's pairing window: it listens on the addresses given (the LAN and
 | --- | --- | --- |
 | `port` | `int` | The port it listens on (the same on every address). |
 | `addresses` | `List<InternetAddress>` | The addresses it listens on. |
+| `relayChannel` | `TomSecretsPairingChannel?` | The relay channel it also waits on, or null. |
+| `relayError` | `Object?` | The error the relay failed with before anyone came (a window on the LAN stays open there; one on the relay alone ends with it), or null. |
 | `result` | `Future<TomSecretsPairingGiven>` | What the pairing gave, or the `TomSecretsPairingException` it ended with (`closed` when the window ended without a connection). |
 
 #### Methods
@@ -1107,12 +1127,161 @@ A pairing received by a machine being set up, held in memory until the setup: th
 | `giver` | `String` | The giving device's name. |
 | `bundle` | `TomSecretsPairingBundle` | The bundle. |
 | `primary` | `TomSecretsPairingVault` | The primary vault of the bundle. |
+| `ownTokens` | `Map<String, String>` | The GitHub tokens this machine brought itself, by `owner/name` (a pairing through GitHub). |
 
 #### Methods
 
 | Method | Return Type | Description |
 | --- | --- | --- |
-| `tokenFor(repository)` | `TomSecretsPairingToken?` | The token pasted for `repository` (`owner/name`), or null. |
+| `tokenFor(repository)` | `TomSecretsPairingToken?` | The token pasted for `repository` (`owner/name`), else the one this machine brought itself, or null. |
+
+---
+
+### TomSecretsRelayService
+
+**[C]** What a relay offers (part-relay): `pairing` (a rendezvous of two online devices), `mailbox` (store and forward of `age` packages), `link` (a standing channel for the approval link).
+
+**Kind:** `enum`
+
+---
+
+### TomSecretsRelayKind
+
+**[C]** A relay's kind from its id's scheme, with the services it offers: `server` (`tsm:`, all three), `wormhole` (`wormhole:`, pairing), `github` (`github:`, pairing and mailbox).
+
+**Kind:** `enum`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `scheme` | `String` | The id's scheme. |
+| `services` | `Set<TomSecretsRelayService>` | The services a relay of this kind offers. |
+
+---
+
+### TomSecretsRelayId
+
+**[C]** A relay's id: `tsm:https://relay.example`, `wormhole:wss://…`, `github:<owner>/<repo>`; it names the relay in the settings, the pairing QR code and a shared vault's metadata.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsRelayId.parse(text)` | — | The relay `text` names; throws `FormatException`. |
+| `TomSecretsRelayId.github(owner, repository)` | — | A GitHub repository as a relay. |
+| `kind` | `TomSecretsRelayKind` | Its kind. |
+| `address` | `String` | What follows the scheme: the URL or `owner/repo`. |
+| `services` | `Set<TomSecretsRelayService>` | The services it offers. |
+| `text` | `String` | The id as text. |
+
+---
+
+### TomSecretsRelayException
+
+**[C]** A relay that failed or refused, naming it (`relay`, the id), so the app says which relay failed; `unsupported` for a service the relay lacks; `message` for people.
+
+**Kind:** `final class`
+
+---
+
+### TomSecretsPairingChannel
+
+**[C]** A pairing's or the approval link's byte channel through a relay: a `TomSecretsApprovalChannel` (so the pairing runs over it unchanged) with its `nameplate`, and `joined`, completing when the other side's first bytes arrived (failing with the relay's error).
+
+**Kind:** `abstract interface class`
+
+---
+
+### TomSecretsMailboxItem
+
+**[C]** A mailbox item to put: the `age` package `bytes` for the member `recipient` (its member id) under `itemId`, kept until `expires`.
+
+**Kind:** `final class`
+
+---
+
+### TomSecretsMailboxEntry
+
+**[C]** A mailbox item waiting: `itemId`, `size` (0 when unknown), `received` and `expires` when the relay says.
+
+**Kind:** `final class`
+
+---
+
+### TomSecretsRelay
+
+**[C]** A relay (part-relay): one interface, the transports behind it. A service it lacks throws `TomSecretsRelayException` with `unsupported`.
+
+**Kind:** `abstract interface class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `id` | `TomSecretsRelayId` | The relay's id. |
+| `services` | `Set<TomSecretsRelayService>` | What it offers. |
+| `host()` | `Future<TomSecretsPairingChannel>` | Allocates a nameplate (1–999, the pairing code's number) and opens the hosting side. |
+| `join(nameplate)` | `Future<TomSecretsPairingChannel>` | Opens the joining side. |
+| `link(linkId)` | `Future<TomSecretsPairingChannel>` | Opens the approval link between two paired devices. |
+| `put(item)` | `Future<void>` | Puts an item into its recipient's mailbox. |
+| `list(me)` | `Future<List<TomSecretsMailboxEntry>>` | The items waiting for the member key `me`. |
+| `fetch(me, itemId)` | `Future<Uint8List>` | One package. |
+| `delete(me, itemId)` | `Future<void>` | Deletes one package. |
+
+---
+
+### TomSecretsRelayFolder
+
+**[C]** The files the GitHub relay keeps in a repository: `revisionOf(folder)` (cheap, null when nothing is there), `list(folder)` (paths relative to it with revisions), `read(path)`, `create(path, bytes, message:)` (one commit; `TomSecretsRelayFileExists` when there), `deleteFolder(folder)`, `deleteFile(path)`. The app reaches it through the service (`relay.*`), a machine being set up directly.
+
+**Kind:** `abstract interface class`
+
+---
+
+### TomSecretsRelayFileExists
+
+**[C]** A relay file that exists already (`path`).
+
+**Kind:** `final class`
+
+---
+
+### TomSecretsStorageRelayFolder
+
+**[C]** A `TomSecretsRelayFolder` over a `tom_core_storage` backend: the files under `base`, a container locator such as `github:<owner>/<repo>[@<branch>]`; through `TomGitHubStorage`, an unchanged branch is answered by a conditional request.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsStorageRelayFolder(storage, base)` | — | The folder `base` of `storage`. |
+| `storage` | `TomStorage` | The backend. |
+| `base` | `String` | The base locator. |
+
+---
+
+### TomSecretsGitHubRelay
+
+**[C]** GitHub as the relay (part-relay 3.): pairing at the repository's root (`relay/pair/<nameplate>/offer`, frames `h-0001`…/`j-0001`… polled every 2 seconds, end markers, the second side to end deletes the folder, folders older than an hour deleted by the next host), the mailbox on a shared vault's inbox folders; no link.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsGitHubRelay(id, folder, {mailboxFolder, device, pollInterval, random, clock})` | — | The relay `id` over `folder` (the repository root); the mailbox in `mailboxFolder`. |
+| `TomSecretsGitHubRelay.withToken(id, token, {branch, mailboxFolder, device, httpClient, baseUrl, pollInterval})` | — | Reached directly with a token (a machine being set up). |
+| `folder` | `TomSecretsRelayFolder` | The repository's root. |
+| `mailboxFolder` | `String` | The shared vault's folder ('' the root). |
+| `device` | `String` | This side's name in commit messages. |
+| `pollInterval` | `Duration` | How often a pairing channel polls. |
+| `deleteStale()` | `Future<int>` | Deletes the pairing folders older than an hour; answers how many. |
 
 ---
 
@@ -1699,6 +1868,8 @@ A share (single-entry export): entries for another person, who sent them, when; 
 
 | Constant | Type | Description |
 | --- | --- | --- |
+| `tomSecretsRelayPairFolder` | `String` | **[C]** The folder of a repository's pairing rendezvous: `relay/pair`. |
+| `tomSecretsRelayStaleAfter` | `Duration` | **[C]** How old a pairing folder may get before the next host deletes it: one hour. |
 | `tomSecretsLinkKeyMigration` | `Duration` | How long a device's previous approval-link key stays in use for the hosts its new key has not reached yet. |
 | `tomSecretsSignedFields` | `Map<String, List<String>>` | The members of each signed object, in the order they are signed (9.4). |
 | `tomSecretsDecisions` | `List<String>` | The decisions a prompt or a token carries. |
@@ -1754,8 +1925,9 @@ A share (single-entry export): entries for another person, who sent them, when; 
 | `tomSecretsIsPairingAddress` | `bool tomSecretsIsPairingAddress(InternetAddress address)` | Whether `address` is a LAN or VPN address a pairing window may listen on: a private IPv4 address (10/8, which the fleet's VPN uses, 172.16/12, 192.168/16) or an IPv6 unique local address (fc00::/7); never a public, loopback or wildcard address. |
 | `tomSecretsPairingAddresses` | `Future<List<InternetAddress>> tomSecretsPairingAddresses()` | This machine's LAN and VPN addresses (`tomSecretsIsPairingAddress`). |
 | `tomSecretsReceivePairingAt` | `Future<TomSecretsPairingReceived> tomSecretsReceivePairingAt(String address, int port, {required TomSecretsPairingCode code, required String device, required Future<TomSecretsPairingPeerKeys> Function(String giver, TomSecretsPairingBundle bundle) keysFor, Duration connectTimeout = const Duration(seconds: 10)})` | The receiving side connecting to a pairing window at `address`:`port` (`tomSecretsReceivePairing` over TCP). Throws `TomSecretsPairingException` (`closed` when nothing answers there). |
-| `tomSecretsPairingSetupProblem` | `String? tomSecretsPairingSetupProblem(TomSecretsPairingBundle bundle)` | Why a bundle cannot set a machine up, or null when it can: the primary must be in it, with its token when it is in a GitHub repository. |
-| `tomSecretsReceivePairingForSetup` | `Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({required String address, required int port, required TomSecretsPairingCode code, required String device, String? linkAddress, DateTime? now, Duration connectTimeout = const Duration(seconds: 10)})` | Receives a pairing for a machine being set up as `device`: connects to the giving machine's window at `address`:`port` with `code`, answers with the public keys of fresh trust material (made `now`) and `linkAddress`, where this machine's approval link will listen (the giver records it and opens the link), and refuses a bundle it cannot be set up from (`tomSecretsPairingSetupProblem`); a `linkAddress` that is no approval link throws `ArgumentError`. |
+| `tomSecretsReceivePairingVia` | `Future<TomSecretsPairingReceived> tomSecretsReceivePairingVia(TomSecretsRelay relay, {required TomSecretsPairingCode code, required String device, required Future<TomSecretsPairingPeerKeys> Function(String giver, TomSecretsPairingBundle bundle) keysFor, Duration timeout = const Duration(minutes: 5)})` | **[C]** The receiving side through a relay: joins the pairing hosted under the code's number and runs `tomSecretsReceivePairing` over the channel. Throws `TomSecretsRelayException` naming the relay when it fails. |
+| `tomSecretsPairingSetupProblem` | `String? tomSecretsPairingSetupProblem(TomSecretsPairingBundle bundle, {Set<String> ownTokens = const {}})` | Why a bundle cannot set a machine up, or null when it can: the primary must be in it, with its token when it is in a GitHub repository (in the bundle, or one this machine holds itself for one of `ownTokens`). |
+| `tomSecretsReceivePairingForSetup` | `Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({String? address, int? port, TomSecretsRelay? relay, Map<String, String> ownTokens = const {}, required TomSecretsPairingCode code, required String device, String? linkAddress, DateTime? now, Duration connectTimeout = const Duration(seconds: 10)})` | Receives a pairing for a machine being set up as `device`: connects to the giving machine's window at `address`:`port` with `code` — or, with `relay`, joins the pairing hosted there (`ownTokens`: this machine's own GitHub tokens, by `owner/name`) — answers with the public keys of fresh trust material (made `now`) and `linkAddress`, where this machine's approval link will listen (the giver records it and opens the link), and refuses a bundle it cannot be set up from (`tomSecretsPairingSetupProblem`); a `linkAddress` that is no approval link throws `ArgumentError`. |
 | `tomSecretsParsePairingAddress` | `(String host, int port) tomSecretsParsePairingAddress(String text)` | Splits `host:port` (an IPv6 address in brackets: `[fd00::1]:47900`) as the giving machine's Pairing screen shows it. Throws `FormatException`. |
 | `tomSecretsMemberKeyFile` | `String tomSecretsMemberKeyFile(TomSecretsAgeRecipient recipient, {required String name, DateTime? created})` | The text of a published member key: `age`'s recipients-file format (so `age -R <file>` encrypts to it), with the name, short fingerprint and date as `#` comments. |
 | `tomSecretsMemberKeyFileName` | `String tomSecretsMemberKeyFileName(String name)` | The file name of `name`'s published member key: `<name>.age-recipient.txt` (lower case, other characters as `_`). |

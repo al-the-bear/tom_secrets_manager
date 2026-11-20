@@ -1466,6 +1466,145 @@ void main() {
       expect(commits(), hasLength(beforeDelete + 1));
     });
 
+    test(
+      'the relay folder of a github: store\'s repository (part-relay): files '
+      'created once, listed, read and deleted through relay.*; a pairing '
+      'through it with a new machine reaching the repository with its own '
+      'token',
+      () async {
+        await start();
+        Future<Map<String, Object?>> relay(String op, Map<String, Object?> m) =>
+            admin.request(op, {'store': 'primary', ...m});
+        Matcher refused(String kind, [String? reason]) => throwsA(
+          isA<TomSecretsAdminException>()
+              .having((e) => e.kind, 'kind', kind)
+              .having((e) => e.details['reason'], 'reason', reason ?? anything),
+        );
+
+        expect(
+          (await relay('relay.revision', {
+            'folder': 'relay/pair/42',
+          }))['revision'],
+          isNull,
+        );
+        final before = commits().length;
+        await relay('relay.create', {
+          'path': 'relay/pair/42/offer',
+          'bytes': base64.encode(utf8.encode('{}')),
+          'message': 'tsm: pairing 42 opened',
+        });
+        expect(commits(), hasLength(before + 1));
+        expect(commits().first.message, contains('pairing 42 opened'));
+        expect(utf8.decode(onGitHub('relay/pair/42/offer')), '{}');
+        await expectLater(
+          relay('relay.create', {
+            'path': 'relay/pair/42/offer',
+            'bytes': base64.encode([1]),
+          }),
+          refused('denied', 'exists'),
+        );
+        final revision = (await relay('relay.revision', {
+          'folder': 'relay/pair/42',
+        }))['revision'];
+        expect(revision, isNotNull);
+        await relay('relay.create', {
+          'path': 'relay/pair/42/h-0001',
+          'bytes': base64.encode([7, 7]),
+        });
+        expect((await relay('relay.list', {'folder': 'relay/pair'}))['files'], {
+          '42/offer': anything,
+          '42/h-0001': anything,
+        });
+        expect(
+          base64.decode(
+            (await relay('relay.read', {
+                  'path': 'relay/pair/42/h-0001',
+                }))['bytes']!
+                as String,
+          ),
+          [7, 7],
+        );
+        expect(
+          (await relay('relay.read', {'path': 'relay/pair/42/none'}))['bytes'],
+          isNull,
+        );
+        expect(
+          (await relay('relay.revision', {
+            'folder': 'relay/pair/42',
+          }))['revision'],
+          isNot(revision),
+        );
+        await relay('relay.deleteFile', {'path': 'relay/pair/42/h-0001'});
+        expect(server.bytesAt(_repo, 'relay/pair/42/h-0001'), isNull);
+        await relay('relay.deleteFolder', {'folder': 'relay/pair/42'});
+        expect(server.bytesAt(_repo, 'relay/pair/42/offer'), isNull);
+        for (final bad in ['relay/../primary.kdbx', 'inbox/x', 'relay', '']) {
+          await expectLater(
+            relay('relay.read', {'path': bad}),
+            refused('malformed'),
+            reason: bad,
+          );
+        }
+        await expectLater(
+          admin.request('relay.list', {
+            'store': 'nope',
+            'folder': 'relay/pair',
+          }),
+          refused('not_found'),
+        );
+
+        // A pairing: this machine hosts through the service, a new machine
+        // joins reaching the repository directly with its own token.
+        final id = TomSecretsRelayId.github('al-the-bear', 'demo-vaults');
+        final hosting = await TomSecretsGitHubRelay(
+          id,
+          _AdminRelayFolder(admin, 'primary'),
+          pollInterval: const Duration(milliseconds: 20),
+        ).host();
+        final number = int.parse(hosting.nameplate);
+        final code = TomSecretsPairingCode(number, ['guitar', 'orbit']);
+        final trust = TomSecretsTrust.create('demo-host');
+        final keys = TomSecretsPairingPeerKeys(
+          linkKey: (await trust.linkKey()).publicKey,
+        );
+        final window = await TomSecretsPairingWindow.open(
+          addresses: const [],
+          relayChannel: hosting,
+          code: code,
+          device: 'demo-host',
+          bundleFor: (_) async =>
+              TomSecretsPairingBundle(vaults: const [], giverKeys: keys),
+        );
+        final joining = TomSecretsGitHubRelay.withToken(
+          id,
+          'demo-keychain-token',
+          httpClient: server.client,
+          baseUrl: FakeGitHubServer.baseUrl,
+          pollInterval: const Duration(milliseconds: 20),
+        );
+        final received = await tomSecretsReceivePairingVia(
+          joining,
+          code: code,
+          device: 'new-machine',
+          keysFor: (_, _) async => keys,
+        );
+        expect(received.giver, 'demo-host');
+        expect((await window.result).receiver, 'new-machine');
+        for (var i = 0; i < 100; i++) {
+          if ((await relay('relay.list', {'folder': 'relay/pair'}))['files']
+              case final Map<Object?, Object?> files when files.isEmpty) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        expect(
+          (await relay('relay.list', {'folder': 'relay/pair'}))['files'],
+          isEmpty,
+          reason: 'the side that ended second deleted the folder',
+        );
+      },
+    );
+
     test('vault.create refused: a file already at the path, a token for the '
         'primary\'s repository, GitHub unreachable; nothing listed', () async {
       await start();
@@ -2058,4 +2197,63 @@ void main() {
       expect(bad.kind, 'malformed');
     });
   });
+}
+
+/// The relay folder of a store through the service's `relay.*` requests,
+/// as the app uses it.
+final class _AdminRelayFolder implements TomSecretsRelayFolder {
+  _AdminRelayFolder(this.admin, this.store);
+
+  final TomSecretsAdminClient admin;
+  final String store;
+
+  Future<Map<String, Object?>> _request(String op, Map<String, Object?> m) =>
+      admin.request(op, {'store': store, ...m});
+
+  @override
+  Future<String?> revisionOf(String folder) async =>
+      (await _request('relay.revision', {'folder': folder}))['revision']
+          as String?;
+
+  @override
+  Future<Map<String, String>> list(String folder) async => {
+    for (final e
+        in ((await _request('relay.list', {'folder': folder}))['files']! as Map)
+            .entries)
+      '${e.key}': '${e.value}',
+  };
+
+  @override
+  Future<Uint8List?> read(String path) async {
+    final bytes = (await _request('relay.read', {'path': path}))['bytes'];
+    return bytes is String ? base64.decode(bytes) : null;
+  }
+
+  @override
+  Future<void> create(
+    String path,
+    Uint8List bytes, {
+    required String message,
+  }) async {
+    try {
+      await _request('relay.create', {
+        'path': path,
+        'bytes': base64.encode(bytes),
+        'message': message,
+      });
+    } on TomSecretsAdminException catch (e) {
+      if (e.details['reason'] == 'exists') {
+        throw TomSecretsRelayFileExists(path);
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> deleteFolder(String folder) =>
+      _request('relay.deleteFolder', {'folder': folder});
+
+  @override
+  Future<void> deleteFile(String path) =>
+      _request('relay.deleteFile', {'path': path});
 }

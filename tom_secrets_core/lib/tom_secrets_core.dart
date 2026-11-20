@@ -42,6 +42,8 @@ export 'src/pairing_words.dart';
 export 'src/passkey.dart';
 export 'src/password_generator.dart';
 export 'src/primary.dart';
+export 'src/relay.dart';
+export 'src/github_relay.dart';
 export 'src/resolution.dart';
 export 'src/rotation.dart';
 export 'src/certificate.dart';

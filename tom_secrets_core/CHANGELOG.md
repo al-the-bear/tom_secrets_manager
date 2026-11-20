@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.21
+
+- The relay interface (part-relay, phase C): `TomSecretsRelay` (pairing
+  `host` / `join`, the approval link `link`, the mailbox `put` / `list` /
+  `fetch` / `delete`), `TomSecretsRelayId` (`tsm:`, `wormhole:`, `github:`)
+  with each kind's services, `TomSecretsPairingChannel` (an approval-link
+  channel with its nameplate), `TomSecretsRelayException` naming the relay.
+- GitHub as the relay: `TomSecretsGitHubRelay` over a `TomSecretsRelayFolder`
+  (`TomSecretsStorageRelayFolder` on `TomGitHubStorage`, or the app's through
+  the service): pairing frames as files under `relay/pair/<nameplate>/`,
+  polled every 2 seconds, end markers, the folder deleted by the side that
+  ends second and by the next host after an hour; the mailbox on the inbox
+  folders; no link.
+- `TomSecretsPairingWindow.open` takes a `relayChannel` beside the LAN (or
+  alone): the first device that comes takes the code, the other way is
+  closed; `relayError` when the relay failed before anyone came.
+  `tomSecretsReceivePairingVia` receives through a relay; a relay that
+  fails while pairing is thrown as its `TomSecretsRelayException`.
+- `tomSecretsReceivePairingForSetup` takes a `relay` and the machine's own
+  GitHub tokens (`ownTokens`), which also open a primary whose token the
+  bundle does not carry.
+- `TomSecretsMetadata.mailboxRelay` (`tsm.mailbox-relay`): the relay whose
+  mailbox a shared vault's members use.
+
 ## 0.2.20
 
 - A PGP key `dart_pg` refuses (an RSA key below 2048 bits, a v3 key) is read

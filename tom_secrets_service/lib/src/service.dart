@@ -45,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.21.0';
+const String tomSecretsServiceVersion = '0.22.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -1923,6 +1923,17 @@ final class TomSecretsService
   Future<List<({String member, String name, String revision})>> inbox(
     String store,
   ) => _vaults.inbox(store);
+
+  /// **[C]** Runs [io] on the relay folder of the `github:` store [store]'s
+  /// repository (its root; `relay.*`, part-relay: GitHub as the relay for the app's
+  /// pairing), failures mapped as for the files beside a store.
+  Future<T> relay<T>(
+    String store,
+    Future<T> Function(TomSecretsRelayFolder folder) io,
+  ) {
+    final folder = _vaults.relayFolder(store);
+    return _vaults.relayIo(() => io(folder));
+  }
 
   /// **[C]** One package of the inbox of [member] beside [store]
   /// (`inbox.read`), or null when it is gone.
@@ -3978,6 +3989,103 @@ final class _AdminSession {
     }
   }
 
+  /// The largest relay file (a pairing frame is at most 1 MiB).
+  static const _relayMaxBytes = 1 << 20;
+
+  static final RegExp _relayPathPattern = RegExp(
+    r'^relay(/[A-Za-z0-9][A-Za-z0-9._-]*)+$',
+  );
+
+  /// **[C]** The relay requests (protocol.md 6.4, part-relay): the files of
+  /// a `github:` store's `relay/` folder, which carry the app's pairing
+  /// through GitHub — revision, list, read, create (once), delete.
+  Future<void> _relay(int id, String op, Map<String, Object?> m) async {
+    void malformed(String text) =>
+        connection.sendError(id, 'malformed', text, {'reason': 'relay'});
+    final store = m['store'];
+    if (store is! String) return malformed('$op names a store');
+    final key =
+        op == 'relay.revision' ||
+            op == 'relay.list' ||
+            op == 'relay.deleteFolder'
+        ? 'folder'
+        : 'path';
+    final path = m[key];
+    if (path is! String ||
+        !_relayPathPattern.hasMatch(path) ||
+        path.split('/').any((p) => p == '..' || p == '.')) {
+      return malformed('$op names a $key below relay/');
+    }
+    try {
+      switch (op) {
+        case 'relay.revision':
+          final revision = await service.relay(
+            store,
+            (f) => f.revisionOf(path),
+          );
+          connection.send({
+            'op': 'relayRevision',
+            'id': id,
+            'revision': revision,
+          });
+        case 'relay.list':
+          final files = await service.relay(store, (f) => f.list(path));
+          connection.send({'op': 'relayFiles', 'id': id, 'files': files});
+        case 'relay.read':
+          final bytes = await service.relay(store, (f) => f.read(path));
+          connection.send({
+            'op': 'relayFile',
+            'id': id,
+            'bytes': bytes == null ? null : base64.encode(bytes),
+          });
+        case 'relay.create':
+          final text = m['bytes'];
+          if (text is! String) return malformed('relay.create carries bytes');
+          final Uint8List bytes;
+          try {
+            bytes = base64.decode(text);
+          } on FormatException {
+            return malformed('bytes is not base64');
+          }
+          if (bytes.length > _relayMaxBytes) {
+            return malformed('a relay file is 1 MiB at most');
+          }
+          final message = m['message'];
+          try {
+            await service.relay(
+              store,
+              (f) => f.create(
+                path,
+                bytes,
+                message: message is String && message.isNotEmpty
+                    ? message
+                    : 'tsm: relay file',
+              ),
+            );
+          } on TomSecretsRelayFileExists {
+            connection.sendError(id, 'denied', 'the file is there already', {
+              'reason': 'exists',
+            });
+            return;
+          }
+          connection.send({'op': 'ok', 'id': id});
+        case 'relay.deleteFolder':
+          await service.relay(store, (f) => f.deleteFolder(path));
+          connection.send({'op': 'ok', 'id': id});
+        case 'relay.deleteFile':
+          await service.relay(store, (f) => f.deleteFile(path));
+          connection.send({'op': 'ok', 'id': id});
+      }
+    } on TomSecretsSaveException catch (e) {
+      connection.sendError(id, e.kind, e.message, {'reason': ?e.reason});
+    } on Object catch (e) {
+      service.log.error('relay_failed', e, {'store': store, 'op': op});
+      connection.sendError(id, 'internal', 'the relay request failed', {
+        'code': e.runtimeType.toString(),
+      });
+    }
+  }
+
   /// The pairing requests (protocol.md 6.3, part-sharing): the app runs the
   /// pairing itself; the service gives this device's public keys and keeps
   /// what the pairing gave.
@@ -4895,6 +5003,23 @@ final class _AdminSession {
           return;
         }
         await _inbox(id, op, m);
+      case 'relay.revision' ||
+          'relay.list' ||
+          'relay.read' ||
+          'relay.create' ||
+          'relay.deleteFolder' ||
+          'relay.deleteFile':
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        await _relay(id, op, m);
       case 'pair.identity' || 'pair.record' || 'pair.revoke' || 'pair.list':
         if (!isApp) {
           connection.sendError(id, 'denied', 'only the manager app', {

@@ -352,7 +352,10 @@ final class TomSecretsFirstRun {
     TomSecretsDeviceSettings settings = const TomSecretsDeviceSettings(),
     TomSecretsDeviceKeyMode deviceKey = TomSecretsDeviceKeyMode.auto,
   }) {
-    final problem = tomSecretsPairingSetupProblem(receipt.bundle);
+    final problem = tomSecretsPairingSetupProblem(
+      receipt.bundle,
+      ownTokens: receipt.ownTokens.keys.toSet(),
+    );
     if (problem != null) {
       throw TomSecretsFirstRunException(
         TomSecretsFirstRunProblem.inconsistent,
@@ -398,6 +401,11 @@ final class TomSecretsFirstRun {
       tokens: [
         for (final t in receipt.bundle.tokens)
           if (token == null || t.repository != token.repository) t,
+        // The tokens this machine brought itself for the further vaults.
+        for (final MapEntry(:key, :value) in receipt.ownTokens.entries)
+          if (key != token?.repository &&
+              !receipt.bundle.tokens.any((t) => t.repository == key))
+            TomSecretsPairingToken(repository: key, token: value),
       ],
     );
   }

@@ -545,6 +545,9 @@ final class TomSecretsLinkFrameReader {
 
   /// Stops reading.
   Future<void> cancel() => _queue.cancel();
+
+  /// The error the channel ended with (e.g. a relay that failed), or null.
+  Object? get error => _queue.error;
 }
 
 /// The frames of a channel: during the handshake read one by one with
@@ -566,6 +569,9 @@ final class _FrameQueue {
   void Function(Uint8List frame)? _deliver;
   void Function()? _onEnd;
   bool _ended = false;
+
+  /// The error the channel ended with, or null.
+  Object? error;
 
   void _add(List<int> bytes) {
     _buffer.add(bytes);
@@ -601,6 +607,7 @@ final class _FrameQueue {
   void _end(Object? error) {
     if (_ended) return;
     _ended = true;
+    this.error = error;
     final waiting = _waiting;
     _waiting = null;
     waiting?.complete(null);

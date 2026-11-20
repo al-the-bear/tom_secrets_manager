@@ -18,13 +18,22 @@ import 'package:tom_secrets_client/admin.dart'
 
 import 'locator.dart';
 import 'pairing.dart';
+import 'relay.dart';
 import 'trust.dart';
 
 /// A pairing received by a machine being set up, held in memory until the
 /// setup: the bundle, the approval-token key, and this machine's fresh
 /// trust material (whose public keys the giving side recorded).
 final class TomSecretsPairingReceipt {
-  TomSecretsPairingReceipt._(this.received, this.trust);
+  TomSecretsPairingReceipt._(
+    this.received,
+    this.trust, [
+    this.ownTokens = const {},
+  ]);
+
+  /// The GitHub tokens this machine brought itself, by `owner/name` (a
+  /// pairing through GitHub needs one before it starts, part-relay).
+  final Map<String, String> ownTokens;
 
   /// What the pairing gave.
   final TomSecretsPairingReceived received;
@@ -42,14 +51,26 @@ final class TomSecretsPairingReceipt {
   TomSecretsPairingVault get primary =>
       bundle.vaults.firstWhere((v) => v.primary);
 
-  /// The token pasted for [repository] (`owner/name`), or null.
+  /// The token pasted for [repository] (`owner/name`), else the one this
+  /// machine brought itself ([ownTokens]), or null.
   TomSecretsPairingToken? tokenFor(String repository) =>
-      bundle.tokens.where((t) => t.repository == repository).firstOrNull;
+      bundle.tokens.where((t) => t.repository == repository).firstOrNull ??
+      switch (ownTokens[repository]) {
+        final token? => TomSecretsPairingToken(
+          repository: repository,
+          token: token,
+        ),
+        null => null,
+      };
 }
 
 /// Why a bundle cannot set a machine up, or null when it can: the primary
-/// must be in it, with its token when it is in a GitHub repository.
-String? tomSecretsPairingSetupProblem(TomSecretsPairingBundle bundle) {
+/// must be in it, with its token when it is in a GitHub repository (in the
+/// bundle, or one this machine holds itself for one of [ownTokens]).
+String? tomSecretsPairingSetupProblem(
+  TomSecretsPairingBundle bundle, {
+  Set<String> ownTokens = const {},
+}) {
   final primary = bundle.vaults.where((v) => v.primary).firstOrNull;
   if (primary == null) {
     return 'a new machine is set up from the primary vault, and the bundle '
@@ -61,9 +82,9 @@ String? tomSecretsPairingSetupProblem(TomSecretsPairingBundle bundle) {
   } on TomSecretsLocatorException catch (e) {
     return 'the primary\'s location cannot be read: ${e.message}';
   }
-  if (locator case TomSecretsGitHubLocator(
-    :final repositorySlug,
-  ) when !bundle.tokens.any((t) => t.repository == repositorySlug)) {
+  if (locator case TomSecretsGitHubLocator(:final repositorySlug)
+      when !bundle.tokens.any((t) => t.repository == repositorySlug) &&
+          !ownTokens.contains(repositorySlug)) {
     return 'the primary is in $repositorySlug, and the bundle '
         'carries no GitHub token for this machine: paste one when pairing '
         'again';
@@ -72,7 +93,10 @@ String? tomSecretsPairingSetupProblem(TomSecretsPairingBundle bundle) {
 }
 
 /// Receives a pairing for a machine being set up as [device]: connects to
-/// the giving machine's window at [address]:[port] with [code], answers with
+/// the giving machine's window at [address]:[port] with [code] — or, with
+/// [relay], joins the pairing hosted there under the code's number
+/// (part-relay; [ownTokens] are the GitHub tokens this machine holds itself,
+/// by `owner/name`, which a pairing through GitHub needs) — answers with
 /// the public keys of fresh trust material (made [now]) and [linkAddress],
 /// the address this machine's approval link will listen on (the device
 /// setting `approvalLink`), so the giving machine records it and opens the
@@ -81,14 +105,19 @@ String? tomSecretsPairingSetupProblem(TomSecretsPairingBundle bundle) {
 /// [TomSecretsPairingException], and [ArgumentError] for a [linkAddress]
 /// that is no approval link (`tomSecretsApprovalLinkProblem`).
 Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({
-  required String address,
-  required int port,
+  String? address,
+  int? port,
+  TomSecretsRelay? relay,
+  Map<String, String> ownTokens = const {},
   required TomSecretsPairingCode code,
   required String device,
   String? linkAddress,
   DateTime? now,
   Duration connectTimeout = const Duration(seconds: 10),
 }) async {
+  if (relay == null && (address == null || port == null)) {
+    throw ArgumentError('an address and port, or a relay');
+  }
   if (linkAddress != null) {
     final problem = tomSecretsApprovalLinkProblem(linkAddress);
     if (problem != null) {
@@ -96,23 +125,38 @@ Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({
     }
   }
   final trust = TomSecretsTrust.create(device, now: now);
-  final received = await tomSecretsReceivePairingAt(
-    address,
-    port,
-    code: code,
-    device: device,
-    connectTimeout: connectTimeout,
-    keysFor: (_, bundle) async {
-      final problem = tomSecretsPairingSetupProblem(bundle);
-      if (problem != null) throw TomSecretsPairingRefusal(problem);
-      return TomSecretsPairingPeerKeys(
-        linkKey: (await trust.linkKey()).publicKey,
-        approverKey: (await trust.approverKey()).publicKey,
-        linkAddress: linkAddress,
-      );
-    },
-  );
-  return TomSecretsPairingReceipt._(received, trust);
+  Future<TomSecretsPairingPeerKeys> keysFor(
+    String _,
+    TomSecretsPairingBundle bundle,
+  ) async {
+    final problem = tomSecretsPairingSetupProblem(
+      bundle,
+      ownTokens: ownTokens.keys.toSet(),
+    );
+    if (problem != null) throw TomSecretsPairingRefusal(problem);
+    return TomSecretsPairingPeerKeys(
+      linkKey: (await trust.linkKey()).publicKey,
+      approverKey: (await trust.approverKey()).publicKey,
+      linkAddress: linkAddress,
+    );
+  }
+
+  final received = relay != null
+      ? await tomSecretsReceivePairingVia(
+          relay,
+          code: code,
+          device: device,
+          keysFor: keysFor,
+        )
+      : await tomSecretsReceivePairingAt(
+          address!,
+          port!,
+          code: code,
+          device: device,
+          connectTimeout: connectTimeout,
+          keysFor: keysFor,
+        );
+  return TomSecretsPairingReceipt._(received, trust, Map.of(ownTokens));
 }
 
 /// Splits `host:port` (an IPv6 address in brackets: `[fd00::1]:47900`) as

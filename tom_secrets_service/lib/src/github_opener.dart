@@ -44,7 +44,8 @@ typedef TomSecretsGitHubTokens =
     Future<String?> Function(TomSecretsGitHubLocator vault);
 
 /// Opens, reads and writes `github:` vaults.
-final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
+final class TomSecretsGitHubOpener
+    implements TomSecretsVaultOpener, TomSecretsRelayFolders {
   /// An opener committing as [device], asking [tokens] for each repository's
   /// token, keeping the offline cache under [cacheDirectory] while
   /// [useCache] answers true (null: no cache), reaching GitHub at [baseUrl]
@@ -560,6 +561,23 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
       moving: 'the branch moved meanwhile; write again',
     );
     return tomSecretsBlobId(bytes);
+  }
+
+  /// **[C]** The relay folder of [locator]'s repository (part-relay): its
+  /// root, where both sides of a pairing find `relay/pair/…`, through the
+  /// repository's storage, whose branch snapshot answers an unchanged branch
+  /// with a conditional request, so a pairing's polls cost no quota.
+  @override
+  TomSecretsRelayFolder relayFolder(String locator) {
+    final vault = _parse(locator);
+    final storage = _repository(vault).storage;
+    final branch = vault.branch;
+    return TomSecretsStorageRelayFolder(
+      storage,
+      branch == null
+          ? 'github:${vault.owner}/${vault.repository}'
+          : 'github:${vault.owner}/${vault.repository}@$branch',
+    );
   }
 
   /// Lists the files below [folder] beside [locator]'s file at the branch's

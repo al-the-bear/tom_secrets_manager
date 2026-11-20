@@ -307,9 +307,18 @@ final class TomSecretsCommitted {
   final int conflicts;
 }
 
+/// **[C]** An opener whose stores can carry a relay's files (part-relay:
+/// GitHub as the relay): the root of a store's repository, or null when
+/// the store cannot (a `file:` store).
+abstract interface class TomSecretsRelayFolders {
+  /// The relay folder of the vault at [locator]'s repository, or null.
+  TomSecretsRelayFolder? relayFolder(String locator);
+}
+
 /// Each locator to the opener of its kind: `file:` vaults to [file],
 /// `github:` vaults to [github].
-final class TomSecretsLocatorOpener implements TomSecretsVaultOpener {
+final class TomSecretsLocatorOpener
+    implements TomSecretsVaultOpener, TomSecretsRelayFolders {
   /// An opener of `file:` vaults through [file] and `github:` vaults through
   /// [github] (null: `github:` vaults are not opened).
   const TomSecretsLocatorOpener({
@@ -339,6 +348,17 @@ final class TomSecretsLocatorOpener implements TomSecretsVaultOpener {
 
   @override
   Future<Uint8List> read(String locator) => _for(locator).read(locator);
+
+  @override
+  TomSecretsRelayFolder? relayFolder(String locator) {
+    final opener = switch (TomSecretsVaultLocator.parse(locator)) {
+      TomSecretsGitHubLocator() => github,
+      _ => null,
+    };
+    return opener is TomSecretsRelayFolders
+        ? (opener as TomSecretsRelayFolders).relayFolder(locator)
+        : null;
+  }
 
   @override
   Future<String> revision(String locator) => _for(locator).revision(locator);
@@ -2050,6 +2070,29 @@ final class TomSecretsVaultSet {
       );
     }
   }
+
+  /// **[C]** The relay folder of the store [name]'s repository (its root,
+  /// part-relay: GitHub as the relay); refused (`denied`, `not_github`) for a store that is
+  /// not in a GitHub repository.
+  TomSecretsRelayFolder relayFolder(String name) {
+    final location = _besideLocation(name);
+    final o = opener;
+    final folder = o is TomSecretsRelayFolders
+        ? (o as TomSecretsRelayFolders).relayFolder(location)
+        : null;
+    if (folder == null) {
+      throw TomSecretsSaveException(
+        'denied',
+        'the store $name is not in a GitHub repository: it carries no relay',
+        reason: 'not_github',
+      );
+    }
+    return folder;
+  }
+
+  /// Runs [io] on a store's relay folder, failures mapped as for the files
+  /// beside it.
+  Future<T> relayIo<T>(Future<T> Function() io) => _beside(io);
 
   /// **[C]** The packages in the inbox folders beside the store [name]
   /// (`inbox.list`, part-sharing): every file `inbox/<member-id>/<file>`,

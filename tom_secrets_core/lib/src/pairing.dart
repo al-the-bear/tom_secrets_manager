@@ -29,6 +29,7 @@ import 'package:tom_pqc/tom_pqc.dart';
 
 import 'approval_link.dart';
 import 'pairing_words.dart';
+import 'relay.dart';
 import 'signed_objects.dart';
 
 /// The pairing protocol's version (each side's first message carries it).
@@ -939,6 +940,10 @@ final class _Io {
 
   Future<Uint8List> _next() async {
     final frame = await _frames.next(_timeout);
+    // A relay that failed is told as such: the app names it (part-relay).
+    if (frame == null && _frames.error is TomSecretsRelayException) {
+      throw _frames.error!;
+    }
     if (frame == null) {
       throw const TomSecretsPairingException(
         TomSecretsPairingFailure.closed,
@@ -1061,15 +1066,30 @@ Future<List<InternetAddress>> tomSecretsPairingAddresses() async => [
       if (tomSecretsIsPairingAddress(a)) a,
 ];
 
-/// The giving side's pairing window (part-sharing): it listens on the
-/// addresses given (the LAN and VPN ones, [tomSecretsPairingAddresses]),
-/// takes the first connection and runs [tomSecretsGivePairing] over it.
-/// Any further connection is refused, and the window closes after that one
-/// attempt (the code is burnt, right or wrong) or when [window] ends.
+/// The giving side's pairing window (part-sharing, part-relay): it listens
+/// on the addresses given (the LAN and VPN ones,
+/// [tomSecretsPairingAddresses]) and, when given, waits on a relay channel
+/// hosted under the code's number; it takes the first device that comes —
+/// a connection, or the relay's other side — and runs
+/// [tomSecretsGivePairing] with it. Anything after is refused (the other
+/// way is closed), and the window closes after that one attempt (the code
+/// is burnt, right or wrong) or when [window] ends.
 final class TomSecretsPairingWindow {
-  TomSecretsPairingWindow._(this._servers, this.port, this.addresses);
+  TomSecretsPairingWindow._(
+    this._servers,
+    this.port,
+    this.addresses,
+    this.relayChannel,
+  );
 
   final List<ServerSocket> _servers;
+
+  /// The relay channel the window also waits on, or null.
+  final TomSecretsPairingChannel? relayChannel;
+
+  /// The error the relay failed with before anyone came (the window stays
+  /// open on the LAN), or null.
+  Object? relayError;
   final Completer<TomSecretsPairingGiven> _result = Completer();
   Timer? _timer;
   bool _taken = false;
@@ -1082,8 +1102,12 @@ final class TomSecretsPairingWindow {
 
   /// Opens a window on [addresses] (at [port], 0: one the system picks) for
   /// [code], this machine being [device]; [bundleFor] as for
-  /// [tomSecretsGivePairing]. Throws [ArgumentError] for an address that is
-  /// no LAN or VPN address, [SocketException] when none can be bound.
+  /// [tomSecretsGivePairing]. With [relayChannel] (hosted on a relay under
+  /// the code's number, `TomSecretsRelay.host`) it also waits there, and
+  /// [addresses] may be empty (a relay only); a pairing over the relay gets
+  /// [relayStepTimeout] per step. Throws [ArgumentError] for an address that
+  /// is no LAN or VPN address, or for no address and no relay,
+  /// [SocketException] when none can be bound.
   static Future<TomSecretsPairingWindow> open({
     required List<InternetAddress> addresses,
     required TomSecretsPairingCode code,
@@ -1094,9 +1118,18 @@ final class TomSecretsPairingWindow {
     Duration window = tomSecretsPairingWindow,
     Duration stepTimeout = const Duration(seconds: 30),
     bool allowLoopback = false,
+    TomSecretsPairingChannel? relayChannel,
+    Duration relayStepTimeout = const Duration(minutes: 2),
   }) async {
-    if (addresses.isEmpty) {
+    if (addresses.isEmpty && relayChannel == null) {
       throw ArgumentError.value(addresses, 'addresses', 'none to listen on');
+    }
+    if (relayChannel != null && relayChannel.nameplate != '${code.number}') {
+      throw ArgumentError.value(
+        relayChannel.nameplate,
+        'relayChannel',
+        'not hosted under the code\'s number ${code.number}',
+      );
     }
     for (final a in addresses) {
       if (!tomSecretsIsPairingAddress(a) && !(allowLoopback && a.isLoopback)) {
@@ -1116,7 +1149,51 @@ final class TomSecretsPairingWindow {
     }
     final w = TomSecretsPairingWindow._(servers, chosen, [
       for (final s in servers) s.address,
-    ]);
+    ], relayChannel);
+    void give(TomSecretsApprovalChannel channel, Duration timeout) {
+      unawaited(
+        tomSecretsGivePairing(
+              channel,
+              code: code,
+              device: device,
+              bundleFor: bundleFor,
+              timeout: timeout,
+            )
+            .then(
+              (given) {
+                if (!w._result.isCompleted) w._result.complete(given);
+              },
+              onError: (Object e, StackTrace s) {
+                if (!w._result.isCompleted) w._result.completeError(e, s);
+              },
+            )
+            .whenComplete(() => w._timer?.cancel()),
+      );
+    }
+
+    if (relayChannel != null) {
+      unawaited(
+        relayChannel.joined.then(
+          (_) {
+            if (w._taken) {
+              unawaited(relayChannel.close());
+              return;
+            }
+            w._taken = true;
+            unawaited(w._closeServers());
+            give(relayChannel, relayStepTimeout);
+          },
+          onError: (Object e, StackTrace s) {
+            if (w._taken || w._result.isCompleted) return;
+            // The relay failed before anyone came: a window on the LAN
+            // stays open there (the app shows [relayError]); a window on
+            // the relay alone ends with it.
+            w.relayError = e;
+            if (w._servers.isEmpty) w._result.completeError(e, s);
+          },
+        ),
+      );
+    }
     w._timer = Timer(window, () {
       if (!w._result.isCompleted) {
         w._result.completeError(
@@ -1136,26 +1213,10 @@ final class TomSecretsPairingWindow {
           return;
         }
         w._taken = true;
-        // The code is burnt: nothing else connects.
+        // The code is burnt: nothing else connects, the relay is left.
         unawaited(w._closeServers());
-        unawaited(
-          tomSecretsGivePairing(
-                TomSecretsSocketChannel(socket),
-                code: code,
-                device: device,
-                bundleFor: bundleFor,
-                timeout: stepTimeout,
-              )
-              .then(
-                (given) {
-                  if (!w._result.isCompleted) w._result.complete(given);
-                },
-                onError: (Object e, StackTrace s) {
-                  if (!w._result.isCompleted) w._result.completeError(e, s);
-                },
-              )
-              .whenComplete(() => w._timer?.cancel()),
-        );
+        unawaited(w.relayChannel?.close());
+        give(TomSecretsSocketChannel(socket), stepTimeout);
       });
     }
     return w;
@@ -1175,6 +1236,7 @@ final class TomSecretsPairingWindow {
   Future<void> close() async {
     _timer?.cancel();
     await _closeServers();
+    if (!_taken) await relayChannel?.close();
     if (!_result.isCompleted && !_taken) {
       _result.completeError(
         const TomSecretsPairingException(
@@ -1215,5 +1277,30 @@ Future<TomSecretsPairingReceived> tomSecretsReceivePairingAt(
     code: code,
     device: device,
     keysFor: keysFor,
+  );
+}
+
+/// The receiving side through [relay] (part-relay): joins the pairing hosted
+/// under [code]'s number and runs [tomSecretsReceivePairing] over the
+/// channel. Throws [TomSecretsRelayException] when the relay fails (it names
+/// the relay), [TomSecretsPairingException] otherwise.
+Future<TomSecretsPairingReceived> tomSecretsReceivePairingVia(
+  TomSecretsRelay relay, {
+  required TomSecretsPairingCode code,
+  required String device,
+  required Future<TomSecretsPairingPeerKeys> Function(
+    String giver,
+    TomSecretsPairingBundle bundle,
+  )
+  keysFor,
+  Duration timeout = const Duration(minutes: 5),
+}) async {
+  final channel = await relay.join('${code.number}');
+  return tomSecretsReceivePairing(
+    channel,
+    code: code,
+    device: device,
+    keysFor: keysFor,
+    timeout: timeout,
   );
 }

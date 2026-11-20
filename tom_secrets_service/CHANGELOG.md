@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.22.0
+
+- The relay requests (part-relay, protocol.md 6.4): `relay.revision`,
+  `relay.list`, `relay.read`, `relay.create`, `relay.deleteFolder`,
+  `relay.deleteFile` on the `relay/` folder of a `github:` store's
+  repository, for the app's pairing through GitHub (manager app only,
+  unlocked); through the repository's `TomGitHubStorage`, whose branch
+  snapshot answers an unchanged branch with a conditional request. Needs
+  `tom_secrets_core` 0.2.21.
+
 ## 0.21.0
 
 - Typed certificates and PGP keys (part-sharing, part-protocol, BP-33):

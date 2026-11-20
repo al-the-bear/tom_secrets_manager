@@ -8,6 +8,7 @@ library;
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 
 import 'config.dart';
+import 'relay.dart';
 
 /// The title of the metadata entry.
 const String tomSecretsMetadataTitle = '.tom-secrets';
@@ -48,6 +49,11 @@ abstract final class TomSecretsMetadataFields {
   /// (part-key-rotation §3, DP-83, DP-155; primary vault only): every device
   /// learns it with the primary and signs in with it.
   static const githubAppClientId = KdbxKey('tsm.github-app-client-id');
+
+  /// **[C]** The relay whose mailbox this shared vault's members use
+  /// (part-relay, the relay settings): a relay id (`github:<owner>/<repo>`,
+  /// `tsm:<url>`); absent: the vault's own repository's inbox folders.
+  static const mailboxRelay = KdbxKey('tsm.mailbox-relay');
 }
 
 /// What a vault is for (BP-25).
@@ -113,6 +119,7 @@ final class TomSecretsMetadata {
     this.keysDue,
     this.sshConfirm = false,
     this.githubAppClientId,
+    this.mailboxRelay,
   }) : binding = Map.unmodifiable(binding);
 
   /// The metadata of a file without a metadata entry: no binding, kind
@@ -171,7 +178,19 @@ final class TomSecretsMetadata {
       },
       sshConfirm: text(TomSecretsMetadataFields.sshConfirm) == 'true',
       githubAppClientId: text(TomSecretsMetadataFields.githubAppClientId),
+      mailboxRelay: switch (text(TomSecretsMetadataFields.mailboxRelay)) {
+        null => null,
+        final relay => _relayId(relay),
+      },
     );
+  }
+
+  static TomSecretsRelayId _relayId(String text) {
+    try {
+      return TomSecretsRelayId.parse(text);
+    } on FormatException {
+      throw TomSecretsMetadataException('tsm.mailbox-relay is "$text"');
+    }
   }
 
   /// The metadata format.
@@ -205,6 +224,10 @@ final class TomSecretsMetadata {
   /// the primary only), or null when none is registered.
   final String? githubAppClientId;
 
+  /// **[C]** The relay whose mailbox the shared vault's members use
+  /// (`tsm.mailbox-relay`), or null for the vault's own repository.
+  final TomSecretsRelayId? mailboxRelay;
+
   /// This metadata with the members given replaced.
   TomSecretsMetadata copyWith({
     String? store,
@@ -216,6 +239,8 @@ final class TomSecretsMetadata {
     bool? sshConfirm,
     String? githubAppClientId,
     bool clearGithubAppClientId = false,
+    TomSecretsRelayId? mailboxRelay,
+    bool clearMailboxRelay = false,
   }) => TomSecretsMetadata(
     format: format,
     store: store ?? this.store,
@@ -228,6 +253,7 @@ final class TomSecretsMetadata {
     githubAppClientId: clearGithubAppClientId
         ? null
         : githubAppClientId ?? this.githubAppClientId,
+    mailboxRelay: clearMailboxRelay ? null : mailboxRelay ?? this.mailboxRelay,
   );
 
   /// The shared configuration of `tsm.config`, or null when absent.
@@ -262,6 +288,7 @@ final class TomSecretsMetadata {
       set(TomSecretsMetadataFields.keysDue, keysDue?.toUtc().toIso8601String());
       set(TomSecretsMetadataFields.sshConfirm, sshConfirm ? 'true' : null);
       set(TomSecretsMetadataFields.githubAppClientId, githubAppClientId);
+      set(TomSecretsMetadataFields.mailboxRelay, mailboxRelay?.text);
     });
   }
 }
