@@ -1862,6 +1862,20 @@ final class TomSecretsVaultSet {
     Uint8List bytes, {
     required String? baseRevision,
   }) async {
+    final location = _besideLocation(name);
+    return _beside(
+      () => opener.writeBeside(
+        location,
+        _recipientsName(location),
+        bytes,
+        baseRevision: baseRevision,
+      ),
+    );
+  }
+
+  /// The locator of the store [name] for a file beside it: refused while
+  /// locked (`locked`) and for a store nobody names (`not_found`).
+  String _besideLocation(String name) {
     if (_primary == null) {
       throw TomSecretsSaveException('locked', 'unlock the service first');
     }
@@ -1869,13 +1883,15 @@ final class TomSecretsVaultSet {
     if (location == null) {
       throw TomSecretsSaveException('not_found', 'no store $name');
     }
+    return location;
+  }
+
+  /// Runs [io] on files beside a store; a remote that cannot be reached or
+  /// refuses the token becomes the store state's refusal (`offline`,
+  /// `token_expired`).
+  Future<T> _beside<T>(Future<T> Function() io) async {
     try {
-      return await opener.writeBeside(
-        location,
-        _recipientsName(location),
-        bytes,
-        baseRevision: baseRevision,
-      );
+      return await io();
     } on TomSecretsSaveException {
       rethrow;
     } on Object catch (e) {
@@ -1887,6 +1903,89 @@ final class TomSecretsVaultSet {
         now == TomSecretsStoreState.offline
             ? 'the store cannot be reached'
             : 'the store\'s token was refused',
+      );
+    }
+  }
+
+  /// **[C]** The packages in the inbox folders beside the store [name]
+  /// (`inbox.list`, part-sharing): every file `inbox/<member-id>/<file>`,
+  /// by member id and file name, with its revision; other files below
+  /// `inbox/` are left out.
+  Future<List<({String member, String name, String revision})>> inbox(
+    String name,
+  ) async {
+    final location = _besideLocation(name);
+    final files = await _beside(
+      () => opener.listBeside(location, tomSecretsInboxFolder),
+    );
+    return [
+      for (final MapEntry(:key, :value) in files.entries)
+        if (key.split('/') case [
+          _,
+          final member,
+          final file,
+        ] when tomSecretsIsInboxMember(member))
+          (member: member, name: file, revision: value),
+    ]..sort(
+      (a, b) => '${a.member}/${a.name}'.compareTo('${b.member}/${b.name}'),
+    );
+  }
+
+  /// **[C]** The package [file] in the inbox of [member] beside the store
+  /// [name] (`inbox.read`), or null when it is not there.
+  Future<({Uint8List bytes, String revision})?> inboxFile(
+    String name,
+    String member,
+    String file,
+  ) {
+    final location = _besideLocation(name);
+    final path = _inboxPath(member, file);
+    return _beside(() => opener.readBeside(location, path));
+  }
+
+  /// **[C]** Puts [bytes] (an `age` package) into the inbox of each of
+  /// [members] beside the store [name] (`inbox.put`) under one new name
+  /// `<date>-<random>.age` (UTC at [now]); a `github:` vault one commit per
+  /// member. Answers the name.
+  Future<String> inboxPut(
+    String name,
+    List<String> members,
+    Uint8List bytes, {
+    DateTime? now,
+  }) async {
+    final location = _besideLocation(name);
+    final file = tomSecretsNewInboxName(now: now);
+    for (final member in members) {
+      final path = _inboxPath(member, file);
+      await _beside(
+        () => opener.writeBeside(location, path, bytes, baseRevision: null),
+      );
+    }
+    return file;
+  }
+
+  /// **[C]** Deletes [files] (member id and file name) from the inbox
+  /// folders beside the store [name] (`inbox.delete`: a package imported or
+  /// declined, or past its 30 days); a `github:` vault in one commit. A file
+  /// that is gone already is skipped.
+  Future<void> inboxDelete(
+    String name,
+    List<({String member, String name})> files,
+  ) async {
+    final location = _besideLocation(name);
+    final paths = [for (final f in files) _inboxPath(f.member, f.name)];
+    if (paths.isEmpty) return;
+    await _beside(() => opener.deleteBeside(location, paths));
+  }
+
+  static String _inboxPath(String member, String file) {
+    try {
+      return tomSecretsInboxPath(member, file);
+    } on ArgumentError catch (e) {
+      throw TomSecretsSaveException(
+        'malformed',
+        '${e.message}: ${e.invalidValue}',
+        reason: 'inbox',
       );
     }
   }

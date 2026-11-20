@@ -57,6 +57,7 @@
   - [TomSecretsAgeIdentity](#tomsecretsageidentity)
   - [TomSecretsAgeHybridIdentity](#tomsecretsagehybrididentity)
   - [TomSecretsAgeX25519Identity](#tomsecretsagex25519identity)
+  - [TomSecretsAgePassphraseIdentity](#tomsecretsagepassphraseidentity)
   - [TomSecretsSharedVaultMember](#tomsecretssharedvaultmember)
   - [TomSecretsSharedVaultFailure](#tomsecretssharedvaultfailure)
   - [TomSecretsSharedVaultException](#tomsecretssharedvaultexception)
@@ -65,13 +66,20 @@
   - [TomSecretsRotationException](#tomsecretsrotationexception)
   - [TomSecretsRotation](#tomsecretsrotation)
   - [TomSecretsRotations](#tomsecretsrotations)
+  - [TomSecretsShareFailure](#tomsecretssharefailure)
+  - [TomSecretsShareException](#tomsecretsshareexception)
+  - [TomSecretsSharedField](#tomsecretssharedfield)
+  - [TomSecretsSharedAttachment](#tomsecretssharedattachment)
+  - [TomSecretsSharedEntry](#tomsecretssharedentry)
+  - [TomSecretsShareSender](#tomsecretssharesender)
+  - [TomSecretsShare](#tomsecretsshare)
 - [Global Functions and Constants](#global-functions-and-constants)
 
 ---
 
 ## Overview
 
-The sharing module holds everything one device of the user's fleet needs to trust another: a device's trust material (approver, link and audit-log keys, the approvers and hosts it recorded) with key rotation; signed objects (grants, revocations, approval records, key-change statements) signed with Ed25519 and ML-DSA-65; the grants group of the primary vault; the approval code and its single-use token; the approval link (Noise KK with ML-KEM-768 paired to every Diffie-Hellman, ChaCha20-Poly1305 transport); pairing by a short code through SPAKE2 (RFC 9382) with an ML-KEM-768 exchange inside; the device records of the primary vault; and, for sharing with people (phase C), the member keys: hybrid `age` v1.3 identities and recipients (`age1pq1…`, X25519 + ML-KEM-768), other people's classical recipients for exports, the published key file, and the `member-key` and `member` entries of the primary vault's `tsm.sharing` group; the `age` v1 file format (hybrid and classical recipients, armour); shared vaults with their recipients file; and the rotation records of the guided rotation with a migration period.
+The sharing module holds everything one device of the user's fleet needs to trust another: a device's trust material (approver, link and audit-log keys, the approvers and hosts it recorded) with key rotation; signed objects (grants, revocations, approval records, key-change statements) signed with Ed25519 and ML-DSA-65; the grants group of the primary vault; the approval code and its single-use token; the approval link (Noise KK with ML-KEM-768 paired to every Diffie-Hellman, ChaCha20-Poly1305 transport); pairing by a short code through SPAKE2 (RFC 9382) with an ML-KEM-768 exchange inside; the device records of the primary vault; and, for sharing with people (phase C), the member keys: hybrid `age` v1.3 identities and recipients (`age1pq1…`, X25519 + ML-KEM-768), other people's classical recipients for exports, the published key file, and the `member-key` and `member` entries of the primary vault's `tsm.sharing` group; the `age` v1 file format (hybrid and classical recipients, a passphrase, armour); shared vaults with their recipients file; the rotation records of the guided rotation with a migration period; and single-entry exports (shares) with the inbox folders that carry them.
 
 Source files: `lib/src/trust.dart`, `lib/src/signed_objects.dart`, `lib/src/grants.dart`, `lib/src/approval_code.dart`, `lib/src/approval_link.dart`, `lib/src/pairing.dart`, `lib/src/pairing_setup.dart`, `lib/src/pairing_words.dart`, `lib/src/device_records.dart`, `lib/src/member_keys.dart`, `lib/src/age.dart`, `lib/src/shared_vault.dart`, `lib/src/rotation.dart`.
 
@@ -133,6 +141,7 @@ Object
 ├── TomSecretsAgeIdentity (sealed)
 ├── TomSecretsAgeHybridIdentity
 ├── TomSecretsAgeX25519Identity
+├── TomSecretsAgePassphraseIdentity
 ├── TomSecretsSharedVaultMember (typedef)
 ├── TomSecretsSharedVaultFailure (enum)
 ├── TomSecretsSharedVaultException
@@ -140,7 +149,14 @@ Object
 ├── TomSecretsRotationKind (enum)
 ├── TomSecretsRotationException
 ├── TomSecretsRotation
-└── TomSecretsRotations
+├── TomSecretsRotations
+├── TomSecretsShareFailure (enum)
+├── TomSecretsShareException
+├── TomSecretsSharedField (typedef)
+├── TomSecretsSharedAttachment (typedef)
+├── TomSecretsSharedEntry
+├── TomSecretsShareSender (typedef)
+└── TomSecretsShare
 ```
 
 ---
@@ -1418,6 +1434,22 @@ A classical `age` identity, `AGE-SECRET-KEY-1…` (X25519): the product makes no
 
 ---
 
+### TomSecretsAgePassphraseIdentity
+
+A passphrase as an `age` identity: opens a file written with the `scrypt` recipient; a work factor above `maxWorkFactor` is refused (`header`).
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsAgePassphraseIdentity(passphrase, {maxWorkFactor = 22})` | const | `passphrase` as an identity. |
+| `passphrase` | `String` | The passphrase. |
+| `maxWorkFactor` | `int` | The highest work factor (log2 N) it computes. |
+
+---
+
 ### TomSecretsSharedVaultMember
 
 One member a shared vault's recipients file is written for: `({String name, TomSecretsAgeRecipient recipient})`.
@@ -1565,6 +1597,100 @@ The rotation records of a vault (the primary, or a shared vault): the group `.to
 
 ---
 
+### TomSecretsShareFailure
+
+Why a share could not be written or read.
+
+**Kind:** `enum`
+
+#### Values
+
+| Value | Description |
+| --- | --- |
+| `format` | The decrypted document is not a share this version reads. |
+| `protection` | Neither recipients nor a passphrase, or both, or an empty passphrase. |
+
+---
+
+### TomSecretsShareException
+
+A refused share.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsShareException(reason, message)` | const | A refusal for `reason`, told by `message`. |
+| `reason` | `TomSecretsShareFailure` | Why. |
+| `message` | `String` | For people; never a secret. |
+
+---
+
+### TomSecretsSharedField
+
+One field of a shared entry: `({String value, bool protected})`.
+
+**Kind:** `typedef`
+
+---
+
+### TomSecretsSharedAttachment
+
+One attachment of a shared entry: `({Uint8List bytes, bool protected})`.
+
+**Kind:** `typedef`
+
+---
+
+### TomSecretsSharedEntry
+
+One entry of a share: its fields (the title, `tsm.type` and `tsm.key` among them), tags, attachments and expiry.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsSharedEntry({required fields, tags, attachments, expires})` | const | An entry. |
+| `fields` | `Map<String, TomSecretsSharedField>` | The fields by name. |
+| `tags` | `List<String>` | The tags. |
+| `attachments` | `Map<String, TomSecretsSharedAttachment>` | The attachments by name. |
+| `expires` | `DateTime?` | When it expires, or null. |
+| `title` | `String` | The title. |
+| `type` | `TomSecretsEntryType` | The entry type (`tsm.type`). |
+
+---
+
+### TomSecretsShareSender
+
+Who sent a share, as the sender says: `({String name, String fingerprint})`, the fingerprint of their member key.
+
+**Kind:** `typedef`
+
+---
+
+### TomSecretsShare
+
+A share (single-entry export): entries for another person, who sent them, when; its JSON document `{"format": "tsm.share", "version": 1, ...}`.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsShare({required entries, required created, from})` | const | A share. |
+| `TomSecretsShare.decode(bytes)` | factory | The share of the JSON document `bytes`; throws `TomSecretsShareException` (`format`) for one this version does not read. |
+| `entries` | `List<TomSecretsSharedEntry>` | The entries. |
+| `created` | `DateTime` | When it was made. |
+| `from` | `TomSecretsShareSender?` | Who sent it, as they say. |
+| `encode()` | `Uint8List` | The JSON document, UTF-8. |
+
+---
+
 ## Global Functions and Constants
 
 ### Constants
@@ -1585,6 +1711,14 @@ The rotation records of a vault (the primary, or a shared vault): the group `.to
 | `tomSecretsRecipientsSuffix` | `String` | The suffix of a recipients file, after the vault's name: `.keys.age`. |
 | `tomSecretsRotationsGroup` | `String` | The subgroup of the product group holding the rotation records: `rotations`. |
 | `tomSecretsRotationPeriod` | `Duration` | The default migration period of a rotation: 14 days (DP-85). |
+| `tomSecretsAgeDefaultWorkFactor` | `int` | The work factor (log2 N) a passphrase file is written with: 18, `age`'s own. |
+| `tomSecretsAgeMaxWorkFactor` | `int` | The highest work factor (log2 N) the reader computes: 22, as `age`. |
+| `tomSecretsShareFormat` | `String` | The `format` of a share's JSON document: `tsm.share`. |
+| `tomSecretsShareVersion` | `int` | The version of the share's JSON document this code writes and reads: 1. |
+| `tomSecretsShareExtension` | `String` | The extension of a share saved as a file: `.tsmshare`. |
+| `tomSecretsQrCapacity` | `int` | The most characters a QR code holds (version 40, level L, byte mode): 2953. |
+| `tomSecretsInboxFolder` | `String` | The folder beside a shared vault holding the members' inboxes: `inbox`. |
+| `tomSecretsInboxExpiry` | `Duration` | How long a package stays in an inbox before any member's sync deletes it: 30 days. |
 
 ### Functions
 
@@ -1645,3 +1779,17 @@ The rotation records of a vault (the primary, or a shared vault): the group `.to
 | `tomSecretsRecipientsFileName` | `String tomSecretsRecipientsFileName(String fileName)` | The recipients file beside the vault file `fileName` (`team.kdbx`, `team.kdbx.tsmx` → `team.keys.age`). |
 | `tomSecretsNewSharedVault` | `KdbxFile tomSecretsNewSharedVault(String name, TomSecretsSharedVaultKeys keys, {String? purpose, KdbxArgon2 argon2 = tomSecretsDefaultArgon2})` | A new shared vault `name` (kind `shared`) opened by `keys`' key file alone. |
 | `tomSecretsKeyId` | `String tomSecretsKeyId(List<int> bytes)` | The key id of `bytes` (a key file's, a repository key's): the first 8 bytes of their SHA-256 in hex. |
+| `tomSecretsAgeEncryptPassphrase` | `Future<Uint8List> tomSecretsAgeEncryptPassphrase(List<int> plaintext, String passphrase, {int workFactor = tomSecretsAgeDefaultWorkFactor})` | `plaintext` as an `age` v1 file under `passphrase`: one `scrypt` stanza, `workFactor` its log2 N (1 to 22, `ArgumentError` otherwise); scrypt runs in another isolate. |
+| `tomSecretsAgeIsPassphrase` | `bool tomSecretsAgeIsPassphrase(List<int> file)` | Whether the `age` file `file` (binary or armoured) is written under a passphrase, so a reader asks for one. |
+| `tomSecretsShareOf` | `TomSecretsShare tomSecretsShareOf(List<KdbxEntry> entries, {TomSecretsShareSender? from, DateTime? now})` | The share of `entries`: every field but the product's other `tsm.*` fields and overlay fields, the tags, attachments and expiry. |
+| `tomSecretsImportShare` | `List<KdbxEntry> tomSecretsImportShare(KdbxFile file, KdbxGroup group, TomSecretsShare share)` | The entries of `share` added to `group` of `file` as new entries (new UUIDs). |
+| `tomSecretsWriteShare` | `Future<Uint8List> tomSecretsWriteShare(TomSecretsShare share, {List<TomSecretsAgeRecipient>? recipients, String? passphrase, int workFactor = tomSecretsAgeDefaultWorkFactor})` | `share` as an `age` file to `recipients` (all hybrid or all classical) or under `passphrase`, exactly one; throws `TomSecretsShareException` (`protection`) else. |
+| `tomSecretsReadShare` | `Future<TomSecretsShare> tomSecretsReadShare(List<int> bytes, Iterable<TomSecretsAgeIdentity> identities)` | The share in `bytes` (a `.tsmshare` file or the armoured text), opened with the first of `identities` that fits; throws `TomSecretsAgeException` or `TomSecretsShareException`. |
+| `tomSecretsLooksLikeShare` | `bool tomSecretsLooksLikeShare(String text)` | Whether `text` (pasted, scanned) holds an armoured `age` file. |
+| `tomSecretsShareFitsQr` | `bool tomSecretsShareFitsQr(List<int> file)` | Whether the share `file` fits a QR code as armoured text (`tomSecretsQrCapacity`). |
+| `tomSecretsIsInboxMember` | `bool tomSecretsIsInboxMember(String id)` | Whether `id` is a member id an inbox folder may be named by (a member key's fingerprint). |
+| `tomSecretsIsInboxName` | `bool tomSecretsIsInboxName(String name)` | Whether `name` is a package name, `<YYYY-MM-DD>-<16 hex>.age`. |
+| `tomSecretsInboxPath` | `String tomSecretsInboxPath(String memberId, String name)` | The path of the package `name` in the inbox of `memberId`, relative to the shared vault's folder: `inbox/<member>/<name>`; `ArgumentError` for another member id or name. |
+| `tomSecretsNewInboxName` | `String tomSecretsNewInboxName({DateTime? now})` | A new package name: the UTC date at `now` and 16 random hex digits. |
+| `tomSecretsInboxDate` | `DateTime? tomSecretsInboxDate(String name)` | The day a package named `name` was put in (UTC), or null for another name. |
+| `tomSecretsInboxExpired` | `bool tomSecretsInboxExpired(String name, DateTime now)` | Whether the package `name` was put in more than 30 days before `now`; a file that is no package is never expired. |

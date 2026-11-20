@@ -5,7 +5,8 @@
 /// `file:` vaults: created with the recipients file beside them and a key
 /// file alone, the file read by store and by location, written alone over
 /// its revision (a member added), and a member removed: the vault re-keyed
-/// and the recipients file written with it. The `github:` cases are in
+/// and the recipients file written with it; the inbox folders beside it
+/// (packages put, listed, read and deleted). The `github:` cases are in
 /// github_test.dart. Demo keys only.
 @TestOn('vm')
 @Timeout(Duration(minutes: 2))
@@ -320,5 +321,92 @@ void main() {
       TomSecretsStoreState.current,
     );
     expect(await get('crew/Api/Token'), 'team-token-1');
+  });
+
+  test('the inbox folders: a package put for two members, listed, read, '
+      'deleted with an expired one; the refusals', () async {
+    await start();
+    final location = 'file:${demo.dir}/shared/crew.kdbx';
+    Directory('${demo.dir}/shared').createSync();
+    final keys = TomSecretsSharedVaultKeys.generate(
+      'crew',
+      members: [member('Alice', alice), member('Bob', bob)],
+    );
+    await createCrew(location, keys);
+    final a = alice.recipient.fingerprint;
+    final b = bob.recipient.fingerprint;
+
+    var list = await admin.request('inbox.list', {'store': 'crew'});
+    expect(list['op'], 'inbox');
+    expect(list['files'], isEmpty);
+
+    final package = Uint8List.fromList(utf8.encode('demo package'));
+    final put = await admin.request('inbox.put', {
+      'store': 'crew',
+      'members': [a, b],
+      'bytes': base64.encode(package),
+    });
+    final name = put['name']! as String;
+    expect(tomSecretsIsInboxName(name), isTrue);
+    expect(
+      File('${demo.dir}/shared/inbox/$b/$name').readAsBytesSync(),
+      package,
+    );
+    // An old package someone left, and a file that is no package's.
+    const old = '2026-01-02-00112233aabbccdd.age';
+    File('${demo.dir}/shared/inbox/$b/$old').writeAsBytesSync([1]);
+    File('${demo.dir}/shared/inbox/README.md').writeAsStringSync('x');
+
+    list = await admin.request('inbox.list', {'store': 'crew'});
+    final files = (list['files']! as List).cast<Map<String, Object?>>();
+    expect(files.map((f) => '${f['member']}/${f['name']}').toSet(), {
+      '$a/$name',
+      '$b/$name',
+      '$b/$old',
+    });
+    expect(
+      files.firstWhere(
+        (f) => f['member'] == b && f['name'] == name,
+      )['revision'],
+      tomSecretsBlobId(package),
+    );
+
+    final read = await admin.request('inbox.read', {
+      'store': 'crew',
+      'member': b,
+      'name': name,
+    });
+    expect(read['op'], 'inboxFile');
+    expect(base64.decode(read['bytes']! as String), package);
+
+    await admin.request('inbox.delete', {
+      'store': 'crew',
+      'files': [
+        {'member': b, 'name': name},
+        {'member': b, 'name': old},
+        {'member': b, 'name': '2026-01-03-0011223344556677.age'},
+      ],
+    });
+    list = await admin.request('inbox.list', {'store': 'crew'});
+    expect((list['files']! as List).map((f) => (f as Map)['member']), [a]);
+    expect(File('${demo.dir}/shared/inbox/README.md').existsSync(), isTrue);
+
+    final gone = await refused(
+      admin.request('inbox.read', {'store': 'crew', 'member': b, 'name': name}),
+    );
+    expect(gone.kind, 'not_found');
+    final traversal = await refused(
+      admin.request('inbox.put', {
+        'store': 'crew',
+        'members': ['../../etc'],
+        'bytes': base64.encode(package),
+      }),
+    );
+    expect(traversal.kind, 'malformed');
+    expect(traversal.details['reason'], 'inbox');
+    final unknown = await refused(
+      admin.request('inbox.list', {'store': 'nobody'}),
+    );
+    expect(unknown.kind, 'not_found');
   });
 }

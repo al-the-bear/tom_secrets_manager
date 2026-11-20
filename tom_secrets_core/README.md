@@ -147,7 +147,8 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | Approval link (Noise KK + ML-KEM-768) | `TomSecretsLinkSession`, `TomSecretsApprovalChannel` |
 | Pairing (SPAKE2, RFC 9382) | `TomSecretsPairingCode`, `tomSecretsGivePairing`, `tomSecretsReceivePairing`, `TomSecretsPairingWindow` |
 | Device records | `TomSecretsDeviceRecords` |
-| The `age` v1 file format (phase C): hybrid `mlkem768x25519` and classical `X25519` recipients, the armour; checked against the age testkit and `filippo.io/age` | `tomSecretsAgeEncrypt`, `tomSecretsAgeDecrypt`, `tomSecretsAgeArmor`, `TomSecretsAgeIdentity` |
+| The `age` v1 file format (phase C): hybrid `mlkem768x25519` and classical `X25519` recipients, a passphrase (`scrypt`), the armour; checked against the age testkit and `filippo.io/age` | `tomSecretsAgeEncrypt`, `tomSecretsAgeEncryptPassphrase`, `tomSecretsAgeDecrypt`, `tomSecretsAgeArmor`, `TomSecretsAgeIdentity` |
+| Single-entry exports (phase C): entries as a share for members' keys, a passphrase or a classical key, as armoured text, a QR code or a `.tsmshare` file; the `inbox/<member>/` folders' names and expiry | `TomSecretsShare`, `tomSecretsShareOf`, `tomSecretsWriteShare`, `tomSecretsReadShare`, `tomSecretsImportShare`, `tomSecretsShareFitsQr`, `tomSecretsInboxPath`, `tomSecretsInboxExpired` |
 | Shared vaults (phase C): a key file alone, the recipients file `<vault>.keys.age` to the members' hybrid keys, adding and removing members | `TomSecretsSharedVaultKeys`, `tomSecretsWriteRecipientsFile`, `tomSecretsReadRecipientsFile`, `tomSecretsNewSharedVault` |
 | The rotation record of the guided rotation with a migration period (phase C): one per target in `.tom-secrets/rotations` (the lock), its switch, migration end and who is still pending | `TomSecretsRotations`, `TomSecretsRotation`, `tomSecretsKeyId` |
 | Member keys (phase C): hybrid `age` v1.3 keys (`age1pq1…`, X25519 + ML-KEM-768), other people's classical `age1…` keys for exports, fingerprints, the published key file, the `member-key` and `member` entries | `TomSecretsMemberKey`, `TomSecretsAgeRecipient`, `tomSecretsMemberKeyFile`, `tomSecretsReadMemberKeys`, `tomSecretsAddMemberKey`, `tomSecretsAddMember` |
@@ -539,6 +540,31 @@ recipient side by side in each recipients file (`withMember`, then
 `withoutRecipient` at the finish); a shared vault's key with `rotated()`
 (new keys, the same members).
 
+A **share** (a single-entry export, BP-34) carries chosen entries to another
+person as one `age` file: their fields, tags, attachments, expiry, type and
+`tsm.key`, never the vault's metadata or history. It is written to members'
+hybrid keys, under a passphrase (`age`'s `scrypt` recipient, work factor 18,
+which the `age` command line opens with `age -d`) or to classical keys
+alone:
+
+```dart
+final share = tomSecretsShareOf([entry],
+    from: (name: 'Alice', fingerprint: alice.recipient.fingerprint));
+final file = await tomSecretsWriteShare(share, recipients: [bob.recipient]);
+final text = tomSecretsAgeArmor(file); // paste into a message
+final qr = tomSecretsShareFitsQr(file); // one password to one member fits
+
+final read = await tomSecretsReadShare(utf8.encode(text),
+    [TomSecretsAgeHybridIdentity(bob)]);
+tomSecretsImportShare(theirVault, group, read); // new entries
+```
+
+A shared vault's repository carries packages in `inbox/<member>/` folders
+beside the vault (`tomSecretsInboxPath`, the member id the recipient's
+fingerprint), named `<date>-<random>.age` (`tomSecretsNewInboxName`); a
+package more than 30 days old is expired (`tomSecretsInboxExpired`) and
+deleted by whichever member syncs next.
+
 ### Import and export
 
 ```dart
@@ -662,14 +688,16 @@ vault (`@host:<host>/.tom-secrets/device`) or in a key file.
 
 ## Status
 
-Version 0.2.15. The test suite (`dart test`) covers the model, resolution, the
+Version 0.2.16. The test suite (`dart test`) covers the model, resolution, the
 merge and the GitHub cycle against a fake GitHub server, the offline cache,
 compaction, the outer encryption against the fixtures in `test/fixtures/outer/`,
 the importers against synthetic exports, trust rotation, and the approval
 material byte for byte against the protocol's vectors (signatures, approval
 codes, the link handshake, RFC 9382's SPAKE2 vectors), the member keys
 against keys `filippo.io/age` v1.3.2 made, and the `age` reader against the
-age testkit's hybrid vectors (`test/fixtures/age/`, C2SP CCTV).
+age testkit's hybrid and scrypt vectors (`test/fixtures/age/`,
+`test/fixtures/age_scrypt/`, C2SP CCTV); passphrase files and shares were
+checked both ways with `filippo.io/age` v1.3.2.
 
 ### The live check on github.com
 

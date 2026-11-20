@@ -1380,6 +1380,92 @@ void main() {
       },
     );
 
+    test('the inbox folders of a shared vault (part-sharing): a package put '
+        'for two members (one commit each), listed, read, and deleted with an '
+        'expired one in one commit', () async {
+      await start();
+      final alice = await TomSecretsMemberKey.generate();
+      final bob = await TomSecretsMemberKey.generate();
+      addTearDown(() {
+        alice.dispose();
+        bob.dispose();
+      });
+      final keys = TomSecretsSharedVaultKeys.generate(
+        'crew',
+        members: [
+          (name: 'Alice', recipient: alice.recipient),
+          (name: 'Bob', recipient: bob.recipient),
+        ],
+      );
+      const crew = 'github:$_repo/shared/crew.kdbx';
+      final file = tomSecretsNewSharedVault('crew', keys, argon2: testArgon2);
+      await admin.request('vault.create', {
+        'store': 'crew',
+        'location': crew,
+        'bytes': base64.encode(await file.save()),
+        'keys': {'keyFile': base64.encode(keys.keyFile)},
+        'recipients': base64.encode(await tomSecretsWriteRecipientsFile(keys)),
+      });
+      final a = alice.recipient.fingerprint;
+      final b = bob.recipient.fingerprint;
+      expect(
+        (await admin.request('inbox.list', {'store': 'crew'}))['files'],
+        isEmpty,
+      );
+
+      final package = Uint8List.fromList(utf8.encode('demo package'));
+      final before = commits().length;
+      final put = await admin.request('inbox.put', {
+        'store': 'crew',
+        'members': [a, b],
+        'bytes': base64.encode(package),
+      });
+      final name = put['name']! as String;
+      expect(commits(), hasLength(before + 2));
+      expect(commits().first.message, 'tsm: inbox/$b/$name from demo-host');
+      expect(onGitHub('shared/inbox/$a/$name'), package);
+      const old = '2026-01-02-00112233aabbccdd.age';
+      await putBytes(
+        'github:$_repo/shared/inbox/$b/$old',
+        Uint8List.fromList([1]),
+      );
+
+      final list = await admin.request('inbox.list', {'store': 'crew'});
+      expect(
+        (list['files']! as List)
+            .map((f) => '${(f as Map)['member']}/${f['name']}')
+            .toSet(),
+        {'$a/$name', '$b/$name', '$b/$old'},
+      );
+      final read = await admin.request('inbox.read', {
+        'store': 'crew',
+        'member': b,
+        'name': name,
+      });
+      expect(base64.decode(read['bytes']! as String), package);
+
+      final beforeDelete = commits().length;
+      await admin.request('inbox.delete', {
+        'store': 'crew',
+        'files': [
+          {'member': b, 'name': name},
+          {'member': b, 'name': old},
+        ],
+      });
+      expect(commits(), hasLength(beforeDelete + 1));
+      expect(server.bytesAt(_repo, 'shared/inbox/$b/$name'), isNull);
+      expect(server.bytesAt(_repo, 'shared/inbox/$b/$old'), isNull);
+      expect(onGitHub('shared/inbox/$a/$name'), package);
+      // Nothing left to delete: no commit.
+      await admin.request('inbox.delete', {
+        'store': 'crew',
+        'files': [
+          {'member': b, 'name': name},
+        ],
+      });
+      expect(commits(), hasLength(beforeDelete + 1));
+    });
+
     test('vault.create refused: a file already at the path, a token for the '
         'primary\'s repository, GitHub unreachable; nothing listed', () async {
       await start();

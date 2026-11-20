@@ -573,8 +573,8 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
     final tree = await _headTree(vault);
     return {
       for (final e in tree.entries)
-        if (e.path.startsWith(prefix) && e.type == 'blob')
-          e.path.substring(dir.length): e.sha,
+        if (e.path.startsWith(prefix) && e.type == 'blob' && e.sha != null)
+          e.path.substring(dir.length): e.sha!,
     };
   }
 
@@ -589,8 +589,8 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
         if (tree.entries
                 .where((e) => e.path == _besidePath(vault, p))
                 .firstOrNull
-            case final e?)
-          e.path: e.sha,
+            case final e? when e.sha != null)
+          e.path: e.sha!,
     };
     if (present.isEmpty) return;
     await _commitTree(
@@ -602,7 +602,7 @@ final class TomSecretsGitHubOpener implements TomSecretsVaultOpener {
         for (final p in present.keys)
           p: ('the file $p has moved since it was read', 'stale_base'),
       },
-      message: 'tsm: ${present.length} inbox file(s) removed from $device',
+      message: 'tsm: ${present.length} file(s) removed from $device',
       moving: 'the branch moved meanwhile; delete again',
     );
   }

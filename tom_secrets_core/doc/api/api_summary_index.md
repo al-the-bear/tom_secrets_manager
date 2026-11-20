@@ -26,7 +26,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | [Vaults and Resolution](api_summary_vaults.md) | [README](../../README.md#vaults-and-resolution) | Configuration, locators, the metadata entry, KDBX field conventions, new vaults, stores, resolution, TOTP, the password generator and the primary vault. |
 | [Key Files and Outer Encryption](api_summary_protection.md) | [README](../../README.md#key-files-and-outer-encryption) | KeePass key files, the `.tsmx` outer encryption under repository keys, and the stored-vault codecs. |
 | [Sync, Merge and Compaction](api_summary_sync.md) | [README](../../README.md#sync-merge-and-compaction) | The GitHub cycle as a sync unit, the three-way vault merge, the offline cache, history classification and compaction. |
-| [Trust, Approvals and Pairing](api_summary_sharing.md) | [README](../../README.md#trust-approvals-and-pairing) | Trust material, signed objects and grants, approval codes, the approval link, pairing, device records, member keys, the `age` format and shared vaults. |
+| [Trust, Approvals and Pairing](api_summary_sharing.md) | [README](../../README.md#trust-approvals-and-pairing) | Trust material, signed objects and grants, approval codes, the approval link, pairing, device records, member keys, the `age` format, shared vaults, rotation records and shares. |
 | [Import and Export](api_summary_import_export.md) | [README](../../README.md#import-and-export) | 1Password and Enpass imports, passkeys, and the Enpass JSON export. |
 | [First Run and Device Settings](api_summary_device.md) | [README](../../README.md#first-run-and-device-settings) | The first run of a machine and the device settings container. |
 
@@ -343,6 +343,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsAgeIdentity` | sealed class | An identity that opens `age` files: `TomSecretsAgeHybridIdentity` (a member key) or `TomSecretsAgeX25519Identity` (a classical identity). | [→](api_summary_sharing.md#tomsecretsageidentity) |
 | `TomSecretsAgeHybridIdentity` | final class | A member key as an `age` identity. | [→](api_summary_sharing.md#tomsecretsagehybrididentity) |
 | `TomSecretsAgeX25519Identity` | final class | A classical `age` identity, `AGE-SECRET-KEY-1…` (X25519): the product makes none, but reads a file written to one. | [→](api_summary_sharing.md#tomsecretsagex25519identity) |
+| `TomSecretsAgePassphraseIdentity` | final class | A passphrase as an `age` identity: opens a file written with the `scrypt` recipient; a work factor above `maxWorkFactor` is refused (`header`). | [→](api_summary_sharing.md#tomsecretsagepassphraseidentity) |
 | `TomSecretsSharedVaultMember` | typedef | One member a shared vault's recipients file is written for: `({String name, TomSecretsAgeRecipient recipient})`. | [→](api_summary_sharing.md#tomsecretssharedvaultmember) |
 | `TomSecretsSharedVaultFailure` | enum | Why a shared vault's keys could not be read or written. | [→](api_summary_sharing.md#tomsecretssharedvaultfailure) |
 | `TomSecretsSharedVaultException` | final class | A refused recipients file or member change. | [→](api_summary_sharing.md#tomsecretssharedvaultexception) |
@@ -351,6 +352,13 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsRotationException` | final class | A rotation that cannot start or go on. | [→](api_summary_sharing.md#tomsecretsrotationexception) |
 | `TomSecretsRotation` | final class | One rotation record: its kind and target, the old and new key ids, when it started and switched, when its migration period ends, who started it, who is still to take up the new key. | [→](api_summary_sharing.md#tomsecretsrotation) |
 | `TomSecretsRotations` | final class | The rotation records of a vault (the primary, or a shared vault): the group `.tom-secrets/rotations`; the record is the lock, one rotation per target. | [→](api_summary_sharing.md#tomsecretsrotations) |
+| `TomSecretsShareFailure` | enum | Why a share could not be written or read. | [→](api_summary_sharing.md#tomsecretssharefailure) |
+| `TomSecretsShareException` | final class | A refused share. | [→](api_summary_sharing.md#tomsecretsshareexception) |
+| `TomSecretsSharedField` | typedef | One field of a shared entry: `({String value, bool protected})`. | [→](api_summary_sharing.md#tomsecretssharedfield) |
+| `TomSecretsSharedAttachment` | typedef | One attachment of a shared entry: `({Uint8List bytes, bool protected})`. | [→](api_summary_sharing.md#tomsecretssharedattachment) |
+| `TomSecretsSharedEntry` | final class | One entry of a share: its fields (the title, `tsm.type` and `tsm.key` among them), tags, attachments and expiry. | [→](api_summary_sharing.md#tomsecretssharedentry) |
+| `TomSecretsShareSender` | typedef | Who sent a share, as the sender says: `({String name, String fingerprint})`, the fingerprint of their member key. | [→](api_summary_sharing.md#tomsecretssharesender) |
+| `TomSecretsShare` | final class | A share (single-entry export): entries for another person, who sent them, when; its JSON document `{"format": "tsm.share", "version": 1, ...}`. | [→](api_summary_sharing.md#tomsecretsshare) |
 
 ### Functions
 
@@ -411,6 +419,20 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsRecipientsFileName` | The recipients file beside the vault file `fileName` (`team.kdbx`, `team.kdbx.tsmx` → `team.keys.age`). | [→](api_summary_sharing.md#functions) |
 | `tomSecretsNewSharedVault` | A new shared vault `name` (kind `shared`) opened by `keys`' key file alone. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsKeyId` | The key id of `bytes` (a key file's, a repository key's): the first 8 bytes of their SHA-256 in hex. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsAgeEncryptPassphrase` | `plaintext` as an `age` v1 file under `passphrase`: one `scrypt` stanza, `workFactor` its log2 N (1 to 22, `ArgumentError` otherwise); scrypt runs in another isolate. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsAgeIsPassphrase` | Whether the `age` file `file` (binary or armoured) is written under a passphrase, so a reader asks for one. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsShareOf` | The share of `entries`: every field but the product's other `tsm.*` fields and overlay fields, the tags, attachments and expiry. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsImportShare` | The entries of `share` added to `group` of `file` as new entries (new UUIDs). | [→](api_summary_sharing.md#functions) |
+| `tomSecretsWriteShare` | `share` as an `age` file to `recipients` (all hybrid or all classical) or under `passphrase`, exactly one; throws `TomSecretsShareException` (`protection`) else. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsReadShare` | The share in `bytes` (a `.tsmshare` file or the armoured text), opened with the first of `identities` that fits; throws `TomSecretsAgeException` or `TomSecretsShareException`. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsLooksLikeShare` | Whether `text` (pasted, scanned) holds an armoured `age` file. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsShareFitsQr` | Whether the share `file` fits a QR code as armoured text (`tomSecretsQrCapacity`). | [→](api_summary_sharing.md#functions) |
+| `tomSecretsIsInboxMember` | Whether `id` is a member id an inbox folder may be named by (a member key's fingerprint). | [→](api_summary_sharing.md#functions) |
+| `tomSecretsIsInboxName` | Whether `name` is a package name, `<YYYY-MM-DD>-<16 hex>.age`. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsInboxPath` | The path of the package `name` in the inbox of `memberId`, relative to the shared vault's folder: `inbox/<member>/<name>`; `ArgumentError` for another member id or name. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsNewInboxName` | A new package name: the UTC date at `now` and 16 random hex digits. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsInboxDate` | The day a package named `name` was put in (UTC), or null for another name. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsInboxExpired` | Whether the package `name` was put in more than 30 days before `now`; a file that is no package is never expired. | [→](api_summary_sharing.md#functions) |
 
 ### Global Variables
 
@@ -430,6 +452,14 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsRecipientsSuffix` | `String` | The suffix of a recipients file, after the vault's name: `.keys.age`. | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRotationsGroup` | `String` | The subgroup of the product group holding the rotation records: `rotations`. | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRotationPeriod` | `Duration` | The default migration period of a rotation: 14 days (DP-85). | [→](api_summary_sharing.md#constants) |
+| `tomSecretsAgeDefaultWorkFactor` | `int` | The work factor (log2 N) a passphrase file is written with: 18, `age`'s own. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsAgeMaxWorkFactor` | `int` | The highest work factor (log2 N) the reader computes: 22, as `age`. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsShareFormat` | `String` | The `format` of a share's JSON document: `tsm.share`. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsShareVersion` | `int` | The version of the share's JSON document this code writes and reads: 1. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsShareExtension` | `String` | The extension of a share saved as a file: `.tsmshare`. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsQrCapacity` | `int` | The most characters a QR code holds (version 40, level L, byte mode): 2953. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsInboxFolder` | `String` | The folder beside a shared vault holding the members' inboxes: `inbox`. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsInboxExpiry` | `Duration` | How long a package stays in an inbox before any member's sync deletes it: 30 days. | [→](api_summary_sharing.md#constants) |
 
 ---
 
@@ -562,6 +592,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsAgeFailure` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsagefailure) |
 | `TomSecretsAgeHybridIdentity` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsagehybrididentity) |
 | `TomSecretsAgeIdentity` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsageidentity) |
+| `TomSecretsAgePassphraseIdentity` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsagepassphraseidentity) |
 | `TomSecretsAgeRecipient` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsagerecipient) |
 | `TomSecretsAgeRecipientKind` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsagerecipientkind) |
 | `TomSecretsAgeX25519Identity` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsagex25519identity) |
@@ -713,10 +744,17 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsRotationException` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrotationexception) |
 | `TomSecretsRotationKind` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrotationkind) |
 | `TomSecretsRotations` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrotations) |
+| `TomSecretsShare` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsshare) |
+| `TomSecretsSharedAttachment` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedattachment) |
+| `TomSecretsSharedEntry` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedentry) |
+| `TomSecretsSharedField` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedfield) |
 | `TomSecretsSharedVaultException` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedvaultexception) |
 | `TomSecretsSharedVaultFailure` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedvaultfailure) |
 | `TomSecretsSharedVaultKeys` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedvaultkeys) |
 | `TomSecretsSharedVaultMember` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedvaultmember) |
+| `TomSecretsShareException` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsshareexception) |
+| `TomSecretsShareFailure` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharefailure) |
+| `TomSecretsShareSender` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharesender) |
 | `TomSecretsSignedKind` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssignedkind) |
 | `TomSecretsSignedLabels` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssignedlabels) |
 | `TomSecretsSiteUrl` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretssiteurl) |
@@ -768,6 +806,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsAgeDearmor` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsAgeDecrypt` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsAgeEncrypt` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsAgeEncryptPassphrase` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsAgeIsPassphrase` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsApprovalCode` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsApproverKeyId` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsAsciiHost` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
@@ -823,8 +863,14 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsImportGroupName` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsImportKdbxAsGroup` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsImportKdbxMerged` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsImportShare` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsImportVersionField` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsInboxDate` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsInboxExpired` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsInboxPath` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsIsAgeArmor` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsIsInboxMember` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsIsInboxName` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsIsPairingAddress` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsIsPasskeyField` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsIsReservedName` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
@@ -834,6 +880,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsKeysDue` | First Run and Device Settings | [→](api_summary_device.md#functions) |
 | `tomSecretsLinkFrame` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsLinkRekey` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsLooksLikeShare` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsLp` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsLpList` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsLps` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
@@ -849,6 +896,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsMergeVaults` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
 | `tomSecretsMetadataEntry` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsMigrateSshKeys` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsNewInboxName` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsNewSharedVault` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsNewVault` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsNoiseHkdf` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
@@ -880,6 +928,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsReadEnpassJson` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsReadMemberKeys` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsReadRecipientsFile` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsReadShare` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsReceivePairing` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsReceivePairingAt` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsReceivePairingForSetup` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
@@ -891,6 +940,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsSameText` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsSetBreachCheckExcluded` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsSettleConflicts` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
+| `tomSecretsShareFitsQr` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsShareOf` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsSharingGroupOf` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsSignedBytes` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsSshKeyCandidates` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
@@ -900,6 +951,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsVaultCredentials` | Key Files and Outer Encryption | [→](api_summary_protection.md#functions) |
 | `tomSecretsVerifiedBy` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsWriteRecipientsFile` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsWriteShare` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsWriteSshKey` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 
 ---
@@ -908,6 +960,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 
 | Name | Module | Link |
 | --- | --- | --- |
+| `tomSecretsAgeDefaultWorkFactor` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsAgeMaxWorkFactor` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsAmbiguousCharacters` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsBitwardenCardFields` | Import and Export | [→](api_summary_import_export.md#constants) |
 | `tomSecretsBitwardenIdentityFields` | Import and Export | [→](api_summary_import_export.md#constants) |
@@ -939,6 +993,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsFormatVersion` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsGrantsGroup` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsIdentitiesCategory` | Import and Export | [→](api_summary_import_export.md#constants) |
+| `tomSecretsInboxExpiry` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsInboxFolder` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsLinkKeyMigration` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsLinkMaxFrame` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsLinkProtocolName` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
@@ -958,11 +1014,15 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsPlatforms` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsPrimaryKeyMonths` | First Run and Device Settings | [→](api_summary_device.md#constants) |
 | `tomSecretsProductGroup` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsQrCapacity` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRecipientsSuffix` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRetentionTrailer` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsRotationPeriod` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRotationsGroup` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsSharedVaultKeysFormat` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsShareExtension` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsShareFormat` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsShareVersion` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsSharingGroup` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsSignedFields` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsSshAgentKeyTypes` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |

@@ -45,7 +45,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.18.0';
+const String tomSecretsServiceVersion = '0.19.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -1701,6 +1701,42 @@ final class TomSecretsService
     } finally {
       if (slug != null) _offeredTokens.remove(slug);
     }
+  }
+
+  /// **[C]** The packages in the inbox folders beside the store [store]
+  /// (`inbox.list`, part-sharing).
+  Future<List<({String member, String name, String revision})>> inbox(
+    String store,
+  ) => _vaults.inbox(store);
+
+  /// **[C]** One package of the inbox of [member] beside [store]
+  /// (`inbox.read`), or null when it is gone.
+  Future<({Uint8List bytes, String revision})?> inboxFile(
+    String store,
+    String member,
+    String name,
+  ) => _vaults.inboxFile(store, member, name);
+
+  /// **[C]** Puts the package [bytes] into the inboxes of [members] beside
+  /// [store] (`inbox.put`); answers its file name.
+  Future<String> inboxPut(
+    String store,
+    List<String> members,
+    Uint8List bytes,
+  ) async {
+    final name = await _serial(() => _vaults.inboxPut(store, members, bytes));
+    log.info('inbox_put', {'store': store, 'members': members.length});
+    return name;
+  }
+
+  /// **[C]** Deletes [files] from the inbox folders beside [store]
+  /// (`inbox.delete`).
+  Future<void> inboxDelete(
+    String store,
+    List<({String member, String name})> files,
+  ) async {
+    await _serial(() => _vaults.inboxDelete(store, files));
+    log.info('inbox_deleted', {'store': store, 'files': files.length});
   }
 
   /// GitHub tokens a request brings for one read of a repository not listed
@@ -3610,6 +3646,95 @@ final class _AdminSession {
     }
   }
 
+  /// **[C]** The inbox requests (protocol.md 6.4, part-sharing): the
+  /// packages in a shared vault's `inbox/<member-id>/` folders listed, read,
+  /// put and deleted; the app encrypts and decrypts them.
+  Future<void> _inbox(int id, String op, Map<String, Object?> m) async {
+    void malformed(String text) =>
+        connection.sendError(id, 'malformed', text, {'reason': 'inbox'});
+    final store = m['store'];
+    if (store is! String) return malformed('$op names a store');
+    try {
+      switch (op) {
+        case 'inbox.list':
+          final files = await service.inbox(store);
+          connection.send({
+            'op': 'inbox',
+            'id': id,
+            'store': store,
+            'files': [
+              for (final f in files)
+                {'member': f.member, 'name': f.name, 'revision': f.revision},
+            ],
+          });
+        case 'inbox.read':
+          final member = m['member'];
+          final name = m['name'];
+          if (member is! String || name is! String) {
+            return malformed('inbox.read names a member and a name');
+          }
+          final file = await service.inboxFile(store, member, name);
+          if (file == null) {
+            connection.sendError(id, 'not_found', 'the package is gone', {
+              'reason': 'inbox',
+            });
+            return;
+          }
+          connection.send({
+            'op': 'inboxFile',
+            'id': id,
+            'store': store,
+            'member': member,
+            'name': name,
+            'revision': file.revision,
+            'bytes': base64.encode(file.bytes),
+          });
+        case 'inbox.put':
+          final members = m['members'];
+          final bytes = m['bytes'];
+          if (members is! List ||
+              members.isEmpty ||
+              members.any((x) => x is! String) ||
+              bytes is! String) {
+            return malformed('inbox.put carries members and bytes');
+          }
+          final Uint8List package;
+          try {
+            package = base64.decode(bytes);
+          } on FormatException {
+            return malformed('bytes is not base64');
+          }
+          final name = await service.inboxPut(
+            store,
+            members.cast<String>(),
+            package,
+          );
+          connection.send({'op': 'ok', 'id': id, 'name': name});
+        case 'inbox.delete':
+          final files = m['files'];
+          if (files is! List ||
+              files.any(
+                (f) =>
+                    f is! Map || f['member'] is! String || f['name'] is! String,
+              )) {
+            return malformed('inbox.delete carries files (member, name)');
+          }
+          await service.inboxDelete(store, [
+            for (final f in files.cast<Map<Object?, Object?>>())
+              (member: f['member']! as String, name: f['name']! as String),
+          ]);
+          connection.send({'op': 'ok', 'id': id});
+      }
+    } on TomSecretsSaveException catch (e) {
+      connection.sendError(id, e.kind, e.message, {'reason': ?e.reason});
+    } on Object catch (e) {
+      service.log.error('inbox_failed', e, {'store': store, 'op': op});
+      connection.sendError(id, 'internal', 'the inbox request failed', {
+        'code': e.runtimeType.toString(),
+      });
+    }
+  }
+
   /// The pairing requests (protocol.md 6.3, part-sharing): the app runs the
   /// pairing itself; the service gives this device's public keys and keeps
   /// what the pairing gave.
@@ -4515,6 +4640,18 @@ final class _AdminSession {
             {'code': e.runtimeType.toString()},
           );
         }
+      case 'inbox.list' || 'inbox.read' || 'inbox.put' || 'inbox.delete':
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        if (service.isLocked) {
+          connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        await _inbox(id, op, m);
       case 'pair.identity' || 'pair.record' || 'pair.revoke' || 'pair.list':
         if (!isApp) {
           connection.sendError(id, 'denied', 'only the manager app', {

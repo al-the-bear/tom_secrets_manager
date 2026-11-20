@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.16
+
+- The `age` passphrase recipient (part-sharing): `scrypt` stanzas,
+  `tomSecretsAgeEncryptPassphrase` (work factor 18 by default, scrypt in
+  another isolate), `TomSecretsAgePassphraseIdentity` (work factors above
+  22 refused), `tomSecretsAgeIsPassphrase`; an `scrypt` stanza beside
+  another is refused, as `age` does. Checked against the age testkit's
+  scrypt vectors and `filippo.io/age` v1.3.2 both ways.
+- Single-entry exports (part-sharing, BP-34): `TomSecretsShare` (the JSON
+  document `tsm.share` v1: entries with fields, tags, attachments, expiry,
+  type and `tsm.key`; the sender), `tomSecretsShareOf`,
+  `tomSecretsWriteShare` (to members' keys, under a passphrase or to
+  classical keys), `tomSecretsReadShare`, `tomSecretsImportShare` (new
+  entries), `tomSecretsShareFitsQr`, `tomSecretsLooksLikeShare`.
+- The inbox folders: `tomSecretsInboxPath`, `tomSecretsNewInboxName`,
+  `tomSecretsInboxDate`, `tomSecretsInboxExpired` (30 days),
+  `tomSecretsIsInboxMember`, `tomSecretsIsInboxName`.
+
 ## 0.2.15
 
 - The rotation record (part-key-rotation, DP-85): `TomSecretsRotations`

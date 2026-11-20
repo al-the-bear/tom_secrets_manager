@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.19.0
+
+- The inbox folders of shared vaults (part-sharing, protocol.md 6.4,
+  decision 42): the admin requests `inbox.list`, `inbox.read`, `inbox.put`
+  and `inbox.delete` (manager app only) over `inbox/<member>/` beside a
+  shared vault; the packages are opaque `age` files the app writes and
+  reads.
+- `TomSecretsVaultOpener` gains `listBeside` and `deleteBeside`, and
+  `readBeside` / `writeBeside` take a path below the vault's folder
+  (`tomSecretsBesidePath` checks it): an implementer adds the two methods.
+
 ## 0.18.0
 
 - The migration period of a rotation (part-key-rotation, protocol.md 6.4,
