@@ -29,10 +29,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
+import 'package:tom_secrets_age/tom_secrets_age.dart';
 
-import 'age.dart';
 import 'key_file.dart';
-import 'member_keys.dart';
 import 'metadata.dart';
 import 'new_vault.dart';
 import 'outer.dart';

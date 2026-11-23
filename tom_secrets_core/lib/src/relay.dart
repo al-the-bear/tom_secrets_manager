@@ -24,9 +24,9 @@
 library;
 
 import 'dart:typed_data';
+import 'package:tom_secrets_age/tom_secrets_age.dart';
 
 import 'approval_link.dart';
-import 'member_keys.dart';
 
 /// What a relay offers.
 enum TomSecretsRelayService {

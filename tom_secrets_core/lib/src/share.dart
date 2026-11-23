@@ -30,10 +30,9 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
+import 'package:tom_secrets_age/tom_secrets_age.dart';
 
-import 'age.dart';
 import 'mapping.dart';
-import 'member_keys.dart';
 
 /// The `format` of a share's JSON document.
 const tomSecretsShareFormat = 'tsm.share';

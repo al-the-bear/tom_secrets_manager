@@ -26,6 +26,7 @@ import 'package:cryptography/cryptography.dart' as aead;
 import 'package:pointycastle/ecc/api.dart';
 import 'package:pointycastle/ecc/curves/secp256r1.dart';
 import 'package:tom_pqc/tom_pqc.dart';
+import 'package:tom_secrets_age/tom_secrets_age.dart' show tomSecretsHkdf;
 
 import 'approval_link.dart';
 import 'pairing_words.dart';
@@ -265,23 +266,6 @@ bool _onCurve(List<int> encoded) {
   final left = (y * y) % _fieldP;
   final right = (x * x * x - BigInt.from(3) * x + _curveB) % _fieldP;
   return left == right;
-}
-
-/// HKDF-SHA-256 (RFC 5869) of [ikm] with [salt] and [info], [length] bytes.
-Uint8List tomSecretsHkdf(
-  List<int> ikm, {
-  required List<int> salt,
-  required List<int> info,
-  required int length,
-}) {
-  final prk = _hmac(salt.isEmpty ? List.filled(32, 0) : salt, ikm);
-  final out = BytesBuilder();
-  var previous = <int>[];
-  for (var i = 1; out.length < length; i++) {
-    previous = _hmac(prk, [...previous, ...info, i]);
-    out.add(previous);
-  }
-  return Uint8List.fromList(out.toBytes().sublist(0, length));
 }
 
 Uint8List _hmac(List<int> key, List<int> data) =>

@@ -15,7 +15,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
-import 'package:tom_secrets_core/tom_secrets_core.dart';
+import 'package:tom_secrets_age/tom_secrets_age.dart';
 
 /// One testkit vector: its header fields and the file.
 final class _Vector {

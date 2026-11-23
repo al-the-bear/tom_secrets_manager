@@ -1,5 +1,13 @@
 include: package:lints/recommended.yaml
 
+analyzer:
+  errors:
+    # tom_secrets_age is taken by path from this repository; the package
+    # reaches pub.dev from a staged copy in which that dependency is a
+    # version (_bin/publishing/stage_for_pub.py of the maintainers'
+    # workspace), so the path never ships.
+    invalid_dependency: ignore
+
 linter:
   rules:
     - unawaited_futures

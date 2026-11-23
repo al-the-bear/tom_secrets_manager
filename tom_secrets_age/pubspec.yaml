@@ -1,0 +1,25 @@
+name: tom_secrets_age
+description: >-
+  The age v1 file format (hybrid ML-KEM-768 + X25519, X25519 and scrypt
+  recipients, the armour) and the member keys of the Tom Secrets Manager,
+  without any vault format.
+version: 0.1.0
+homepage: https://enterprise-flutter.dev
+repository: https://github.com/al-the-bear/tom_secrets_manager
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  # SHA-256 (fingerprints, HKDF) and HMAC.
+  crypto: ^3.0.6
+  # ChaCha20-Poly1305 of the payload and the wrapped file keys.
+  cryptography: ^2.9.0
+  # scrypt and X25519 of the classical recipients.
+  pointycastle: ^4.0.0
+  # ML-KEM-768 + X25519 (X-Wing), the hybrid recipient type.
+  tom_pqc: ^0.1.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6

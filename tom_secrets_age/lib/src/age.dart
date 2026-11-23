@@ -38,8 +38,8 @@ import 'package:cryptography/cryptography.dart';
 import 'package:pointycastle/export.dart' as pc;
 import 'package:tom_pqc/tom_pqc.dart';
 
-import 'member_keys.dart';
-import 'pairing.dart' show tomSecretsHkdf;
+import 'hkdf.dart';
+import 'recipient.dart';
 
 /// Why an `age` file could not be written or read.
 enum TomSecretsAgeFailure {

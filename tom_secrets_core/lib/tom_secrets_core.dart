@@ -6,7 +6,6 @@
 /// (part-structure). The reference grammar is `tom_secrets_client`'s.
 library;
 
-export 'src/age.dart';
 export 'src/approval_code.dart';
 export 'src/approval_link.dart';
 export 'src/auto_type.dart';
@@ -43,6 +42,9 @@ export 'src/passkey.dart';
 export 'src/password_generator.dart';
 export 'src/primary.dart';
 export 'src/relay.dart';
+
+// The age format and the member keys (no vault format), re-exported.
+export 'package:tom_secrets_age/tom_secrets_age.dart';
 export 'src/github_relay.dart';
 export 'src/resolution.dart';
 export 'src/rotation.dart';

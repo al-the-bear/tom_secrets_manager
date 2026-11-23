@@ -31,9 +31,9 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:tom_core_storage/github.dart';
 import 'package:tom_core_storage/tom_core_storage.dart';
+import 'package:tom_secrets_age/tom_secrets_age.dart';
 import 'package:tom_github_api/tom_github_api.dart' show GitHubApiClient;
 
-import 'member_keys.dart';
 import 'relay.dart';
 import 'share.dart';
 import 'vault_sync.dart' show tomSecretsDeviceCommitter;

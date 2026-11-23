@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.22
+
+- The `age` format, the member keys and HKDF moved to the new package
+  `tom_secrets_age` (no vault format in it, so the relay server can use
+  them); this library re-exports it, so nothing changes for its users.
+
 ## 0.2.21
 
 - The relay interface (part-relay, phase C): `TomSecretsRelay` (pairing

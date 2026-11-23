@@ -549,6 +549,8 @@ key.dispose();
 ```
 
 The published file is `age`'s recipients-file format (`age -R` reads it).
+The member keys and the `age` format are the package `tom_secrets_age`,
+which this library re-exports.
 A classical `age1…` recipient is accepted for exports to that person only
 (`canJoinSharedVaults` is false). The group `tsm.sharing` is never resolved
 into and never exported.
