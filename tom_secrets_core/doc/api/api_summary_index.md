@@ -372,6 +372,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsRelayBudget` | typedef | One budget of the relay client | [→](api_summary_sharing.md#tomsecretsrelaybudget) |
 | `TomSecretsRelayBudgetSpent` | final class | A relay request's turn is too far away | [→](api_summary_sharing.md#tomsecretsrelaybudgetspent) |
 | `TomSecretsRelayPacer` | final class | The turns of the requests to one relay server | [→](api_summary_sharing.md#tomsecretsrelaypacer) |
+| `TomSecretsWormholeConnect` | typedef | Opens a WebSocket to a magic-wormhole server | [→](api_summary_sharing.md#tomsecretswormholeconnect) |
+| `TomSecretsWormholeRelay` | final class | A magic-wormhole mailbox server as a relay (pairing only) | [→](api_summary_sharing.md#tomsecretswormholerelay) |
 | `TomSecretsDeviceRecord` | final class | One paired device. | [→](api_summary_sharing.md#tomsecretsdevicerecord) |
 | `TomSecretsGitHubAuth` | enum | How a device reaches GitHub: the App sign-in or a pasted token. | [→](api_summary_sharing.md#tomsecretsdevicerecord) |
 | `TomSecretsDeviceRecords` | final class | The device records of the primary vault `file`. | [→](api_summary_sharing.md#tomsecretsdevicerecords) |
@@ -427,6 +429,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsReceivePairingVia` | The receiving side through a relay. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRelayWebSocket` | Opens a WebSocket to a relay, keeping a refusal's status and message. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRetryAfter` | A `Retry-After` header's delay, or null. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsHashcashStamp` | A Hashcash v1 stamp for a mailbox server's proof of work. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsHashcashBits` | How many leading zero bits a stamp's SHA-1 has. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRelayFor` | The relay an id names, built for this device. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRelayNeedsToken` | Whether pairing through a relay needs a token of this machine's own. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsNewLinkId` | A new link id (128 random bits). | [→](api_summary_sharing.md#functions) |
@@ -493,6 +497,11 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsInboxExpiry` | `Duration` | How long a package stays in an inbox before any member's sync deletes it: 30 days. | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRelayClientBudgets` | `List<TomSecretsRelayBudget>` | What the relay client spends on one relay: 5 a second, 60 a minute, 1,000 a day. | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRelayLongestWait` | `Duration` | The longest a relay request waits for its turn: 70 seconds. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsWormholeAppId` | `String` | The application id the app binds a magic-wormhole server with. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsWormholePublicServer` | `String` | The magic-wormhole project's public mailbox server. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsWormholeLifetime` | `Duration` | How long a hosted pairing waits on a magic-wormhole server: 10 minutes. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsWormholeHostPhase` | `String` | The phase of the hosting side's first message: `host`. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsWormholeClosePhase` | `String` | The phase of a side's last message: `close`. | [→](api_summary_sharing.md#constants) |
 
 ---
 
@@ -838,6 +847,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsVaultLocator` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsvaultlocator) |
 | `TomSecretsVaultSource` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsvaultsource) |
 | `TomSecretsVaultUnit` | Sync, Merge and Compaction | [→](api_summary_sync.md#tomsecretsvaultunit) |
+| `TomSecretsWormholeConnect` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretswormholeconnect) |
+| `TomSecretsWormholeRelay` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretswormholerelay) |
 
 ---
 
@@ -898,6 +909,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsGitHubTokenExpiryHandle` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsGitHubTokenHandle` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsGivePairing` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsHashcashBits` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsHashcashStamp` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsHealthReport` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsImport` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsImportCategoryField` | Import and Export | [→](api_summary_import_export.md#functions) |
@@ -1098,3 +1111,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsTokenExpirationHeader` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |
 | `tomSecretsTrustGroup` | First Run and Device Settings | [→](api_summary_device.md#constants) |
 | `tomSecretsVaultsGroup` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
+| `tomSecretsWormholeAppId` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsWormholeClosePhase` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsWormholeHostPhase` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsWormholeLifetime` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsWormholePublicServer` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |

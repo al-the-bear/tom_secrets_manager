@@ -59,6 +59,8 @@
   - [TomSecretsRelayBudget](#tomsecretsrelaybudget)
   - [TomSecretsRelayBudgetSpent](#tomsecretsrelaybudgetspent)
   - [TomSecretsRelayPacer](#tomsecretsrelaypacer)
+  - [TomSecretsWormholeConnect](#tomsecretswormholeconnect)
+  - [TomSecretsWormholeRelay](#tomsecretswormholerelay)
   - [TomSecretsDeviceRecord](#tomsecretsdevicerecord)
   - [TomSecretsDeviceRecords](#tomsecretsdevicerecords)
   - [TomSecretsMemberFields](#tomsecretsmemberfields)
@@ -1351,6 +1353,31 @@ A WebSocket upgrade the relay answered with `status` instead of 101, with the re
 
 ---
 
+### TomSecretsWormholeConnect
+
+**[C]** Opens the WebSocket `url`: `Future<WebSocket> Function(Uri url)`.
+
+**Kind:** `typedef`
+
+---
+
+### TomSecretsWormholeRelay
+
+**[C]** A magic-wormhole mailbox server as a relay (`wormhole:<ws(s) url>`, part-relay, DP-66, DP-180): pairing only, on the existing servers unchanged (the public one or a self-hosted `magic-wormhole-mailbox-server`), speaking only the mailbox protocol a client needs (`bind`, `allocate`, `claim`, `open`, `add`, `release`, `close`, `ping`; the welcome's `error` read, a Hashcash proof of work answered with `submit-permissions`) with the app's own application id. The hosting side allocates the nameplate (the code's number), claims it, opens its mailbox and adds a first message (phase `host`); the joining side claims and opens it and finds no pairing when that message is missing; each `send` is one mailbox message (hex, a phase counting up), so the pairing's SPAKE2 with ML-KEM-768 inside runs in the mailbox unchanged; a side that closes adds a last message (phase `close`). The nameplate is released once both sides have the mailbox; the hosting side closes its mailbox (`lonely`) after `lifetime` without the other side. `link`, `put`, `list`, `fetch` and `delete` throw `TomSecretsRelayException` with `unsupported`.
+
+**Kind:** `final class` (implements `TomSecretsRelay`)
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsWormholeRelay(id, {appId, connect, timeout, lifetime, random, clock})` | — | The server `id`, bound as `appId` (default `tomSecretsWormholeAppId`); WebSockets through `connect`; a server's answer waited for up to `timeout` (30 seconds); a hosted pairing kept open for `lifetime` (default `tomSecretsWormholeLifetime`). |
+| `appId` | `String` | The application id it binds with. |
+| `timeout` | `Duration` | How long a server's answer may take. |
+| `lifetime` | `Duration` | How long a hosted pairing waits for the other side. |
+
+---
+
 ### TomSecretsDeviceRecord
 
 One paired device.
@@ -1727,6 +1754,11 @@ A share (single-entry export): entries for another person, who sent them, when; 
 | `tomSecretsInboxExpiry` | `Duration` | How long a package stays in an inbox before any member's sync deletes it: 30 days. |
 | `tomSecretsRelayClientBudgets` | `List<TomSecretsRelayBudget>` | **[C]** What the relay client spends on one relay: 5 a second, 60 a minute, 1,000 a day. |
 | `tomSecretsRelayLongestWait` | `Duration` | **[C]** The longest a relay request waits for its turn: 70 seconds. |
+| `tomSecretsWormholeAppId` | `String` | **[C]** The application id the app binds a magic-wormhole server with: `tomsecrets.app/pair/v1`, its own, so its traffic never meets the `wormhole` tools'. |
+| `tomSecretsWormholePublicServer` | `String` | **[C]** The magic-wormhole project's public mailbox server: `wormhole:ws://relay.magic-wormhole.io:4000/v1`. |
+| `tomSecretsWormholeLifetime` | `Duration` | **[C]** How long a hosted pairing waits on a magic-wormhole server for the other side: 10 minutes (DP-180). |
+| `tomSecretsWormholeHostPhase` | `String` | **[C]** The phase of the hosting side's first message, which tells the joining side a pairing waits: `host`. |
+| `tomSecretsWormholeClosePhase` | `String` | **[C]** The phase of the last message a side adds when it closes: `close`. |
 
 ### Functions
 
@@ -1761,8 +1793,10 @@ A share (single-entry export): entries for another person, who sent them, when; 
 | `tomSecretsReceivePairingAt` | `Future<TomSecretsPairingReceived> tomSecretsReceivePairingAt(String address, int port, {required TomSecretsPairingCode code, required String device, required Future<TomSecretsPairingPeerKeys> Function(String giver, TomSecretsPairingBundle bundle) keysFor, Duration connectTimeout = const Duration(seconds: 10)})` | The receiving side connecting to a pairing window at `address`:`port` (`tomSecretsReceivePairing` over TCP). Throws `TomSecretsPairingException` (`closed` when nothing answers there). |
 | `tomSecretsReceivePairingVia` | `Future<TomSecretsPairingReceived> tomSecretsReceivePairingVia(TomSecretsRelay relay, {required TomSecretsPairingCode code, required String device, required Future<TomSecretsPairingPeerKeys> Function(String giver, TomSecretsPairingBundle bundle) keysFor, Duration timeout = const Duration(minutes: 5)})` | **[C]** The receiving side through a relay: joins the pairing hosted under the code's number and runs `tomSecretsReceivePairing` over the channel. Throws `TomSecretsRelayException` naming the relay when it fails. |
 | `tomSecretsRelayWebSocket` | `Future<WebSocket> tomSecretsRelayWebSocket(Uri url, Map<String, String> headers)` | **[C]** Opens the WebSocket `url` with `headers`, doing the handshake itself so a refusal keeps its status, the relay's message and its `Retry-After` (`TomSecretsRelayUpgradeRefused`). |
+| `tomSecretsHashcashStamp` | `String tomSecretsHashcashStamp(int bits, String resource, {DateTime? now, Random? random})` | **[C]** A Hashcash v1 stamp of `bits` for `resource` (the mailbox protocol's `submit-permissions`): `1:<bits>:<YYMMDD>:<resource>::<rand>:<counter>`, whose SHA-1 starts with `bits` zero bits; a resource holding a colon throws `ArgumentError`. |
+| `tomSecretsHashcashBits` | `int tomSecretsHashcashBits(String stamp)` | **[C]** How many leading zero bits the SHA-1 of `stamp` has. |
 | `tomSecretsRetryAfter` | `Duration? tomSecretsRetryAfter(String? header)` | **[C]** A `Retry-After` header's delay in seconds, or null (a date or anything else). |
-| `tomSecretsRelayFor` | `TomSecretsRelay tomSecretsRelayFor(TomSecretsRelayId id, {String? token, String device = 'tsm', String? githubApi})` | **[C]** The relay `id` names, built for this device: GitHub with this machine's GitHub `token` (required), the relay server with its instance `token` (optional); a magic-wormhole server throws `TomSecretsRelayException` (`unsupported`). |
+| `tomSecretsRelayFor` | `TomSecretsRelay tomSecretsRelayFor(TomSecretsRelayId id, {String? token, String device = 'tsm', String? githubApi})` | **[C]** The relay `id` names, built for this device: GitHub with this machine's GitHub `token` (required), the relay server with its instance `token` (optional), a magic-wormhole mailbox server as it is (`TomSecretsWormholeRelay`, pairing only). |
 | `tomSecretsRelayNeedsToken` | `bool tomSecretsRelayNeedsToken(TomSecretsRelayId id)` | **[C]** Whether pairing through `id` needs a token of this machine's own (GitHub's repository token; a relay server's instance token is not needed to pair). |
 | `tomSecretsNewLinkId` | `String tomSecretsNewLinkId()` | **[C]** A new link id: 16 random bytes (128 bits) in base64url without padding. |
 | `tomSecretsPairingLink` | `({String relay, String linkId})? tomSecretsPairingLink(TomSecretsPairingPeerKeys giver, TomSecretsPairingPeerKeys receiver)` | **[C]** The relay link two sides of a pairing agree on: the giving side's relay and link id when it names them, else the receiving side's; null when neither names one. |

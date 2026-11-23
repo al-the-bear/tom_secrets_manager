@@ -148,7 +148,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | Approval link (Noise KK + ML-KEM-768) | `TomSecretsLinkSession`, `TomSecretsApprovalChannel` |
 | Pairing (SPAKE2, RFC 9382) | `TomSecretsPairingCode`, `tomSecretsGivePairing`, `tomSecretsReceivePairing`, `TomSecretsPairingWindow` |
 | Device records | `TomSecretsDeviceRecords` |
-| Relays (phase C): one interface for the transports (pairing, mailbox, link), relay ids; GitHub as the relay for pairing (frames as files, polled) and the mailbox (the inbox folders); the relay server (`tsm:`) for pairing, the link and the mailbox; the pairing window hosting on a relay beside the LAN | `TomSecretsRelay`, `TomSecretsRelayId`, `TomSecretsPairingChannel`, `TomSecretsGitHubRelay`, `TomSecretsServerRelay`, `tomSecretsRelayFor`, `TomSecretsRelayFolder`, `tomSecretsReceivePairingVia` |
+| Relays (phase C): one interface for the transports (pairing, mailbox, link), relay ids; GitHub as the relay for pairing (frames as files, polled) and the mailbox (the inbox folders); the relay server (`tsm:`) for pairing, the link and the mailbox, its requests paced; a magic-wormhole mailbox server (`wormhole:`) for pairing; the pairing window hosting on a relay beside the LAN | `TomSecretsRelay`, `TomSecretsRelayId`, `TomSecretsPairingChannel`, `TomSecretsGitHubRelay`, `TomSecretsServerRelay`, `TomSecretsRelayPacer`, `TomSecretsWormholeRelay`, `tomSecretsRelayFor`, `TomSecretsRelayFolder`, `tomSecretsReceivePairingVia` |
 | The `age` v1 file format (phase C): hybrid `mlkem768x25519` and classical `X25519` recipients, a passphrase (`scrypt`), the armour; checked against the age testkit and `filippo.io/age` | `tomSecretsAgeEncrypt`, `tomSecretsAgeEncryptPassphrase`, `tomSecretsAgeDecrypt`, `tomSecretsAgeArmor`, `TomSecretsAgeIdentity` |
 | Single-entry exports (phase C): entries as a share for members' keys, a passphrase or a classical key, as armoured text, a QR code or a `.tsmshare` file; the `inbox/<member>/` folders' names and expiry | `TomSecretsShare`, `tomSecretsShareOf`, `tomSecretsWriteShare`, `tomSecretsReadShare`, `tomSecretsImportShare`, `tomSecretsShareFitsQr`, `tomSecretsInboxPath`, `tomSecretsInboxExpired` |
 | Shared vaults (phase C): a key file alone, the recipients file `<vault>.keys.age` to the members' hybrid keys, adding and removing members | `TomSecretsSharedVaultKeys`, `tomSecretsWriteRecipientsFile`, `tomSecretsReadRecipientsFile`, `tomSecretsNewSharedVault` |
@@ -522,7 +522,18 @@ services: `TomSecretsServerRelay` allocates the nameplate with
 `POST /v1/pair` and both sides meet on a WebSocket; the link needs the
 server's instance token in its token mode; the mailbox reads need the
 recipient's proof, which the relay encrypts to the member key and this
-side decrypts. `tomSecretsRelayFor` builds the relay an id names.
+side decrypts. Its requests are paced under the relay's per-address
+limits (`TomSecretsRelayPacer`: 5 a second, 60 a minute, 1,000 a day per
+relay in the process). A magic-wormhole mailbox server
+(`wormhole:ws(s)://…`, the public one or a self-hosted
+`magic-wormhole-mailbox-server`, run unchanged) is a relay for pairing
+only: `TomSecretsWormholeRelay` speaks the mailbox protocol with the
+app's own application id (`tomsecrets.app/pair/v1`), the server
+allocating the nameplate, each frame one mailbox message; the hosting
+side's first message tells the joining side that a pairing waits; the
+code lives the app's own 10 minutes; a Hashcash proof of work is
+answered when the server's welcome asks for one.
+`tomSecretsRelayFor` builds the relay an id names.
 
 A pairing may also agree on a relay server for the **approval link**, for
 two devices that do not reach each other on the network or the VPN later:
@@ -787,6 +798,23 @@ rewrites its default branch), demo data only:
 TSM_LIVE_GITHUB_TOKEN=$(gh auth token) \
 TSM_LIVE_GITHUB_REPO=<owner>/<repo> \
   dart test test/live_github_compaction_test.dart
+```
+
+### The live check on a magic-wormhole mailbox server
+
+`test/wormhole_relay_test.dart` runs the wormhole relay against a fake of
+the mailbox server in the test's process.
+`test/live_wormhole_server_test.dart` runs a pairing against the real
+`magic-wormhole-mailbox-server` (MIT, run unchanged): it starts the server
+on a free loopback port when `TSM_WORMHOLE_TWIST` names its `twist` (the
+server installed with `pip install magic-wormhole-mailbox-server` into a
+virtual environment), with and without `--disallow-list`, and pairs through
+a running server when `TSM_WORMHOLE_SERVER` names one (for example the
+public `ws://relay.magic-wormhole.io:4000/v1`). It skips without either:
+
+```bash
+TSM_WORMHOLE_TWIST=<venv>/bin/twist \
+  dart test test/live_wormhole_server_test.dart
 ```
 
 ## Licence

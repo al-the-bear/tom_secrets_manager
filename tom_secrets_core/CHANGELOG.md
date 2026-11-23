@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.25
+
+- A magic-wormhole mailbox server as a relay (part-relay, DP-66, DP-180):
+  `TomSecretsWormholeRelay` (`wormhole:ws(s)://…`, pairing only) on the
+  existing servers unchanged, speaking the mailbox protocol a client needs
+  (`bind`, `allocate`, `claim`, `open`, `add`, `release`, `close`, `ping`)
+  with the app's own application id (`tomSecretsWormholeAppId`). The
+  server allocates the nameplate (the code's number); each frame is one
+  mailbox message, so the pairing's SPAKE2 with ML-KEM-768 inside runs
+  unchanged; the hosting side's first message (phase `host`) tells the
+  joining side that a pairing waits (a claim opens any nameplate, a server
+  may refuse its list); the nameplate is released once both sides have the
+  mailbox; the hosting side closes after the app's own 10 minutes
+  (`tomSecretsWormholeLifetime`); a welcome's `error` is said and a Hashcash
+  proof of work answered (`submit-permissions`, `tomSecretsHashcashStamp`).
+  `tomSecretsRelayFor` builds it; `tomSecretsWormholePublicServer` names the
+  public server. Tested against a fake in the test's process and, by hand,
+  against the real `magic-wormhole-mailbox-server` 0.8.0.
+
 ## 0.2.24
 
 - The relay client paces its requests (part-relay, DP-65):

@@ -308,16 +308,14 @@ void main() {
       throwsA(isA<TomSecretsRelayException>()),
     );
     expect(
-      () => tomSecretsRelayFor(
+      tomSecretsRelayFor(TomSecretsRelayId.parse('wormhole:wss://w.example')),
+      isA<TomSecretsWormholeRelay>(),
+    );
+    expect(
+      tomSecretsRelayNeedsToken(
         TomSecretsRelayId.parse('wormhole:wss://w.example'),
       ),
-      throwsA(
-        isA<TomSecretsRelayException>().having(
-          (e) => e.unsupported,
-          'unsupported',
-          isTrue,
-        ),
-      ),
+      isFalse,
     );
     expect(
       tomSecretsRelayNeedsToken(TomSecretsRelayId.parse('github:owner/repo')),

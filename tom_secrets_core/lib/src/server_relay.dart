@@ -40,6 +40,7 @@ import 'github_relay.dart';
 import 'relay.dart';
 import 'relay_pacer.dart';
 import 'share.dart';
+import 'wormhole_relay.dart';
 
 /// The relay server [id] names (`tsm:https://relay.example`), reached with
 /// the instance token [token] (null: none; pairing needs none, a mailbox
@@ -543,8 +544,8 @@ final _keyRandom = Random.secure();
 
 /// The relay [id] names, built for this device: GitHub reached with the
 /// GitHub [token] (required; [githubApi] for GitHub Enterprise), the relay
-/// server with its instance [token] (optional). A magic-wormhole server is
-/// not carried yet: [TomSecretsRelayException] with `unsupported`.
+/// server with its instance [token] (optional), a magic-wormhole mailbox
+/// server as it is (pairing only).
 TomSecretsRelay tomSecretsRelayFor(
   TomSecretsRelayId id, {
   String? token,
@@ -569,13 +570,7 @@ TomSecretsRelay tomSecretsRelayFor(
     case TomSecretsRelayKind.server:
       return TomSecretsServerRelay(id, token: token);
     case TomSecretsRelayKind.wormhole:
-      throw TomSecretsRelayException(
-        id.text,
-        'a magic-wormhole server is not available as a relay in this '
-        'version; pair through a relay server or a GitHub repository, on the '
-        'same network or over the VPN',
-        unsupported: true,
-      );
+      return TomSecretsWormholeRelay(id);
   }
 }
 
