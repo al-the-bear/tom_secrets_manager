@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.27
+
+- `tomSecretsRpIdValidFor`: whether a page may use a relying party's
+  passkeys, by WebAuthn's rule (https or `http://localhost`, the page's host
+  or a domain above it, never a public suffix or an IP address), for the
+  service's passkey requests (protocol.md 5.8).
+
 ## 0.2.26
 
 - Passkeys for the OS providers (part-password-manager,

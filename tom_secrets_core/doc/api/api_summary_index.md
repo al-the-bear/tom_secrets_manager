@@ -567,6 +567,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsPasskeyClientDataJson` | The client data a provider makes for an app. | [→](api_summary_import_export.md#functions) |
 | `tomSecretsPasskeyRegistrationJson` | A registration as WebAuthn JSON. | [→](api_summary_import_export.md#functions) |
 | `tomSecretsPasskeyAssertionJson` | An assertion as WebAuthn JSON. | [→](api_summary_import_export.md#functions) |
+| `tomSecretsRpIdValidFor` | Whether a page may use a relying party's passkeys. | [→](api_summary_import_export.md#functions) |
 | `tomSecretsBitwardenNeedsPassword` | Whether a Bitwarden export is password-protected (its password is needed). | [→](api_summary_import_export.md#functions) |
 | `tomSecretsReadBitwardenJson` | Reads Bitwarden's JSON export, a password-protected one with `password`; folders become groups, types map as 1Password's, the item id into `tsm.import.bitwarden.id`; a wrong password and an account-restricted export are refused. | [→](api_summary_import_export.md#functions) |
 | `tomSecretsBitwardenExportKeys` | The keys of a password-protected export: PBKDF2-SHA256 (0) or Argon2id over the SHA-256 of the salt (1), then HKDF-Expand with `enc` and `mac`. | [→](api_summary_import_export.md#functions) |
@@ -1038,6 +1039,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsRequestDigest` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRetryAfter` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRpIdHash` | Import and Export | [→](api_summary_import_export.md#functions) |
+| `tomSecretsRpIdValidFor` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsSameText` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsSetBreachCheckExcluded` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsSettleConflicts` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |

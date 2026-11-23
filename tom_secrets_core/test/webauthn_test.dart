@@ -437,4 +437,51 @@ void main() {
     tomSecretsKeepPasskey(c, passkey);
     expect(tomSecretsPasskeyHome({'a': a, 'b': b, 'c': c}, passkey), 'c');
   });
+
+  test('which relying parties a page may use', () {
+    expect(
+      tomSecretsRpIdValidFor('https://login.example.com/x', 'example.com'),
+      isTrue,
+    );
+    expect(
+      tomSecretsRpIdValidFor('https://example.com', 'example.com'),
+      isTrue,
+    );
+    expect(
+      tomSecretsRpIdValidFor('https://example.com', 'login.example.com'),
+      isFalse,
+    );
+    expect(
+      tomSecretsRpIdValidFor('https://evil.example', 'example.com'),
+      isFalse,
+    );
+    expect(
+      tomSecretsRpIdValidFor('https://notexample.com', 'example.com'),
+      isFalse,
+    );
+    expect(
+      tomSecretsRpIdValidFor('http://example.com', 'example.com'),
+      isFalse,
+    );
+    // A public suffix is no relying party.
+    expect(tomSecretsRpIdValidFor('https://a.github.io', 'github.io'), isFalse);
+    expect(
+      tomSecretsRpIdValidFor('https://a.github.io', 'a.github.io'),
+      isTrue,
+    );
+    expect(tomSecretsRpIdValidFor('https://example.co.uk', 'co.uk'), isFalse);
+    expect(
+      tomSecretsRpIdValidFor('http://localhost:8080', 'localhost'),
+      isTrue,
+    );
+    expect(
+      tomSecretsRpIdValidFor('https://192.168.1.2', '192.168.1.2'),
+      isFalse,
+    );
+    expect(tomSecretsRpIdValidFor('not a url', 'example.com'), isFalse);
+    expect(
+      tomSecretsRpIdValidFor('https://Example.COM', 'example.com'),
+      isTrue,
+    );
+  });
 }

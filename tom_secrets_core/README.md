@@ -167,7 +167,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | One import for every source, with preview and re-import | `tomSecretsImport`, `TomSecretsImportReport` |
 | Exports: KDBX under a new password, CSV, Bitwarden JSON, Enpass JSON | `tomSecretsExportKdbx`, `tomSecretsExportCsv`, `tomSecretsExportBitwardenJson`, `tomSecretsExportEnpassJson` |
 | Passkeys in KeePassXC's fields | `TomSecretsPasskey`, `tomSecretsPasskeyPem`, `tomSecretsPasskeysIn`, `tomSecretsKeepPasskey` |
-| Passkeys made and signed with for the OS providers (WebAuthn) | `tomSecretsCreatePasskey`, `tomSecretsPasskeyAssertion`, `tomSecretsPasskeyRegistrationJson`, `tomSecretsPasskeyAssertionJson` |
+| Passkeys made and signed with for the OS providers and the browser (WebAuthn) | `tomSecretsCreatePasskey`, `tomSecretsPasskeyAssertion`, `tomSecretsPasskeyRegistrationJson`, `tomSecretsPasskeyAssertionJson`, `tomSecretsRpIdValidFor` |
 | First run, fresh or from a pairing | `TomSecretsFirstRun.run`, `TomSecretsFirstRun.runPaired` |
 | Device settings container | `TomSecretsDeviceSettings`, `TomSecretsDeviceContainer`, `TomSecretsDeviceKeys` |
 
@@ -675,7 +675,8 @@ KeePassXC's `KPEX_PASSKEY_*` fields (`tomSecretsPasskeyPem` converts PEM, DER,
 a raw P-256 scalar or a JWK).
 
 The OS passkey providers (the macOS AutoFill provider, Android's Credential
-Manager provider) use this package as a WebAuthn authenticator. It is never
+Manager provider) and the service's passkey requests for the browser use
+this package as a WebAuthn authenticator. It is never
 reached through the client endpoint.
 
 - `tomSecretsCreatePasskey` makes a passkey with the first algorithm the
@@ -690,6 +691,8 @@ reached through the client endpoint.
 - `tomSecretsKeepPasskey` keeps a new passkey in the site's login entry, or
   in a new entry. `tomSecretsPasskeyHome` picks the vault it goes into.
 - `tomSecretsPasskeysIn` lists a vault's passkeys.
+- `tomSecretsRpIdValidFor` tells whether a page may use a relying party's
+  passkeys, by WebAuthn's rule.
 
 Bitwarden's JSON export (`tomSecretsReadBitwardenJson`, awaited: a
 password-protected export derives its key) and the browsers' CSV exports

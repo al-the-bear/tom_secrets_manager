@@ -27,6 +27,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io' show InternetAddress;
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -35,6 +36,7 @@ import 'package:cryptography/cryptography.dart' as cg;
 import 'package:pointycastle/export.dart' as pc;
 
 import 'passkey.dart';
+import 'url_match.dart';
 
 /// User present.
 const int tomSecretsWebAuthnFlagUp = 0x01;
@@ -264,6 +266,32 @@ Future<TomSecretsPasskeyAssertion> tomSecretsPasskeyAssertion(
         ? null
         : tomSecretsDecodeBase64(passkey.userHandle!),
   );
+}
+
+/// **[C]** Whether a page at [url] may use passkeys of [rpId], by
+/// WebAuthn's rule: the page is `https` (or `http` on `localhost`), [rpId]
+/// is its host or a domain above it, and [rpId] is not a public suffix (the
+/// Public Suffix List, as URL matching reads it). An IP address is never a
+/// relying party.
+bool tomSecretsRpIdValidFor(String url, String rpId) {
+  final page = Uri.tryParse(url);
+  final rp = rpId.trim().toLowerCase();
+  if (page == null || rp.isEmpty || rp.endsWith('.')) return false;
+  final host = page.host.toLowerCase();
+  if (host.isEmpty) return false;
+  final local = host == 'localhost';
+  if (!(page.scheme == 'https' || (page.scheme == 'http' && local))) {
+    return false;
+  }
+  if (local) return rp == 'localhost';
+  if (InternetAddress.tryParse(host) != null ||
+      InternetAddress.tryParse(rp) != null) {
+    return false;
+  }
+  if (host != rp && !host.endsWith('.$rp')) return false;
+  final registrable = tomSecretsRegistrableDomain(rp);
+  return registrable != null &&
+      (rp == registrable || rp.endsWith('.$registrable'));
 }
 
 /// SHA-256 of [rpId], the first 32 bytes of the authenticator data.
