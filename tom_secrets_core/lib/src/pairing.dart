@@ -411,6 +411,8 @@ final class TomSecretsPairingPeerKeys {
     required this.linkKey,
     this.approverKey,
     this.linkAddress,
+    this.linkRelay,
+    this.linkId,
   });
 
   /// From [toJson].
@@ -425,7 +427,26 @@ final class TomSecretsPairingPeerKeys {
                 (json['approverKey']! as Map).cast(),
               ),
         linkAddress: json['linkAddress'] as String?,
+        linkRelay: _linkRelay(json['linkRelay'], json['linkId']),
+        linkId: _linkRelay(json['linkRelay'], json['linkId']) == null
+            ? null
+            : json['linkId'] as String,
       );
+
+  /// The relay of a peer's link when it names a relay server and a link id
+  /// that can be used; anything else is no relay link (an older peer).
+  static String? _linkRelay(Object? relay, Object? id) {
+    if (relay is! String || id is! String) return null;
+    if (!RegExp(r'^[A-Za-z0-9_-]{8,128}$').hasMatch(id)) return null;
+    try {
+      final parsed = TomSecretsRelayId.parse(relay);
+      return parsed.services.contains(TomSecretsRelayService.link)
+          ? parsed.text
+          : null;
+    } on FormatException {
+      return null;
+    }
+  }
 
   /// The approval-link public key.
   final TomSecretsLinkPublicKey linkKey;
@@ -436,11 +457,21 @@ final class TomSecretsPairingPeerKeys {
   /// Where its approval link listens (`address:port`), or null.
   final String? linkAddress;
 
+  /// **[C]** The relay server its approval link may also go through
+  /// (`tsm:<url>`), or null (part-relay).
+  final String? linkRelay;
+
+  /// **[C]** The random link id (128 bits, base64url) of that relay link,
+  /// with [linkRelay].
+  final String? linkId;
+
   /// The JSON.
   Map<String, Object?> toJson() => {
     'linkKey': linkKey.toJson(),
     if (approverKey != null) 'approverKey': approverKey!.toJson(),
     'linkAddress': ?linkAddress,
+    'linkRelay': ?linkRelay,
+    'linkId': ?linkId,
   };
 }
 

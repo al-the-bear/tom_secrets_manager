@@ -47,6 +47,7 @@ export 'src/relay.dart';
 export 'package:tom_secrets_age/tom_secrets_age.dart';
 export 'src/github_relay.dart';
 export 'src/server_relay.dart';
+export 'src/relay_link.dart';
 export 'src/resolution.dart';
 export 'src/rotation.dart';
 export 'src/certificate.dart';

@@ -19,6 +19,7 @@ import 'package:tom_secrets_client/admin.dart'
 import 'locator.dart';
 import 'pairing.dart';
 import 'relay.dart';
+import 'relay_link.dart';
 import 'trust.dart';
 
 /// A pairing received by a machine being set up, held in memory until the
@@ -29,7 +30,18 @@ final class TomSecretsPairingReceipt {
     this.received,
     this.trust, [
     this.ownTokens = const {},
+    this.ownKeys,
   ]);
+
+  /// **[C]** The public keys this machine answered with (its relay link
+  /// among them), or null.
+  final TomSecretsPairingPeerKeys? ownKeys;
+
+  /// **[C]** The relay link the two sides agreed on
+  /// (`tomSecretsPairingLink`), or null.
+  ({String relay, String linkId})? get link => ownKeys == null
+      ? null
+      : tomSecretsPairingLink(bundle.giverKeys, ownKeys!);
 
   /// The GitHub tokens this machine brought itself, by `owner/name` (a
   /// pairing through GitHub needs one before it starts, part-relay).
@@ -100,7 +112,10 @@ String? tomSecretsPairingSetupProblem(
 /// the public keys of fresh trust material (made [now]) and [linkAddress],
 /// the address this machine's approval link will listen on (the device
 /// setting `approvalLink`), so the giving machine records it and opens the
-/// link; refuses a bundle it cannot be set up from
+/// link; **[C]** [linkRelay], a relay server (`tsm:<url>`) the approval
+/// link may also go through, goes with a fresh link id (used when the
+/// giving side names none, `tomSecretsPairingLink`); refuses a bundle it
+/// cannot be set up from
 /// ([tomSecretsPairingSetupProblem]). Stores nothing. Throws
 /// [TomSecretsPairingException], and [ArgumentError] for a [linkAddress]
 /// that is no approval link (`tomSecretsApprovalLinkProblem`).
@@ -112,9 +127,14 @@ Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({
   required TomSecretsPairingCode code,
   required String device,
   String? linkAddress,
+  String? linkRelay,
   DateTime? now,
   Duration connectTimeout = const Duration(seconds: 10),
 }) async {
+  if (linkRelay != null && !tomSecretsIsLinkRelay(linkRelay)) {
+    throw ArgumentError.value(linkRelay, 'linkRelay', 'not a relay server');
+  }
+  TomSecretsPairingPeerKeys? sent;
   if (relay == null && (address == null || port == null)) {
     throw ArgumentError('an address and port, or a relay');
   }
@@ -134,10 +154,14 @@ Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({
       ownTokens: ownTokens.keys.toSet(),
     );
     if (problem != null) throw TomSecretsPairingRefusal(problem);
-    return TomSecretsPairingPeerKeys(
+    return sent = TomSecretsPairingPeerKeys(
       linkKey: (await trust.linkKey()).publicKey,
       approverKey: (await trust.approverKey()).publicKey,
       linkAddress: linkAddress,
+      linkRelay: linkRelay == null
+          ? null
+          : TomSecretsRelayId.parse(linkRelay).text,
+      linkId: linkRelay == null ? null : tomSecretsNewLinkId(),
     );
   }
 
@@ -156,7 +180,7 @@ Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({
           connectTimeout: connectTimeout,
           keysFor: keysFor,
         );
-  return TomSecretsPairingReceipt._(received, trust, Map.of(ownTokens));
+  return TomSecretsPairingReceipt._(received, trust, Map.of(ownTokens), sent);
 }
 
 /// Splits `host:port` (an IPv6 address in brackets: `[fd00::1]:47900`) as

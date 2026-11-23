@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.23
+
+- The approval link through a relay server (part-relay): the pairing's
+  public keys may name a relay server and a random link id
+  (`TomSecretsPairingPeerKeys.linkRelay` / `linkId`, `tomSecretsNewLinkId`);
+  `tomSecretsPairingLink` takes the giving side's, else the receiving
+  side's; `TomSecretsTrust.recordPeer(link:, peerIsGiver:)` keeps the relay
+  and one channel per direction (`tomSecretsLinkChannelId`) with the host
+  and the approver (`relay`, `linkId`). `tomSecretsReceivePairingForSetup`
+  takes a `linkRelay`; the receipt keeps the keys it answered with
+  (`ownKeys`, `link`), and `TomSecretsFirstRun.runPaired` records the link.
+
 ## 0.2.22
 
 - The relay server as a relay (`tsm:<url>`): `TomSecretsServerRelay`, the

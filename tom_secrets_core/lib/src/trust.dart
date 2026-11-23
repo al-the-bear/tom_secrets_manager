@@ -16,6 +16,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 
 import 'approval_link.dart';
+import 'relay_link.dart';
 import 'signed_objects.dart';
 
 Uint8List _random(int n) {
@@ -45,6 +46,8 @@ final class TomSecretsRecordedApprover {
     this.previousLinkKey,
     this.approverKeySince,
     this.linkKeySince,
+    this.relay,
+    this.linkId,
   });
 
   /// The approver's device id.
@@ -69,6 +72,14 @@ final class TomSecretsRecordedApprover {
   /// When [linkKey] was recorded (at pairing, or a new link key).
   DateTime? linkKeySince;
 
+  /// **[C]** The relay server the approver's link may come through
+  /// (`tsm:<url>`), or null.
+  final String? relay;
+
+  /// **[C]** The channel on [relay] this device's link to the approver
+  /// waits on (`tomSecretsLinkChannelId`).
+  final String? linkId;
+
   /// The stored JSON.
   Map<String, Object?> toJson() => {
     'device': device,
@@ -78,6 +89,8 @@ final class TomSecretsRecordedApprover {
     'tokenKey': base64.encode(tokenKey),
     'approverKeySince': ?_iso(approverKeySince),
     'linkKeySince': ?_iso(linkKeySince),
+    'relay': ?relay,
+    'linkId': ?linkId,
   };
 
   /// From [toJson].
@@ -98,6 +111,8 @@ final class TomSecretsRecordedApprover {
         tokenKey: _b64(json['tokenKey']),
         approverKeySince: _time(json['approverKeySince']),
         linkKeySince: _time(json['linkKeySince']),
+        relay: json['relay'] as String?,
+        linkId: json['linkId'] as String?,
       );
 }
 
@@ -113,6 +128,8 @@ final class TomSecretsRecordedHost {
     this.address,
     this.linkKeySince,
     this.linkKeyDelivered = true,
+    this.relay,
+    this.linkId,
   });
 
   /// The host's name.
@@ -135,6 +152,14 @@ final class TomSecretsRecordedHost {
   /// connects to it with its previous link key, during the migration period.
   bool linkKeyDelivered;
 
+  /// **[C]** The relay server its link may also be reached through
+  /// (`tsm:<url>`), or null.
+  final String? relay;
+
+  /// **[C]** The channel on [relay] the host waits on
+  /// (`tomSecretsLinkChannelId`).
+  final String? linkId;
+
   /// The stored JSON.
   Map<String, Object?> toJson() => {
     'host': host,
@@ -143,6 +168,8 @@ final class TomSecretsRecordedHost {
     'address': ?address,
     'linkKeySince': ?_iso(linkKeySince),
     if (!linkKeyDelivered) 'linkKeyDelivered': false,
+    'relay': ?relay,
+    'linkId': ?linkId,
   };
 
   /// From [toJson].
@@ -156,6 +183,8 @@ final class TomSecretsRecordedHost {
         address: json['address'] as String?,
         linkKeySince: _time(json['linkKeySince']),
         linkKeyDelivered: json['linkKeyDelivered'] != false,
+        relay: json['relay'] as String?,
+        linkId: json['linkId'] as String?,
       );
 }
 
@@ -264,9 +293,12 @@ final class TomSecretsTrust {
   /// approves for this host with [approverKey] (reached over the approval
   /// link with [approverLinkKey]), and this device approves for it as a
   /// host with [hostLinkKey] at [hostAddress]; [tokenKey] is the
-  /// approval-token key both sides derived. Every key is dated [at]; what
-  /// was recorded of [device] before is replaced. Throws [ArgumentError]
-  /// for this device itself.
+  /// approval-token key both sides derived. **[C]** With [link] (the relay
+  /// server and link id the pairing agreed on, `tomSecretsPairingLink`) each
+  /// record keeps the relay and its channel, [peerIsGiver] telling which
+  /// side gave the pairing. Every key is dated [at]; what was recorded of
+  /// [device] before is replaced. Throws [ArgumentError] for this device
+  /// itself.
   void recordPeer({
     required String device,
     required Uint8List tokenKey,
@@ -275,6 +307,8 @@ final class TomSecretsTrust {
     TomSecretsLinkPublicKey? approverLinkKey,
     TomSecretsLinkPublicKey? hostLinkKey,
     String? hostAddress,
+    ({String relay, String linkId})? link,
+    bool peerIsGiver = false,
   }) {
     if (device == this.device) {
       throw ArgumentError.value(device, 'device', 'this device itself');
@@ -291,6 +325,10 @@ final class TomSecretsTrust {
           tokenKey: tokenKey,
           approverKeySince: when,
           linkKeySince: approverLinkKey == null ? null : when,
+          relay: approverLinkKey == null ? null : link?.relay,
+          linkId: approverLinkKey == null || link == null
+              ? null
+              : tomSecretsLinkChannelId(link.linkId, hostIsGiver: !peerIsGiver),
         ),
       );
     }
@@ -302,6 +340,10 @@ final class TomSecretsTrust {
           tokenKey: tokenKey,
           address: hostAddress,
           linkKeySince: when,
+          relay: link?.relay,
+          linkId: link == null
+              ? null
+              : tomSecretsLinkChannelId(link.linkId, hostIsGiver: peerIsGiver),
         ),
       );
     }

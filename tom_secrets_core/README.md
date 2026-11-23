@@ -524,6 +524,16 @@ server's instance token in its token mode; the mailbox reads need the
 recipient's proof, which the relay encrypts to the member key and this
 side decrypts. `tomSecretsRelayFor` builds the relay an id names.
 
+A pairing may also agree on a relay server for the **approval link**, for
+two devices that do not reach each other on the network or the VPN later:
+each side's `TomSecretsPairingPeerKeys` may name `linkRelay` and a random
+`linkId` (`tomSecretsNewLinkId`); `tomSecretsPairingLink` takes the giving
+side's, else the receiving side's; `TomSecretsTrust.recordPeer(link:)`
+keeps the relay and one channel per direction
+(`tomSecretsLinkChannelId`: `<linkId>-g` for the giving device as the host,
+`-r` for the receiving one) with the host and the approver. The service
+keeps those channels open and runs the link's handshake over them.
+
 ```dart
 final relay = TomSecretsGitHubRelay.withToken(
     TomSecretsRelayId.parse('github:example-org/vaults'), token);

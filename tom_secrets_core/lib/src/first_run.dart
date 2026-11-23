@@ -377,6 +377,8 @@ final class TomSecretsFirstRun {
       approverLinkKey: giver.approverKey == null ? null : giver.linkKey,
       hostLinkKey: giver.linkKey,
       hostAddress: giver.linkAddress,
+      link: receipt.link,
+      peerIsGiver: true,
     );
     return _run(
       TomSecretsFirstRunSetup(

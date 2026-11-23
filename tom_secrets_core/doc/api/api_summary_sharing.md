@@ -163,7 +163,7 @@ An approver device a host recorded at pairing.
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsRecordedApprover({device, approverKey, tokenKey, linkKey, previousLinkKey, approverKeySince, linkKeySince})` | — | The approver `device` with its `approverKey`, its `linkKey` (null when it never connects over the link), the `tokenKey` the two share, a link key it replaced and is still accepted during the migration period (`previousLinkKey`), and since when each key is recorded (`approverKeySince`, `linkKeySince`). |
+| `TomSecretsRecordedApprover({device, approverKey, tokenKey, linkKey, previousLinkKey, approverKeySince, linkKeySince, relay, linkId})` | — | The approver `device` with its `approverKey`, its `linkKey` (null when it never connects over the link), the `tokenKey` the two share, a link key it replaced and is still accepted during the migration period (`previousLinkKey`), and since when each key is recorded (`approverKeySince`, `linkKeySince`). |
 | `TomSecretsRecordedApprover.fromJson(json)` | factory | From `toJson`. |
 
 #### Properties
@@ -177,6 +177,8 @@ An approver device a host recorded at pairing.
 | `tokenKey` | `Uint8List` | The approval-token key (32 bytes). |
 | `approverKeySince` | `DateTime?` | When `approverKey` was recorded (at pairing, or its key change): the start of its rotation age. |
 | `linkKeySince` | `DateTime?` | When `linkKey` was recorded (at pairing, or a new link key). |
+| `relay` | `String?` | **[C]** The relay server the approver's link may come through (`tsm:<url>`), or null. |
+| `linkId` | `String?` | **[C]** The channel on `relay` this host's link to the approver waits on (`tomSecretsLinkChannelId`). |
 
 #### Methods
 
@@ -196,7 +198,7 @@ A host this device approves for (recorded at pairing on the approver).
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsRecordedHost({host, linkKey, tokenKey, address, linkKeySince, linkKeyDelivered})` | — | The `host` with its `linkKey`, the `tokenKey` the two share, the `address` (`host:port`) its link listens on, and since when the link key is recorded (`linkKeySince`). |
+| `TomSecretsRecordedHost({host, linkKey, tokenKey, address, linkKeySince, linkKeyDelivered, relay, linkId})` | — | The `host` with its `linkKey`, the `tokenKey` the two share, the `address` (`host:port`) its link listens on, and since when the link key is recorded (`linkKeySince`). |
 | `TomSecretsRecordedHost.fromJson(json)` | factory | From `toJson`. |
 
 #### Properties
@@ -208,6 +210,8 @@ A host this device approves for (recorded at pairing on the approver).
 | `tokenKey` | `Uint8List` | The approval-token key (32 bytes). |
 | `address` | `String?` | Where its link listens (`address:port`), when known. |
 | `linkKeySince` | `DateTime?` | When `linkKey` was recorded (at pairing, or a new link key). |
+| `relay` | `String?` | **[C]** The relay server the host's link may also be reached through (`tsm:<url>`), or null. |
+| `linkId` | `String?` | **[C]** The channel on `relay` the host waits on (`tomSecretsLinkChannelId`). |
 | `linkKeyDelivered` | `bool` | Whether this device's current approval-link key reached the host (`linkKey` over the link): until then this device connects to it with its previous link key, during the migration period. |
 
 #### Methods
@@ -251,7 +255,7 @@ A device's trust material.
 
 | Method | Return Type | Description |
 | --- | --- | --- |
-| `recordPeer({device, tokenKey, at, approverKey, approverLinkKey, hostLinkKey, hostAddress})` | `void` | Records what a pairing with the peer `device` gave: it approves for this host with `approverKey` (reached over the approval link with `approverLinkKey`), and this device approves for it as a host with `hostLinkKey` at `hostAddress`; `tokenKey` is the approval-token key both sides derived. |
+| `recordPeer({device, tokenKey, at, approverKey, approverLinkKey, hostLinkKey, hostAddress, link, peerIsGiver})` | `void` | Records what a pairing with the peer `device` gave: it approves for this host with `approverKey` (reached over the approval link with `approverLinkKey`), and this device approves for it as a host with `hostLinkKey` at `hostAddress`; `tokenKey` is the approval-token key both sides derived. **[C]** With `link` (the relay server and link id the pairing agreed on) each record keeps the relay and its channel; `peerIsGiver` tells which side gave the pairing. |
 | `stampKeyDates(now)` | `bool` | Gives every key without a recorded date the date `now`: trust material written before the dates were kept counts its keys' age from then. Whether anything changed (the caller writes the trust back). |
 | `clientTokenIdOf(hash)` | `String?` | The token id whose hash is `hash` (hex), or null. |
 | `approverKey()` | `Future<TomSecretsApproverKey>` | This device's approver key pair. |
@@ -919,7 +923,7 @@ A device's public keys for the approvals: its approver key pair (null when it is
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsPairingPeerKeys({linkKey, approverKey, linkAddress})` | const | The keys. |
+| `TomSecretsPairingPeerKeys({linkKey, approverKey, linkAddress, linkRelay, linkId})` | const | The keys. |
 | `TomSecretsPairingPeerKeys.fromJson(json)` | factory | From `toJson`. |
 
 #### Properties
@@ -929,6 +933,8 @@ A device's public keys for the approvals: its approver key pair (null when it is
 | `linkKey` | `TomSecretsLinkPublicKey` | The approval-link public key. |
 | `approverKey` | `TomSecretsApproverPublicKey?` | The approver public key, or null for a device that approves nothing. |
 | `linkAddress` | `String?` | Where its approval link listens (`address:port`), or null. |
+| `linkRelay` | `String?` | **[C]** The relay server its approval link may also go through (`tsm:<url>`), or null; `fromJson` drops a relay or link id that cannot be used (an older peer names none). |
+| `linkId` | `String?` | **[C]** The random link id (128 bits, base64url) of that relay link. |
 
 #### Methods
 
@@ -1105,6 +1111,8 @@ A pairing received by a machine being set up, held in memory until the setup: th
 | `giver` | `String` | The giving device's name. |
 | `bundle` | `TomSecretsPairingBundle` | The bundle. |
 | `primary` | `TomSecretsPairingVault` | The primary vault of the bundle. |
+| `ownKeys` | `TomSecretsPairingPeerKeys?` | **[C]** The public keys this machine answered with (its relay link among them). |
+| `link` | `({String relay, String linkId})?` | **[C]** The relay link the two sides agreed on (`tomSecretsPairingLink`), or null. |
 | `ownTokens` | `Map<String, String>` | The GitHub tokens this machine brought itself, by `owner/name` (a pairing through GitHub). |
 
 #### Methods
@@ -1649,6 +1657,7 @@ A share (single-entry export): entries for another person, who sent them, when; 
 | --- | --- | --- |
 | `tomSecretsRelayPairFolder` | `String` | **[C]** The folder of a repository's pairing rendezvous: `relay/pair`. |
 | `tomSecretsRelayStaleAfter` | `Duration` | **[C]** How old a pairing folder may get before the next host deletes it: one hour. |
+| `tomSecretsLinkIdPattern` | `RegExp` | **[C]** What a link id (and a channel id) is: 8–128 of `A-Z a-z 0-9 _ -`. |
 | `tomSecretsLinkKeyMigration` | `Duration` | How long a device's previous approval-link key stays in use for the hosts its new key has not reached yet. |
 | `tomSecretsSignedFields` | `Map<String, List<String>>` | The members of each signed object, in the order they are signed (9.4). |
 | `tomSecretsDecisions` | `List<String>` | The decisions a prompt or a token carries. |
@@ -1705,8 +1714,12 @@ A share (single-entry export): entries for another person, who sent them, when; 
 | `tomSecretsRelayWebSocket` | `Future<WebSocket> tomSecretsRelayWebSocket(Uri url, Map<String, String> headers)` | **[C]** Opens the WebSocket `url` with `headers`, doing the handshake itself so a refusal keeps its status and the relay's message (`TomSecretsRelayUpgradeRefused`). |
 | `tomSecretsRelayFor` | `TomSecretsRelay tomSecretsRelayFor(TomSecretsRelayId id, {String? token, String device = 'tsm', String? githubApi})` | **[C]** The relay `id` names, built for this device: GitHub with this machine's GitHub `token` (required), the relay server with its instance `token` (optional); a magic-wormhole server throws `TomSecretsRelayException` (`unsupported`). |
 | `tomSecretsRelayNeedsToken` | `bool tomSecretsRelayNeedsToken(TomSecretsRelayId id)` | **[C]** Whether pairing through `id` needs a token of this machine's own (GitHub's repository token; a relay server's instance token is not needed to pair). |
+| `tomSecretsNewLinkId` | `String tomSecretsNewLinkId()` | **[C]** A new link id: 16 random bytes (128 bits) in base64url without padding. |
+| `tomSecretsPairingLink` | `({String relay, String linkId})? tomSecretsPairingLink(TomSecretsPairingPeerKeys giver, TomSecretsPairingPeerKeys receiver)` | **[C]** The relay link two sides of a pairing agree on: the giving side's relay and link id when it names them, else the receiving side's; null when neither names one. |
+| `tomSecretsLinkChannelId` | `String tomSecretsLinkChannelId(String linkId, {required bool hostIsGiver})` | **[C]** The channel on the relay of the link whose host is the giving side (`<linkId>-g`) or the receiving side (`<linkId>-r`). |
+| `tomSecretsIsLinkRelay` | `bool tomSecretsIsLinkRelay(String relay)` | **[C]** Whether `relay` names a relay server that carries a link (`tsm:<url>`). |
 | `tomSecretsPairingSetupProblem` | `String? tomSecretsPairingSetupProblem(TomSecretsPairingBundle bundle, {Set<String> ownTokens = const {}})` | Why a bundle cannot set a machine up, or null when it can: the primary must be in it, with its token when it is in a GitHub repository (in the bundle, or one this machine holds itself for one of `ownTokens`). |
-| `tomSecretsReceivePairingForSetup` | `Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({String? address, int? port, TomSecretsRelay? relay, Map<String, String> ownTokens = const {}, required TomSecretsPairingCode code, required String device, String? linkAddress, DateTime? now, Duration connectTimeout = const Duration(seconds: 10)})` | Receives a pairing for a machine being set up as `device`: connects to the giving machine's window at `address`:`port` with `code` — or, with `relay`, joins the pairing hosted there (`ownTokens`: this machine's own GitHub tokens, by `owner/name`) — answers with the public keys of fresh trust material (made `now`) and `linkAddress`, where this machine's approval link will listen (the giver records it and opens the link), and refuses a bundle it cannot be set up from (`tomSecretsPairingSetupProblem`); a `linkAddress` that is no approval link throws `ArgumentError`. |
+| `tomSecretsReceivePairingForSetup` | `Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({String? address, int? port, TomSecretsRelay? relay, Map<String, String> ownTokens = const {}, required TomSecretsPairingCode code, required String device, String? linkAddress, String? linkRelay, DateTime? now, Duration connectTimeout = const Duration(seconds: 10)})` | Receives a pairing for a machine being set up as `device`: connects to the giving machine's window at `address`:`port` with `code` — or, with `relay`, joins the pairing hosted there (`ownTokens`: this machine's own GitHub tokens, by `owner/name`) — answers with the public keys of fresh trust material (made `now`) and `linkAddress`, where this machine's approval link will listen (the giver records it and opens the link), and refuses a bundle it cannot be set up from (`tomSecretsPairingSetupProblem`); **[C]** `linkRelay`, a relay server the approval link may also go through, goes with a fresh link id; a `linkAddress` that is no approval link, or a `linkRelay` that is no relay server, throws `ArgumentError`. |
 | `tomSecretsParsePairingAddress` | `(String host, int port) tomSecretsParsePairingAddress(String text)` | Splits `host:port` (an IPv6 address in brackets: `[fd00::1]:47900`) as the giving machine's Pairing screen shows it. Throws `FormatException`. |
 | `tomSecretsSharingGroupOf` | `KdbxGroup? tomSecretsSharingGroupOf(KdbxFile file, {bool create = false})` | The `tsm.sharing` group at the root of `file`, made when `create`. |
 | `tomSecretsMemberKeyEntries` | `List<KdbxEntry> tomSecretsMemberKeyEntries(KdbxFile file)` | The `member-key` entries of `file`, the newest first. |
