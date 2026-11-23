@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.23.0
+
+- The pairing mode receives through a GitHub relay (part-relay, `tsm pair
+  --relay … --token-env …`): the handover's `relay` and `relayToken` (and
+  `relayApi`), after the address when one is given, else alone; the
+  machine's own token for the repository kept for the primary and reported;
+  a relay failure ends with code 6 naming the relay. Needs
+  `tom_secrets_client` 0.2.12.
+
 ## 0.22.0
 
 - The relay requests (part-relay, protocol.md 6.4): `relay.revision`,

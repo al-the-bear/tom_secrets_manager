@@ -106,6 +106,16 @@ keys, so the giver's service opens the approval link as soon as this
 machine's service listens; a link that is no `host:port` of one address
 (never every interface) is a handover that cannot be used.
 
+A handover with `relay` (`tsm pair --relay github:<owner>/<repo>
+--token-env <VAR>`, part-relay) receives through that GitHub repository
+when the giving machine's pairing waits there too: after the address when
+one is given (the LAN and the VPN first), else alone, with `relayToken`,
+this machine's own token for the repository, which also opens the primary
+when the primary is there and is kept for it like a token the bundle
+carries. A relay that fails ends the pairing with code 6, its message
+naming the relay; a relay that is no GitHub repository is a handover that
+cannot be used.
+
 | Exit code | Meaning |
 | --- | --- |
 | 0 | set up |

@@ -7,7 +7,11 @@
 /// another taken, the machine set up (keychain, container, bootstrap); then
 /// the service started from that bootstrap unlocks and has the giving
 /// device recorded as its approver and as a host it approves for. A wrong
-/// code ends it with the pairing's failure. Demo data under demo keys.
+/// code ends it with the pairing's failure. Through a GitHub repository as
+/// the relay (part-relay), against the fake GitHub server: alone, after an
+/// address that does not answer, the machine's own token kept for the
+/// primary's repository; a relay without the pairing named in the error.
+/// Demo data under demo keys.
 library;
 
 import 'dart:async';
@@ -16,6 +20,7 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:tom_core_storage/settings.dart' show TomInMemorySecretStore;
+import 'package:tom_github_api/testing.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 import 'package:tom_secrets_service/tom_secrets_service.dart';
 
@@ -245,5 +250,169 @@ void main() {
     expect(answers.single['code'], 'pairing');
     expect(answers.single['failure'], 'wrongCode');
     expect(Directory('${demo.dir}/paired').existsSync(), isFalse);
+  });
+
+  group('through a GitHub relay (part-relay)', () {
+    const slug = 'demo-owner/demo-vaults';
+    final id = TomSecretsRelayId.parse('github:$slug');
+    late FakeGitHubServer server;
+
+    setUp(() {
+      server = FakeGitHubServer()..commitFiles(slug, {'README.md': 'demo'});
+    });
+
+    TomSecretsRelay relay(String token, String device) =>
+        TomSecretsGitHubRelay.withToken(
+          id,
+          token,
+          device: device,
+          httpClient: server.client,
+          baseUrl: FakeGitHubServer.baseUrl,
+          pollInterval: const Duration(milliseconds: 20),
+        );
+
+    /// The giving machine's pairing, on the relay alone.
+    Future<(TomSecretsPairingWindow, TomSecretsPairingCode)> giving() async {
+      final channel = await relay('demo-giver-token', 'mbp').host();
+      final code = TomSecretsPairingCode(int.parse(channel.nameplate), [
+        'guitar',
+        'orbit',
+      ]);
+      final w = await TomSecretsPairingWindow.open(
+        addresses: const [],
+        relayChannel: channel,
+        code: code,
+        device: 'mbp',
+        bundleFor: (_) async => TomSecretsPairingBundle(
+          vaults: [
+            TomSecretsPairingVault(
+              name: 'primary',
+              locator: 'file:${demo.primaryPath}',
+              primary: true,
+            ),
+            const TomSecretsPairingVault(
+              name: 'team',
+              locator: 'github:$slug/team.kdbx',
+              primary: false,
+            ),
+          ],
+          giverKeys: giverKeys,
+        ),
+      );
+      return (w, code);
+    }
+
+    Future<(int, List<Map<String, Object?>>, TomInMemorySecretStore)> run(
+      TomSecretsPairingHandover h, {
+      String? password,
+    }) async {
+      final input = StreamController<String>();
+      if (password != null) input.add(jsonEncode({'password': password}));
+      final lines = StreamIterator(input.stream);
+      final answers = <Map<String, Object?>>[];
+      final keychain = TomInMemorySecretStore();
+      final exit = await tomSecretsRunPairingMode(
+        h,
+        lines: lines,
+        answer: answers.add,
+        keychain: keychain,
+        relayFor: (relayId, token, api, device) {
+          expect(relayId, id);
+          expect(api, 'http://fake.api.test');
+          return relay(token, device);
+        },
+      );
+      await lines.cancel();
+      unawaited(input.close());
+      return (exit, answers, keychain);
+    }
+
+    TomSecretsPairingHandover handover(
+      TomSecretsPairingCode code, {
+      String? address,
+      int? port,
+    }) => TomSecretsPairingHandover(
+      dataDirectory: '${demo.dir}/paired',
+      address: address,
+      port: port,
+      code: code.text,
+      device: 'bigbeast',
+      deviceKey: 'keyfile',
+      relay: id.text,
+      relayToken: 'github_pat_demo_own',
+      relayApi: 'http://fake.api.test',
+    );
+
+    test('alone: received through the repository, the machine set up, its '
+        'own token kept for the repository; the folder gone', () async {
+      final (w, code) = await giving();
+      final (exit, answers, keychain) = await run(
+        handover(code),
+        password: primaryPassword,
+      );
+      expect(exit, 0, reason: '$answers');
+      final report = TomSecretsPairingReport.fromJson(answers.first);
+      expect(report.giver, 'mbp');
+      expect(report.tokens, [slug]);
+      expect(answers.last['status'], 'setUp');
+      expect((await w.result).receiver, 'bigbeast');
+      final team =
+          TomSecretsVaultLocator.parse('github:$slug/team.kdbx')
+              as TomSecretsGitHubLocator;
+      expect(await keychain.read(team.tokenHandle), 'github_pat_demo_own');
+      List<String> paths() {
+        final head = server.repos[slug]!.refs['heads/main']!;
+        return server.trees[server.commits[head]!.treeSha]!.keys.toList();
+      }
+
+      for (var i = 0; i < 100; i++) {
+        if (!paths().any((p) => p.startsWith('relay/'))) break;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(paths(), [
+        'README.md',
+      ], reason: 'the pairing\'s files deleted by the side that ended second');
+    });
+
+    test(
+      'the address first: one that does not answer, then the relay',
+      () async {
+        final unused = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        final port = unused.port;
+        await unused.close();
+        final (w, code) = await giving();
+        final (exit, answers, _) = await run(
+          handover(code, address: '127.0.0.1', port: port),
+          password: primaryPassword,
+        );
+        expect(exit, 0, reason: '$answers');
+        expect((await w.result).receiver, 'bigbeast');
+      },
+    );
+
+    test('no pairing on the relay: the pairing fails naming the relay; a '
+        'relay that is no GitHub repository is refused', () async {
+      final (exit, answers, _) = await run(
+        handover(TomSecretsPairingCode(77, ['guitar', 'orbit'])),
+      );
+      expect(exit, 6);
+      expect(answers.single['code'], 'pairing');
+      expect(answers.single['failure'], 'relay');
+      expect(answers.single['message'], contains('github:$slug'));
+      expect(Directory('${demo.dir}/paired').existsSync(), isFalse);
+
+      final (refused, said, _) = await run(
+        TomSecretsPairingHandover(
+          dataDirectory: '${demo.dir}/paired',
+          code: '77-guitar-orbit',
+          device: 'bigbeast',
+          relay: 'tsm:https://relay.example',
+          relayToken: 'x',
+        ),
+      );
+      expect(refused, 2);
+      expect(said.single['code'], 'handover');
+      expect(said.single['message'], contains('not available'));
+    });
   });
 }
