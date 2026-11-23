@@ -6,7 +6,7 @@
   (`relay: wormhole:ws(s)://…`, `tom_secrets_core` 0.2.25's
   `TomSecretsWormholeRelay`), as through a relay server: no token, and a
   server that fails ends the pairing with code 6 naming it. The handover no
-  longer refuses it.
+  longer refuses it (`tom_secrets_client` 0.2.15 reads it).
 
 ## 0.25.1
 
