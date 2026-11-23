@@ -1620,6 +1620,37 @@ final class TomSecretsVaultSet {
     return _editListed[name]!;
   }
 
+  /// **[C]** The service's own edit of the served store [name] (a passkey
+  /// the browser host created, protocol.md 5.8): [change] on a copy of the
+  /// held file, opened with the store's keys, then written as [save] writes
+  /// an edit of the app (merged with a remote that moved). It fails as
+  /// [save] fails; the served copy changes only once it is written.
+  Future<TomSecretsSaveResult> edit(
+    String name,
+    void Function(KdbxFile file) change,
+  ) async {
+    final opened = _opened[name];
+    final keys = name == _primaryName ? _primaryKeys : _held[name];
+    if (opened == null || keys == null) {
+      throw TomSecretsSaveException('not_found', 'no open store $name');
+    }
+    final copy = await opener.decode(
+      opened.locator,
+      opened.stored,
+      keys.credentials,
+      outerKey: keys.outerKeyText,
+    );
+    change(copy);
+    // The held file's outer cipher is kept.
+    final stored = await tomSecretsEncodeStored(
+      opened.locator,
+      copy,
+      outerKey: keys.outerKeyText,
+      like: opened.stored,
+    );
+    return save(name, stored, baseRevision: _revisionOf(opened));
+  }
+
   /// Takes the app's edited file of store [name] (protocol.md 6.4): [stored]
   /// is the whole file as the store keeps it, [baseRevision] the revision
   /// the app edited. It must open with the store's keys. The edit is

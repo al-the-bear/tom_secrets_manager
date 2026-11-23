@@ -221,8 +221,8 @@ service is locked, a waiting request tells the subscribed admins
 (`unlock_needed`), sends the client `progress`, and is answered once the
 service is unlocked, or `locked` when the approval timeout passes.
 
-`welcome.features` offers `binary`, `getFile`, `match` and `propose`
-(protocol.md 5.5, section 8):
+`welcome.features` offers `binary`, `getFile`, `match`, `propose` and
+`passkey` (protocol.md 5.5, 5.8, section 8):
 
 - `getFile` answers an attachment or a field as bytes: `file`, binary chunks
   of 256 KiB, `end` with the SHA-256; only on a connection whose `hello`
@@ -263,8 +263,24 @@ service is unlocked, or `locked` when the approval timeout passes.
   a client holding an `allow` grant; with no app attached `unavailable`
   (`no_app`). A helper's credential the vaults hold already (git's `store`
   after a login it answered) is ignored: `accepted` with `known`.
-- Any other client asking `match` or `propose` gets `denied`
-  (`not_allowed_op`).
+- **[C]** The passkeys (`passkey`, protocol.md 5.8, DP-120), for the
+  browser host only. The key never leaves the service.
+  - `passkeys` lists a page's passkeys by name and credential id, from the
+    personal and shared vaults only. They are covered as `match` candidates
+    are; when no grant covers them, the browser prompt asks with `passkey`.
+  - `passkeyGet` answers a signature for the passkey the user picked, which
+    must be one `passkeys` answers for the page.
+  - `passkeyCreate` asks the app (`approval_needed` with `passkeyCreate`,
+    answered once or never), makes the key pair (ES256 or Ed25519, the
+    site's order), keeps the passkey in the site's login of a personal or
+    shared vault (`TomSecretsService.editStore`, the vault set's `edit`),
+    and answers only once the vault is written.
+  - Refused: a relying party the page may not use (`rp_id`,
+    `tomSecretsRpIdValidFor`), an excluded credential held (`excluded`), no
+    algorithm made here (`unsupported`, `algorithm`), no approver or no
+    confirmation, no vault written (`unavailable`).
+- Any other client asking `match`, `propose` or a passkey message gets
+  `denied` (`not_allowed_op`).
 
 ### The ssh-agent
 

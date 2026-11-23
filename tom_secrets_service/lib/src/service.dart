@@ -46,7 +46,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.25.2';
+const String tomSecretsServiceVersion = '0.25.3';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -274,6 +274,7 @@ const List<String> tomSecretsServiceFeatures = [
   'getFile',
   'match',
   'propose',
+  'passkey',
 ];
 
 /// The size of a `getFile` chunk (protocol.md 2.5: at most 1 MiB less the
@@ -2453,6 +2454,22 @@ final class TomSecretsService
     }
     return result;
   }
+
+  /// **[C]** The service's own edit of [store] (a passkey the browser host
+  /// created, protocol.md 5.8): [change] on a copy of the held file, written
+  /// as an app's `save` is, the subscribers told (`store_changed`).
+  Future<TomSecretsSaveResult> editStore(
+    String store,
+    void Function(KdbxFile file) change,
+  ) async {
+    final result = await _serial(
+      () => _tellingStates(() => _vaults.edit(store, change)),
+    );
+    log.info('edit', {'store': store, 'merged': result.merged});
+    _emit({'op': 'store_changed', 'store': store, 'revision': result.revision});
+    if (store == _vaults.primaryName) await _approvals?.reload();
+    return result;
+  }
 }
 
 /// What makes [device] unacceptable as device settings (`settings.set`), or
@@ -2725,7 +2742,16 @@ final class _ClientSession {
       return;
     }
     final id = m['id'];
-    if (const {'get', 'getMany', 'getFile', 'match', 'propose'}.contains(op)) {
+    if (const {
+      'get',
+      'getMany',
+      'getFile',
+      'match',
+      'propose',
+      'passkeys',
+      'passkeyGet',
+      'passkeyCreate',
+    }.contains(op)) {
       if (!_validId(id)) {
         connection.sendError(null, 'malformed', 'a request carries an id', {
           'reason': 'frame',
@@ -2751,6 +2777,9 @@ final class _ClientSession {
       final Future<void> work = switch (op) {
         'match' => _match(id, m),
         'propose' => _propose(id, m),
+        'passkeys' => _passkeys(id, m),
+        'passkeyGet' => _passkeyGet(id, m),
+        'passkeyCreate' => _passkeyCreate(id, m),
         _ => _request(id, op, m),
       };
       unawaited(
@@ -3212,20 +3241,41 @@ final class _ClientSession {
     String url,
     List<TomSecretsLoginMatch> options,
   ) async {
-    if (options.isEmpty) return const [];
+    final allowed = await _browserAllowed(id, url, [
+      for (final f in options) (store: f.entry.store, uuid: f.entry.uuid),
+    ]);
+    return [
+      for (var i = 0; i < options.length; i++)
+        if (allowed.contains(i)) options[i],
+    ];
+  }
+
+  /// The browser prompt (protocol.md 5.5, 5.8) for the entries [options]
+  /// of the page [url] (logins, or passkeys with [passkey]): the approvers
+  /// asked once for all of them; `always` writes the grants for the browser
+  /// host as started by its browser, `once` lets it use them for
+  /// [TomSecretsService.browserOnceFor]. Answers the indices allowed; none
+  /// with no approver connected, refused or unanswered.
+  Future<Set<int>> _browserAllowed(
+    int id,
+    String url,
+    List<({String store, String uuid})> options, {
+    bool passkey = false,
+  }) async {
+    if (options.isEmpty) return const {};
     final policy = service.config.policy ?? service.approvals;
     final resolver = service.vaults.resolver;
-    if (policy is! TomSecretsApprovals || resolver == null) return const [];
+    if (policy is! TomSecretsApprovals || resolver == null) return const {};
     final items = <TomSecretsAccessRequest>[];
-    for (final f in options) {
+    for (final o in options) {
       final resolution = resolver.resolve(
-        '${f.entry.store}/~${f.entry.uuid}',
+        '${o.store}/~${o.uuid}',
         field: 'Title',
       );
       resolution.value.dispose();
       items.add(
         TomSecretsAccessRequest(
-          reference: '${f.entry.store}/~${f.entry.uuid}',
+          reference: '${o.store}/~${o.uuid}',
           resolution: resolution,
           client: _client,
           identity: _identity!,
@@ -3241,19 +3291,21 @@ final class _ClientSession {
         clientTokenHash: _clientTokenHash,
       ),
       url,
+      passkey: passkey,
     );
-    if (answers == null) return const [];
-    final allowed = [
+    if (answers == null) return const {};
+    final allowed = {
       for (var i = 0; i < options.length; i++)
-        if (answers[i] is TomSecretsAccessAllowed) options[i],
-    ];
+        if (answers[i] is TomSecretsAccessAllowed) i,
+    };
     // An `always` wrote grants; a `once` did not: remember it.
     final coverage = await _coverage(resolver);
     final held = service._browserOnce.putIfAbsent(_browserSubject(), () => {});
     final until = DateTime.now().add(TomSecretsService.browserOnceFor);
-    for (final f in allowed) {
-      if (!coverage.covers(f.entry.store, f.entry.uuid)) {
-        held['${f.entry.store}/${f.entry.uuid}'] = until;
+    for (final i in allowed) {
+      final o = options[i];
+      if (!coverage.covers(o.store, o.uuid)) {
+        held['${o.store}/${o.uuid}'] = until;
       }
     }
     return allowed;
@@ -3398,6 +3450,352 @@ final class _ClientSession {
     _auditLookup('propose $site', 'accepted');
     service.log.info('proposal', {});
     connection.send({'op': 'accepted', 'id': id});
+  }
+
+  // ── Passkeys [C] (protocol.md 5.8) ───────────────────────────────────
+
+  /// The request's `url` and `rpId` when they are well formed and the page
+  /// may use that relying party; otherwise the refusal was sent and null
+  /// answered. Only the browser host is answered (`not_allowed_op`).
+  ({String url, String rpId})? _passkeyRequest(
+    int id,
+    String op,
+    Map<String, Object?> m,
+  ) {
+    final url = m['url'];
+    final rpId = m['rpId'];
+    if (!_isBrowserHost) {
+      service._rateLimits.refused(_admitted!, 1);
+      _auditLookup(
+        '$op ${rpId is String ? rpId : ''}',
+        'denied:not_allowed_op',
+      );
+      connection.sendError(id, 'denied', '$op is not for this client', {
+        'reason': 'not_allowed_op',
+      });
+      return null;
+    }
+    if (url is! String || url.isEmpty || url.length > 4096 || rpId is! String) {
+      connection.sendError(id, 'malformed', '$op carries url and rpId', {
+        'reason': 'url',
+      });
+      return null;
+    }
+    if (!tomSecretsRpIdValidFor(url, rpId)) {
+      _auditLookup('$op $rpId', 'denied:rp_id');
+      connection.sendError(id, 'denied', 'the page may not use $rpId', {
+        'reason': 'rp_id',
+      });
+      return null;
+    }
+    return (url: url, rpId: rpId.toLowerCase());
+  }
+
+  /// The passkeys of [rpId] in the personal and shared vaults (never a
+  /// system vault's), with [allowed] credential ids only when it names some.
+  static List<({TomSecretsIndexedEntry entry, TomSecretsPasskey passkey})>
+  _passkeysOf(
+    TomSecretsResolver resolver,
+    String rpId, [
+    Set<String> allowed = const {},
+  ]) => [
+    for (final store in resolver.stores)
+      if (store.metadata.kind != TomSecretsVaultKind.system)
+        for (final e in store.entries)
+          if (!e.isOverlay)
+            if (TomSecretsPasskey.fromEntry(e.entry) case final p?)
+              if (p.relyingParty.toLowerCase() == rpId &&
+                  (allowed.isEmpty ||
+                      allowed.contains(tomSecretsBase64Url(p.credentialId))))
+                (entry: e, passkey: p),
+  ];
+
+  /// The passkeys of a `passkeys` / `passkeyGet` the browser host may use:
+  /// those a grant covers or a `once` holds; when none is and the vaults
+  /// hold some ([ask]), the browser prompt decides.
+  Future<List<({TomSecretsIndexedEntry entry, TomSecretsPasskey passkey})>>
+  _usablePasskeys(
+    int id,
+    String url,
+    TomSecretsResolver resolver,
+    String rpId,
+    Set<String> allowed, {
+    required bool ask,
+  }) async {
+    final all = _passkeysOf(resolver, rpId, allowed);
+    final coverage = await _coverage(resolver);
+    final once = _browserOnceEntries();
+    final usable = [
+      for (final p in all)
+        if (coverage.covers(p.entry.store, p.entry.uuid) ||
+            once.contains('${p.entry.store}/${p.entry.uuid}'))
+          p,
+    ];
+    if (usable.isNotEmpty || !ask) return usable;
+    final picked = await _browserAllowed(id, url, [
+      for (final p in all) (store: p.entry.store, uuid: p.entry.uuid),
+    ], passkey: true);
+    return [
+      for (var i = 0; i < all.length; i++)
+        if (picked.contains(i)) all[i],
+    ];
+  }
+
+  static String _b64url(List<int> bytes) =>
+      base64Url.encode(bytes).replaceAll('=', '');
+
+  /// `passkeys` (protocol.md 5.8): the page's passkeys the browser host may
+  /// use, by their names and credential ids, never a key; audited.
+  Future<void> _passkeys(int id, Map<String, Object?> m) async {
+    final request = _passkeyRequest(id, 'passkeys', m);
+    if (request == null) return;
+    final allowedIds = m['allowCredentials'];
+    if (allowedIds != null &&
+        (allowedIds is! List || allowedIds.any((a) => a is! String))) {
+      connection.sendError(id, 'malformed', 'allowCredentials are strings', {
+        'reason': 'credentials',
+      });
+      return;
+    }
+    final delay = service._rateLimits.delayFor(_admitted!);
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
+    if (!await _unlocked(id, m)) return;
+    final resolver = service.vaults.resolver;
+    if (resolver == null) {
+      connection.sendError(id, 'locked', 'the service is locked');
+      return;
+    }
+    final found =
+        await _usablePasskeys(id, request.url, resolver, request.rpId, {
+          for (final a in (allowedIds as List?) ?? const [])
+            tomSecretsBase64Url(a as String),
+        }, ask: true);
+    connection.send({
+      'op': 'passkeyCandidates',
+      'id': id,
+      'candidates': [
+        for (final p in found)
+          {
+            'entryId': '${p.entry.store}/~${p.entry.uuid}',
+            'title': p.entry.entry.label ?? p.passkey.relyingParty,
+            'userName':
+                p.passkey.userName ??
+                p.entry.entry.getString(KdbxKeyCommon.USER_NAME)?.getText() ??
+                '',
+            'credentialId': tomSecretsBase64Url(p.passkey.credentialId),
+          },
+      ],
+    });
+    _auditLookup('passkeys ${request.rpId}', 'matched', [
+      for (final p in found) p.entry.uuid,
+    ]);
+  }
+
+  /// `passkeyGet` (protocol.md 5.8): a sign-in signed with the passkey the
+  /// user picked from the extension's list; only one `passkeys` answers for
+  /// the page; never the key; audited.
+  Future<void> _passkeyGet(int id, Map<String, Object?> m) async {
+    final request = _passkeyRequest(id, 'passkeyGet', m);
+    if (request == null) return;
+    final entryId = m['entryId'];
+    final hash = m['clientDataHash'];
+    Uint8List? clientDataHash;
+    if (hash is String) {
+      try {
+        clientDataHash = tomSecretsDecodeBase64(hash);
+      } on FormatException {
+        clientDataHash = null;
+      }
+    }
+    if (entryId is! String || clientDataHash?.length != 32) {
+      connection.sendError(
+        id,
+        'malformed',
+        'passkeyGet carries an entryId and a 32-byte clientDataHash',
+        {'reason': 'client_data'},
+      );
+      return;
+    }
+    if (!await _unlocked(id, m)) return;
+    final resolver = service.vaults.resolver;
+    if (resolver == null) {
+      connection.sendError(id, 'locked', 'the service is locked');
+      return;
+    }
+    final usable = await _usablePasskeys(
+      id,
+      request.url,
+      resolver,
+      request.rpId,
+      const {},
+      ask: false,
+    );
+    final picked = usable
+        .where((p) => '${p.entry.store}/~${p.entry.uuid}' == entryId)
+        .firstOrNull;
+    if (picked == null) {
+      _auditLookup('passkey ${request.rpId}', 'denied:not_matched');
+      connection.sendError(id, 'denied', 'not a passkey of this page', {
+        'reason': 'not_matched',
+      });
+      return;
+    }
+    final TomSecretsPasskeyAssertion assertion;
+    try {
+      assertion = await tomSecretsPasskeyAssertion(
+        picked.passkey,
+        clientDataHash!,
+      );
+    } on TomSecretsPasskeyException catch (e) {
+      _auditLookup('passkey ${request.rpId}', 'failed', [picked.entry.uuid]);
+      connection.sendError(id, 'unavailable', 'the passkey cannot sign', {
+        'reason': 'key',
+        'detail': e.message,
+      });
+      return;
+    }
+    connection.send({
+      'op': 'passkeyAssertion',
+      'id': id,
+      'credentialId': _b64url(assertion.credentialId),
+      'authenticatorData': _b64url(assertion.authenticatorData),
+      'signature': _b64url(assertion.signature),
+      if (assertion.userHandle case final h?) 'userHandle': _b64url(h),
+    });
+    _auditLookup('passkey ${request.rpId}', 'signed', [picked.entry.uuid]);
+    service.log.info('passkey_signed', {});
+  }
+
+  /// `passkeyCreate` (protocol.md 5.8): a new passkey once the user
+  /// confirms in the app, kept in a personal or shared vault and written
+  /// before the page gets it; audited.
+  Future<void> _passkeyCreate(int id, Map<String, Object?> m) async {
+    final request = _passkeyRequest(id, 'passkeyCreate', m);
+    if (request == null) return;
+    final userId = m['userId'];
+    final userName = m['userName'];
+    final algorithms = m['algorithms'];
+    final excluded = m['excludeCredentials'];
+    Uint8List? userHandle;
+    if (userId is String) {
+      try {
+        userHandle = tomSecretsDecodeBase64(userId);
+      } on FormatException {
+        userHandle = null;
+      }
+    }
+    if (userHandle == null ||
+        userHandle.isEmpty ||
+        userHandle.length > 64 ||
+        userName is! String ||
+        algorithms is! List ||
+        algorithms.any((a) => a is! int) ||
+        (excluded != null &&
+            (excluded is! List || excluded.any((e) => e is! String)))) {
+      connection.sendError(
+        id,
+        'malformed',
+        'passkeyCreate carries userId, userName and algorithms',
+        {'reason': 'passkey'},
+      );
+      return;
+    }
+    final what = 'passkey-create ${request.rpId}';
+    if (!algorithms.any((a) => a == -7 || a == -8)) {
+      _auditLookup(what, 'unsupported:algorithm');
+      connection.sendError(id, 'unsupported', 'no algorithm made here', {
+        'reason': 'algorithm',
+      });
+      return;
+    }
+    if (!await _unlocked(id, m)) return;
+    final resolver = service.vaults.resolver;
+    if (resolver == null) {
+      connection.sendError(id, 'locked', 'the service is locked');
+      return;
+    }
+    final excludedIds = {
+      for (final e in (excluded as List?) ?? const [])
+        tomSecretsBase64Url(e as String),
+    };
+    if (excludedIds.isNotEmpty &&
+        _passkeysOf(resolver, request.rpId, excludedIds).isNotEmpty) {
+      _auditLookup(what, 'denied:excluded');
+      connection.sendError(id, 'denied', 'the vaults hold this passkey', {
+        'reason': 'excluded',
+      });
+      return;
+    }
+    final policy = service.config.policy ?? service.approvals;
+    if (policy is! TomSecretsApprovals) {
+      connection.sendError(id, 'denied', 'no approver', {
+        'reason': 'no_approver',
+      });
+      return;
+    }
+    final answer = await policy.askPasskeyCreate(
+      TomSecretsAccessBatch(
+        identity: _identity!,
+        client: _client,
+        items: const [],
+        onProgress: (p) => connection.send({'op': 'progress', 'id': id, ...p}),
+        clientTokenHash: _clientTokenHash,
+      ),
+      url: request.url,
+      rpId: request.rpId,
+      userName: userName,
+    );
+    if (answer.refusal != null) {
+      _auditLookup(what, 'denied:${answer.refusal}');
+      connection.sendError(id, 'denied', 'the passkey was not confirmed', {
+        'reason': answer.refusal,
+      });
+      return;
+    }
+    final made = await tomSecretsCreatePasskey(
+      rpId: request.rpId,
+      userHandle: userHandle,
+      userName: userName.isEmpty ? null : userName,
+      algorithms: algorithms.cast<int>(),
+    );
+    final vaults = service.vaults.resolver;
+    final candidates = {
+      for (final store in vaults?.stores ?? const <TomSecretsStore>[])
+        if (store.metadata.kind != TomSecretsVaultKind.system)
+          store.name: store.file,
+    };
+    final home = tomSecretsPasskeyHome(candidates, made.passkey);
+    if (home == null) {
+      _auditLookup(what, 'unavailable:no_vault');
+      connection.sendError(id, 'unavailable', 'no vault may take it', {
+        'reason': 'no_vault',
+      });
+      return;
+    }
+    try {
+      await service.editStore(
+        home,
+        (file) => tomSecretsKeepPasskey(file, made.passkey),
+      );
+    } on TomSecretsSaveException catch (e) {
+      _auditLookup(what, 'unavailable:${e.kind}');
+      connection.sendError(id, 'unavailable', 'the vault cannot be written', {
+        'reason': 'offline',
+        'detail': e.kind,
+      });
+      return;
+    }
+    connection.send({
+      'op': 'passkeyCreated',
+      'id': id,
+      'credentialId': _b64url(made.credentialId),
+      'authenticatorData': _b64url(made.authenticatorData),
+      'attestationObject': _b64url(made.attestationObject),
+      'publicKey': _b64url(made.publicKeySpki),
+      'publicKeyAlgorithm': made.algorithm.cose,
+    });
+    _auditLookup(what, 'created');
+    service.log.info('passkey_created', {});
   }
 
   /// Whether a login of the vaults matching [url] holds [userName] and

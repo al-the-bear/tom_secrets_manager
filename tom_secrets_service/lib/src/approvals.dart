@@ -122,6 +122,8 @@ final class _Waiting {
     this.pick,
     this.url,
     this.browser = false,
+    this.passkey = false,
+    this.passkeyCreate,
   });
 
   final String approvalId;
@@ -149,6 +151,13 @@ final class _Waiting {
   /// logins of the page [url]; its lasting grants name the browser
   /// (`exe-from`).
   final bool browser;
+
+  /// **[C]** A browser prompt of passkeys (protocol.md 5.8).
+  final bool passkey;
+
+  /// **[C]** A new passkey to confirm (protocol.md 5.8): `rpId`,
+  /// `userName`, `url`; no items, answered once or never.
+  final Map<String, Object?>? passkeyCreate;
   final Completer<List<TomSecretsAccess>> done = Completer();
   final Set<String> redeemedTokens = {};
   int badTokens = 0;
@@ -176,6 +185,8 @@ final class _Waiting {
     'pick': ?pick,
     'url': ?url,
     if (browser) 'browser': true,
+    if (passkey) 'passkey': true,
+    'passkeyCreate': ?passkeyCreate,
   };
 
   /// Whether the client asked for a client token.
@@ -824,6 +835,8 @@ final class TomSecretsApprovals
     List<Map<String, Object?>>? pick,
     String? url,
     bool browser = false,
+    bool passkey = false,
+    Map<String, Object?>? passkeyCreate,
   }) {
     final identity = batch.identity;
     List<TomSecretsAccess> all(TomSecretsAccess a) => [
@@ -850,7 +863,10 @@ final class TomSecretsApprovals
     // One pending prompt per identity and reference: a repeat joins it.
     for (final w in _waiting.values) {
       final wRefs = [for (final i in w.items) _canonical(i.reference)]..sort();
-      if (w.key == key &&
+      if (passkeyCreate == null &&
+          w.passkeyCreate == null &&
+          w.passkey == passkey &&
+          w.key == key &&
           _sameList(wRefs, refs) &&
           w.confirmOnly == confirmOnly &&
           (w.pick == null) == (pick == null) &&
@@ -889,6 +905,8 @@ final class TomSecretsApprovals
       pick: pick,
       url: url,
       browser: browser,
+      passkey: passkey,
+      passkeyCreate: passkeyCreate,
     );
     _waiting[approvalId] = waiting;
     var limit = connected
@@ -955,8 +973,9 @@ final class TomSecretsApprovals
   /// a list in a page cannot wait for one). Audited.
   Future<List<TomSecretsAccess>?> askBrowser(
     TomSecretsAccessBatch batch,
-    String url,
-  ) async {
+    String url, {
+    bool passkey = false,
+  }) async {
     if (!service.hasLocalApprover && _links.isEmpty) return null;
     final decisions = List<TomSecretsAccess?>.filled(batch.items.length, null);
     final open = <int>[];
@@ -976,6 +995,7 @@ final class TomSecretsApprovals
         [for (final i in open) batch.items[i]],
         url: url,
         browser: true,
+        passkey: passkey,
       );
       for (var k = 0; k < open.length; k++) {
         decisions[open[k]] = answers[k];
@@ -984,6 +1004,38 @@ final class TomSecretsApprovals
     final result = decisions.cast<TomSecretsAccess>();
     _auditBatch(batch, result);
     return result;
+  }
+
+  /// **[C]** Asks the approvers to confirm a new passkey for [userName] at
+  /// [rpId] that the browser host's page [url] creates (protocol.md 5.8,
+  /// `approval_needed` with `passkeyCreate` and `confirmOnly`): answered
+  /// once or never, nothing written. Answers the approver, or the reason it
+  /// is not made: `no_approver` (none connected: a page cannot wait for an
+  /// approval code), `refused`, `timeout`.
+  Future<({String? approver, String? refusal})> askPasskeyCreate(
+    TomSecretsAccessBatch batch, {
+    required String url,
+    required String rpId,
+    required String userName,
+  }) async {
+    if (!service.hasLocalApprover && _links.isEmpty) {
+      return (approver: null, refusal: 'no_approver');
+    }
+    final answers = await _ask(
+      batch,
+      const [],
+      confirmOnly: true,
+      url: url,
+      passkeyCreate: {'rpId': rpId, 'userName': userName, 'url': url},
+    );
+    final answer = answers.firstOrNull;
+    if (answer is TomSecretsAccessAllowed) {
+      return (approver: answer.approver, refusal: null);
+    }
+    return (
+      approver: null,
+      refusal: answer is TomSecretsAccessDenied ? answer.reason : 'timeout',
+    );
   }
 
   void _progress(TomSecretsAccessBatch batch, _Waiting w) =>
@@ -1053,6 +1105,19 @@ final class TomSecretsApprovals
     if (w == null) throw StateError('no prompt $approvalId');
     if (w.pick != null) {
       await _answerPick(w, answer, lasting: lasting);
+      return;
+    }
+    if (w.passkeyCreate != null) {
+      // A new passkey: this one only, nothing written as a grant.
+      if (answer.decision == 'once') {
+        _close(w, 'approved', [
+          TomSecretsAccessAllowed(approver: answer.approver),
+        ]);
+      } else if (answer.decision == 'never') {
+        _close(w, 'denied', [const TomSecretsAccessDenied('refused')]);
+      } else {
+        throw ArgumentError('a new passkey is answered once or never');
+      }
       return;
     }
     if (w.confirmOnly) {

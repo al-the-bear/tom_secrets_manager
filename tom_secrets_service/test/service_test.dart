@@ -628,7 +628,7 @@ void main() {
       final welcome = await raw.next();
       expect(welcome['op'], 'welcome');
       expect(welcome['host'], 'demo-host');
-      expect(welcome['features'], ['binary', 'getFile', 'match', 'propose']);
+      expect(welcome['features'], tomSecretsServiceFeatures);
       // A hello without the features binary and getFile: getFile refused.
       raw.send({'op': 'getFile', 'id': 7, 'ref': 'x/y'});
       expect(await raw.next(), containsPair('kind', 'unsupported'));

@@ -13,7 +13,6 @@
 library;
 
 import 'dart:async';
-import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -22,82 +21,8 @@ import 'package:tom_secrets_client/tom_secrets_client.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 import 'package:tom_secrets_service/tom_secrets_service.dart';
 
+import 'support/raw_client.dart';
 import 'support/setup.dart';
-
-/// A client connection that speaks frames by hand: `hello` without
-/// features, `match` and `propose`, which the client library leaves to the
-/// browser host and the helpers.
-final class _Raw {
-  _Raw._(this.socket) {
-    socket.listen((bytes) {
-      for (final f in reader.add(bytes)) {
-        final m = tomSecretsDecodePayload(f.payload);
-        if (waiting.isNotEmpty) {
-          waiting.removeFirst().complete(m);
-        } else {
-          queue.add(m);
-        }
-      }
-    });
-  }
-
-  static Future<_Raw> open(Demo demo, TomSecretsTransport transport) async {
-    final runtime = demo.runtime(transport);
-    final socket = transport == TomSecretsTransport.unix
-        ? await Socket.connect(
-            InternetAddress(
-              runtime.clientSocket,
-              type: InternetAddressType.unix,
-            ),
-            0,
-          )
-        : await Socket.connect(
-            InternetAddress.loopbackIPv4,
-            readTomSecretsPortFile(
-              File(runtime.clientPortFile).readAsStringSync(),
-            )!,
-          );
-    addTearDown(socket.destroy);
-    return _Raw._(socket);
-  }
-
-  final Socket socket;
-  final TomSecretsFrameReader reader = TomSecretsFrameReader(
-    maxPayload: tomSecretsMaxAnswerPayload,
-  );
-  final Queue<Map<String, Object?>> queue = Queue();
-  final Queue<Completer<Map<String, Object?>>> waiting = Queue();
-
-  void send(Map<String, Object?> m) => socket.add(tomSecretsJsonFrame(m));
-
-  Future<Map<String, Object?>> next() {
-    if (queue.isNotEmpty) return Future.value(queue.removeFirst());
-    final c = Completer<Map<String, Object?>>();
-    waiting.add(c);
-    return c.future.timeout(const Duration(seconds: 10));
-  }
-
-  /// Says hello (with [features]) and returns the welcome.
-  Future<Map<String, Object?>> hello(
-    TomSecretsService service, {
-    List<String>? features,
-  }) {
-    send({
-      'op': 'hello',
-      'protocol': 1,
-      'client': {'name': 'demo-host-extension', 'version': '1'},
-      if (Platform.isWindows) 'token': service.clientToken,
-      'features': ?features,
-    });
-    return next();
-  }
-
-  /// Sends [request] and returns its answer.
-  Future<Map<String, Object?>> ask(Map<String, Object?> request) {
-    send(request);
-    return next();
-  }
-}
 
 /// Adds a login [title] at [url] to [file], last used at [used].
 KdbxEntry _login(KdbxFile file, String title, String url, {DateTime? used}) {
@@ -186,12 +111,18 @@ void main() {
     return service;
   }
 
-  test('welcome offers binary, getFile, match and propose; getFile streams '
+  test('welcome offers binary, getFile, match, propose and passkey; getFile streams '
       'an attachment in chunks with its name, size and sha256', () async {
     final service = await start();
-    final raw = await _Raw.open(demo, transport);
+    final raw = await RawClient.open(demo, transport);
     final welcome = await raw.hello(service);
-    expect(welcome['features'], ['binary', 'getFile', 'match', 'propose']);
+    expect(welcome['features'], [
+      'binary',
+      'getFile',
+      'match',
+      'propose',
+      'passkey',
+    ]);
 
     final client = await TomSecretsClient.connect(
       clientName: 'demo-agent',
@@ -211,7 +142,7 @@ void main() {
   test('getFile without the features binary and getFile in hello is '
       'unsupported; an unknown entry is not_found', () async {
     final service = await start();
-    final raw = await _Raw.open(demo, transport);
+    final raw = await RawClient.open(demo, transport);
     await raw.hello(service, features: ['getFile']);
     final refused = await raw.ask({
       'op': 'getFile',
@@ -242,7 +173,7 @@ void main() {
   test('match for a helper: the logins of the site, system vaults '
       'included, never a value; audited', () async {
     final service = await start(helpers: self);
-    final raw = await _Raw.open(demo, transport);
+    final raw = await RawClient.open(demo, transport);
     await raw.hello(service);
     final answer = await raw.ask({
       'op': 'match',
@@ -289,7 +220,7 @@ void main() {
       'client is denied (not_allowed_op); a frame of another site matches '
       'nothing', () async {
     final service = await start(browserHosts: self);
-    final raw = await _Raw.open(demo, transport);
+    final raw = await RawClient.open(demo, transport);
     await raw.hello(service);
     final answer = await raw.ask({
       'op': 'match',
@@ -313,7 +244,7 @@ void main() {
 
     // The new service's hello (on Windows its client token).
     final second = await start();
-    final other = await _Raw.open(demo, transport);
+    final other = await RawClient.open(demo, transport);
     await other.hello(second);
     final denied = await other.ask({
       'op': 'match',
@@ -348,7 +279,7 @@ void main() {
         },
       });
     }
-    final raw = await _Raw.open(demo, transport);
+    final raw = await RawClient.open(demo, transport);
     await raw.hello(service);
     final answer = await raw.ask({
       'op': 'match',
@@ -368,7 +299,7 @@ void main() {
     () async {
       final service = await start(browserHosts: self);
       final proposal = admin.events.firstWhere((e) => e['op'] == 'proposal');
-      final raw = await _Raw.open(demo, transport);
+      final raw = await RawClient.open(demo, transport);
       await raw.hello(service);
       final accepted = await raw.ask({
         'op': 'propose',
@@ -387,7 +318,7 @@ void main() {
       await service.stop();
 
       final quiet = await start(browserHosts: self, subscribe: false);
-      final again = await _Raw.open(demo, transport);
+      final again = await RawClient.open(demo, transport);
       await again.hello(quiet);
       final dropped = await again.ask({
         'op': 'propose',
@@ -405,7 +336,7 @@ void main() {
       final sub = admin.events.listen((e) {
         if (e['op'] == 'proposal') proposed++;
       });
-      final raw3 = await _Raw.open(demo, transport);
+      final raw3 = await RawClient.open(demo, transport);
       await raw3.hello(helper);
       final known = await raw3.ask({
         'op': 'propose',
@@ -450,7 +381,7 @@ void main() {
 
     /// The answer of [request], progress frames skipped.
     Future<Map<String, Object?>> answer(
-      _Raw raw,
+      RawClient raw,
       Map<String, Object?> request,
     ) async {
       raw.send(request);
@@ -465,7 +396,7 @@ void main() {
         'get reads it', () async {
       final work = await secondMailLogin();
       final service = await start(helpers: self, policy: null);
-      final raw = await _Raw.open(demo, transport);
+      final raw = await RawClient.open(demo, transport);
       await raw.hello(service);
       final needed = admin.events.firstWhere(
         (e) => e['op'] == 'approval_needed',
@@ -521,7 +452,7 @@ void main() {
         'none at once', () async {
       final work = await secondMailLogin();
       final service = await start(helpers: self, policy: null);
-      final raw = await _Raw.open(demo, transport);
+      final raw = await RawClient.open(demo, transport);
       await raw.hello(service);
       var needed = admin.events.firstWhere((e) => e['op'] == 'approval_needed');
       final matched = answer(raw, {
@@ -572,7 +503,7 @@ void main() {
       await service.stop();
 
       final alone = await start(helpers: self, policy: null, subscribe: false);
-      final raw2 = await _Raw.open(demo, transport);
+      final raw2 = await RawClient.open(demo, transport);
       await raw2.hello(alone);
       final none = await answer(raw2, {
         'op': 'match',
@@ -585,7 +516,7 @@ void main() {
 
     test('pick is for the helpers: the browser host is denied', () async {
       final service = await start(browserHosts: self);
-      final raw = await _Raw.open(demo, transport);
+      final raw = await RawClient.open(demo, transport);
       await raw.hello(service);
       final denied = await answer(raw, {
         'op': 'match',
@@ -630,7 +561,7 @@ void main() {
   group('match for the browser host without a grant (DP-44)', () {
     /// The answer of [request], progress frames skipped.
     Future<Map<String, Object?>> answer(
-      _Raw raw,
+      RawClient raw,
       Map<String, Object?> request,
     ) async {
       raw.send(request);
@@ -654,7 +585,7 @@ void main() {
         'the next match and get ask nothing; a system vault\'s value is '
         'refused whatever the grant says', () async {
       final service = await start(browserHosts: self, policy: null);
-      final raw = await _Raw.open(demo, transport);
+      final raw = await RawClient.open(demo, transport);
       await raw.hello(service);
       final needed = admin.events.firstWhere(
         (e) => e['op'] == 'approval_needed',
@@ -745,7 +676,7 @@ void main() {
         'host process of the same browser (the fill), nothing written; a '
         'second read asks again', () async {
       final service = await start(browserHosts: self, policy: null);
-      final raw = await _Raw.open(demo, transport);
+      final raw = await RawClient.open(demo, transport);
       await raw.hello(service);
       var needed = admin.events.firstWhere((e) => e['op'] == 'approval_needed');
       final matched = answer(raw, {
@@ -765,7 +696,7 @@ void main() {
       expect((await admin.request('grants.list'))['grants'], isEmpty);
 
       // The fill: a new host process, a new connection.
-      final fill = await _Raw.open(demo, transport);
+      final fill = await RawClient.open(demo, transport);
       await fill.hello(service);
       var prompted = false;
       final sub = admin.events.listen((e) {
@@ -812,7 +743,7 @@ void main() {
     test('never lists none and asks no more; a folder answer is refused; '
         'no approver connected: none at once', () async {
       final service = await start(browserHosts: self, policy: null);
-      final raw = await _Raw.open(demo, transport);
+      final raw = await RawClient.open(demo, transport);
       await raw.hello(service);
       final needed = admin.events.firstWhere(
         (e) => e['op'] == 'approval_needed',
@@ -867,7 +798,7 @@ void main() {
         policy: null,
         subscribe: false,
       );
-      final raw2 = await _Raw.open(demo, transport);
+      final raw2 = await RawClient.open(demo, transport);
       await raw2.hello(alone);
       final none = await answer(raw2, {
         'op': 'match',
@@ -939,7 +870,7 @@ void main() {
 
   test('propose needs an allow grant of the browser host', () async {
     final service = await start(browserHosts: self, policy: null);
-    final raw = await _Raw.open(demo, transport);
+    final raw = await RawClient.open(demo, transport);
     await raw.hello(service);
     final denied = await raw.ask({
       'op': 'propose',

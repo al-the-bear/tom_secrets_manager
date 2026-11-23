@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.25.3
+
+- Passkeys for the browser host (protocol.md 5.8, feature `passkey`,
+  DP-120): `passkeys` (a page's passkeys by name and credential id, never a
+  system vault's, the browser prompt with `passkey` when no grant covers
+  them), `passkeyGet` (the service signs; the key never leaves it) and
+  `passkeyCreate` (the app confirms it, `approval_needed` with
+  `passkeyCreate`; the passkey kept in the site's login and the vault
+  written before the answer); `TomSecretsService.editStore` and the vault
+  set's `edit` for the service's own edit of a further vault.
+
 ## 0.25.2
 
 - The pairing mode receives through a magic-wormhole mailbox server too
