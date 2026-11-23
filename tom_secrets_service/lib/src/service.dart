@@ -46,7 +46,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.25.0';
+const String tomSecretsServiceVersion = '0.25.1';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -1439,6 +1439,10 @@ final class TomSecretsService
       await a.connection.close();
     }
     _github?.close();
+    for (final r in _serverRelays.values) {
+      r.close();
+    }
+    _serverRelays.clear();
     await config.runtime.removeEndpoints();
     await config.runtime.release();
     log.info('stop');
@@ -1631,13 +1635,30 @@ final class TomSecretsService
   }
 
   /// **[C]** The relay server [relay] for an approval link or a mailbox
-  /// put, with the instance token kept for it.
+  /// put, with the instance token kept for it: one client per relay and
+  /// token while the service runs (its HTTP client reused; its requests
+  /// paced with every other client of that relay in the process).
   Future<TomSecretsRelay> linkRelay(String relay) async {
     final token = await relayToken(relay);
     final build = config.linkRelayFor;
     if (build != null) return build(relay, token);
-    return TomSecretsServerRelay(TomSecretsRelayId.parse(relay), token: token);
+    final key = '$relay\u0000${token ?? ''}';
+    final kept = _serverRelays[key];
+    if (kept != null) return kept;
+    // A token changed since: the client with the old one is closed.
+    for (final old in [
+      ..._serverRelays.keys.where((k) => k.startsWith('$relay\u0000')),
+    ]) {
+      _serverRelays.remove(old)!.close();
+    }
+    return _serverRelays[key] = TomSecretsServerRelay(
+      TomSecretsRelayId.parse(relay),
+      token: token,
+    );
   }
+
+  /// The relay server clients [linkRelay] built, by relay and token.
+  final Map<String, TomSecretsServerRelay> _serverRelays = {};
 
   // ── TomSecretsApprovalHost ───────────────────────────────────────────
 

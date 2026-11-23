@@ -293,6 +293,34 @@ void main() {
     return port;
   }
 
+  test('one relay client per relay and token while the service runs; a '
+      'new token gets a new one', () async {
+    final demo = await Demo.create();
+    final s = await demo.start(
+      transport: transport,
+      host: 'mbp',
+      keychain: TomInMemorySecretStore(),
+    );
+    final c = await admin(demo);
+    const relay = 'tsm:https://relay.example';
+    final first = await s.linkRelay(relay);
+    expect(first, isA<TomSecretsServerRelay>());
+    expect(identical(await s.linkRelay(relay), first), isTrue);
+    await c.request('relay.token.set', {
+      'relay': relay,
+      'token': 'instance-token-0123456789',
+    });
+    final withToken = await s.linkRelay(relay) as TomSecretsServerRelay;
+    expect(identical(withToken, first), isFalse);
+    expect(withToken.token, 'instance-token-0123456789');
+    expect(identical(await s.linkRelay(relay), withToken), isTrue);
+    // Every client of one relay shares its pacer.
+    expect(
+      identical(withToken.pacer, (first as TomSecretsServerRelay).pacer),
+      isTrue,
+    );
+  });
+
   test('the host\'s address does not answer: the link goes through the '
       'relay, and a prompt is answered over it', () async {
     await startBoth();

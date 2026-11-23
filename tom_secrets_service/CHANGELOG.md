@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.25.1
+
+- On `tom_secrets_core` 0.2.24: the relay server client paces its requests
+  under the relay's per-address limits, so the service's approval links
+  and `relay.put`s to many members never get its address blocked.
+- `linkRelay` keeps one relay server client per relay and instance token
+  while the service runs (it built a new one, with an HTTP client never
+  closed, at every link channel and every put); a new token closes the old
+  client; `stop` closes them all.
+
 ## 0.25.0
 
 - `relay.put {relay, members, bytes}`: a share put into the mailbox of each
