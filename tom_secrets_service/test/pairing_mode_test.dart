@@ -317,6 +317,11 @@ void main() {
         answer: answers.add,
         keychain: keychain,
         relayFor: (relayId, token, api, device) {
+          if (relayId.kind == TomSecretsRelayKind.wormhole) {
+            // A magic-wormhole server: built as the service builds it.
+            expect(token, isNull);
+            return tomSecretsRelayFor(relayId, device: device);
+          }
           if (relayId.kind == TomSecretsRelayKind.server) {
             // A relay server: no token. The rendezvous itself is the
             // GitHub fake's, which carries the same channel.
@@ -418,7 +423,7 @@ void main() {
     });
 
     test('no pairing on the relay: the pairing fails naming the relay; a '
-        'relay this version does not carry is refused', () async {
+        'magic-wormhole server is tried as well', () async {
       final (exit, answers, _) = await run(
         handover(TomSecretsPairingCode(77, ['guitar', 'orbit'])),
       );
@@ -428,17 +433,23 @@ void main() {
       expect(answers.single['message'], contains('github:$slug'));
       expect(Directory('${demo.dir}/paired').existsSync(), isFalse);
 
-      final (refused, said, _) = await run(
+      // A wormhole server that does not answer: tried, and said by name.
+      final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final closed = probe.port;
+      await probe.close();
+      final wormhole = 'wormhole:ws://127.0.0.1:$closed/v1';
+      final (failed, said, _) = await run(
         TomSecretsPairingHandover(
           dataDirectory: '${demo.dir}/paired',
           code: '77-guitar-orbit',
           device: 'bigbeast',
-          relay: 'wormhole:wss://relay.example',
+          relay: wormhole,
         ),
       );
-      expect(refused, 2);
-      expect(said.single['code'], 'handover');
-      expect(said.single['message'], contains('not available'));
+      expect(failed, 6);
+      expect(said.single['failure'], 'relay');
+      expect(said.single['message'], contains(wormhole));
+      expect(Directory('${demo.dir}/paired').existsSync(), isFalse);
     });
   });
 }

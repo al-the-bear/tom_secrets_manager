@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.2
+
+- The pairing mode receives through a magic-wormhole mailbox server too
+  (`relay: wormhole:ws(s)://…`, `tom_secrets_core` 0.2.25's
+  `TomSecretsWormholeRelay`), as through a relay server: no token, and a
+  server that fails ends the pairing with code 6 naming it. The handover no
+  longer refuses it.
+
 ## 0.25.1
 
 - On `tom_secrets_core` 0.2.24: the relay server client paces its requests

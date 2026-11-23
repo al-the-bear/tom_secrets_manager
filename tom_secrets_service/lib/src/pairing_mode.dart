@@ -71,13 +71,6 @@ Future<int> tomSecretsRunPairingMode(
         : TomSecretsDeviceKeyMode.parse(handover.deviceKey!);
     if (handover.relay case final relay?) {
       relayId = TomSecretsRelayId.parse(relay);
-      if (relayId.kind == TomSecretsRelayKind.wormhole) {
-        throw FormatException(
-          'pairing through ${relayId.text} is not available in this '
-          'version: a relay server (tsm:<url>) or a GitHub repository '
-          '(github:<owner>/<repo>)',
-        );
-      }
       if (tomSecretsRelayNeedsToken(relayId) &&
           (handover.relayToken ?? '').isEmpty) {
         throw FormatException(
