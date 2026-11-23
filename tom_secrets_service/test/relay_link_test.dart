@@ -74,6 +74,21 @@ final class MemoryRelay {
     return end;
   }
 
+  /// The mailbox items put, by recipient and item id.
+  final Map<String, TomSecretsMailboxItem> items = {};
+
+  Future<void> put(TomSecretsMailboxItem item, String? token) async {
+    tokens.add(token);
+    if (requireToken != null && token != requireToken) {
+      throw const TomSecretsRelayException(
+        _relay,
+        'it did not take the package: this relay accepts mailbox items only '
+        'from holders of an instance token',
+      );
+    }
+    items['${item.recipient}/${item.itemId}'] = item;
+  }
+
   /// How many sides wait on [id].
   int sides(String id) => _open[id]?.length ?? 0;
 
@@ -113,7 +128,7 @@ final class _MemoryRelayClient implements TomSecretsRelay {
   Future<TomSecretsPairingChannel> join(String nameplate) =>
       throw UnimplementedError();
   @override
-  Future<void> put(TomSecretsMailboxItem item) => throw UnimplementedError();
+  Future<void> put(TomSecretsMailboxItem item) => memory.put(item, token);
   @override
   Future<List<TomSecretsMailboxEntry>> list(TomSecretsMemberKey me) =>
       throw UnimplementedError();
@@ -411,6 +426,57 @@ void main() {
     expect(await keychainA.read(tomSecretsRelayTokenHandle(_relay)), isNull);
     await expectLater(
       adminA.request('relay.token.set', {'relay': 'github:a/b', 'token': 'x'}),
+      throwsA(
+        isA<TomSecretsAdminException>().having(
+          (e) => e.kind,
+          'kind',
+          'malformed',
+        ),
+      ),
+    );
+  });
+
+  test('relay.put: a share into each member\'s mailbox on the relay server, '
+      'with the instance token kept; refused without it, said', () async {
+    await startBoth(requireToken: 'instance-token-0123456789');
+    final members = ['a' * 52, 'b' * 52];
+    await expectLater(
+      adminA.request('relay.put', {
+        'relay': _relay,
+        'members': members,
+        'bytes': 'AQID',
+      }),
+      throwsA(
+        isA<TomSecretsAdminException>()
+            .having((e) => e.kind, 'kind', 'unavailable')
+            .having((e) => e.message, 'message', contains('instance token'))
+            .having((e) => e.details['reason'], 'reason', 'relay'),
+      ),
+    );
+    await adminA.request('relay.token.set', {
+      'relay': _relay,
+      'token': 'instance-token-0123456789',
+    });
+    final put = await adminA.request('relay.put', {
+      'relay': _relay,
+      'members': members,
+      'bytes': 'AQID',
+    });
+    final name = put['name']! as String;
+    expect(tomSecretsIsInboxName(name), isTrue);
+    expect(relay.items.keys, ['${members[0]}/$name', '${members[1]}/$name']);
+    final item = relay.items['${members[0]}/$name']!;
+    expect(item.bytes, [1, 2, 3]);
+    expect(
+      item.expires.difference(DateTime.now()).inDays,
+      inInclusiveRange(29, 30),
+    );
+    await expectLater(
+      adminA.request('relay.put', {
+        'relay': 'github:a/b',
+        'members': members,
+        'bytes': 'AQID',
+      }),
       throwsA(
         isA<TomSecretsAdminException>().having(
           (e) => e.kind,

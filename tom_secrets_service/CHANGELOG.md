@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.25.0
+
+- `relay.put {relay, members, bytes}`: a share put into the mailbox of each
+  member on a relay server, under one new package name kept 30 days, with
+  the instance token the keychain keeps for the relay (a shared vault whose
+  mailbox relay is a relay server, part-relay); a refusal (no token, the
+  relay's limits) is `unavailable` with reason `relay` and the relay's
+  message. The app reads, fetches and deletes the items itself with the
+  member key's proof.
+
 ## 0.24.0
 
 - The approval link through a relay server (part-relay): a host keeps the

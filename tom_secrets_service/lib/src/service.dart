@@ -46,7 +46,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.24.0';
+const String tomSecretsServiceVersion = '0.25.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -1603,8 +1603,35 @@ final class TomSecretsService
     }
   }
 
-  /// **[C]** The relay server [relay] for an approval link, with the
-  /// instance token kept for it.
+  /// **[C]** Puts the share [bytes] into the mailbox of each of [members]
+  /// (their member ids) on the relay server [relay], with the instance token
+  /// the keychain keeps for it (part-relay, a shared vault's mailbox relay):
+  /// one name for all, `tomSecretsNewInboxName`, kept 30 days. Answers the
+  /// name. Throws `TomSecretsRelayException` when the relay refuses it.
+  Future<String> putIntoMailbox(
+    String relay,
+    List<String> members,
+    Uint8List bytes,
+  ) async {
+    final r = await linkRelay(relay);
+    final name = tomSecretsNewInboxName(now: now);
+    final expires = now.add(tomSecretsInboxExpiry);
+    for (final member in members) {
+      await r.put(
+        TomSecretsMailboxItem(
+          recipient: member,
+          itemId: name,
+          bytes: bytes,
+          expires: expires,
+        ),
+      );
+    }
+    log.info('relay_put', {'members': members.length, 'bytes': bytes.length});
+    return name;
+  }
+
+  /// **[C]** The relay server [relay] for an approval link or a mailbox
+  /// put, with the instance token kept for it.
   Future<TomSecretsRelay> linkRelay(String relay) async {
     final token = await relayToken(relay);
     final build = config.linkRelayFor;
@@ -4188,6 +4215,27 @@ final class _AdminSession {
   Future<void> _relayTokens(int id, String op, Map<String, Object?> m) async {
     try {
       switch (op) {
+        case 'relay.put':
+          final relay = m['relay'];
+          final members = m['members'];
+          final bytes = m['bytes'];
+          if (relay is! String ||
+              !tomSecretsIsLinkRelay(relay) ||
+              members is! List ||
+              members.isEmpty ||
+              members.any((r) => r is! String || !tomSecretsIsInboxMember(r)) ||
+              bytes is! String) {
+            throw const FormatException(
+              'relay.put names a relay server, member ids and the bytes',
+            );
+          }
+          final package = base64.decode(bytes);
+          final name = await service.putIntoMailbox(
+            relay,
+            members.cast<String>(),
+            package,
+          );
+          connection.send({'op': 'relayPut', 'id': id, 'name': name});
         case 'relay.token.set':
           final relay = m['relay'];
           final token = m['token'];
@@ -4216,6 +4264,13 @@ final class _AdminSession {
       }
     } on FormatException catch (e) {
       connection.sendError(id, 'malformed', e.message, {'reason': 'relay'});
+    } on TomSecretsRelayException catch (e) {
+      connection.sendError(
+        id,
+        'unavailable',
+        'the relay ${e.relay}: ${e.message}',
+        {'reason': 'relay', 'relay': e.relay},
+      );
     } on StateError catch (e) {
       connection.sendError(id, 'unavailable', e.message, {
         'reason': 'no_keychain',
@@ -5181,7 +5236,7 @@ final class _AdminSession {
           return;
         }
         await _relay(id, op, m);
-      case 'relay.token.set' || 'relay.token.list':
+      case 'relay.token.set' || 'relay.token.list' || 'relay.put':
         if (!isApp) {
           connection.sendError(id, 'denied', 'only the manager app', {
             'reason': 'wrong_executable',

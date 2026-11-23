@@ -420,7 +420,8 @@ revokes the old one. Failed authentications delay the next one (1 s, 2 s,
 | `approve`, `approvals.list`, `approval.issue`, `approval.redeem`, `approvers.cliSwitch` | answering approvals, and command-line approvals on or off |
 | `grants.list`, `grants.add`, `grants.revoke` | the allow list |
 | `pair.identity`, `pair.record`, `pair.revoke`, `pair.list` | pairing records; **[C]** `pair.identity` with a relay server names it for the approval link with a fresh link id, `pair.record`'s `link` keeps the relay link agreed |
-| `relay.token.set`, `relay.token.list` | **[C]** a relay server's instance token kept in the keychain for the approval link through it (manager app only); never answered |
+| `relay.token.set`, `relay.token.list` | **[C]** a relay server's instance token kept in the keychain for the approval link and the mailbox puts through it (manager app only); never answered |
+| `relay.put` | **[C]** a share put into members' mailboxes on a relay server with the kept instance token (manager app only; a shared vault whose mailbox relay is a relay server) |
 | `audit.query` | the audit log |
 | `settings.get`, `settings.set` | the device settings (a write only from the manager app) |
 | `keys` | every key with its due date; **[C]** the typed certificates and PGP keys of the stores served with their own expiry (kinds `certificate`, `pgp_key`, reminded from 30 days before) |
