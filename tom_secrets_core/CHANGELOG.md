@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.24
+
+- The relay client paces its requests (part-relay, DP-65):
+  `TomSecretsServerRelay` waits for each HTTP request's and WebSocket
+  opening's turn on the relay's `TomSecretsRelayPacer` (one per relay
+  address in the process, shared by every client of that relay), within
+  `tomSecretsRelayClientBudgets` (5 a second, 60 a minute, 1,000 a day,
+  about half of the relay's per-address limits), so a mailbox read of many
+  items or a share to many members never gets the address blocked. A turn
+  further away than `tomSecretsRelayLongestWait` is refused, naming when
+  the next request goes (`TomSecretsRelayBudgetSpent`). A `429` with
+  `Retry-After` is waited out and asked again once
+  (`tomSecretsRetryAfter`, `TomSecretsRelayUpgradeRefused.retryAfter`).
+
 ## 0.2.23
 
 - The approval link through a relay server (part-relay): the pairing's

@@ -369,6 +369,9 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsGitHubRelay` | final class | GitHub as the relay | [→](api_summary_sharing.md#tomsecretsgithubrelay) |
 | `TomSecretsServerRelay` | final class | The own relay server as the relay (`tsm:`) | [→](api_summary_sharing.md#tomsecretsserverrelay) |
 | `TomSecretsRelayUpgradeRefused` | final class | A WebSocket upgrade the relay refused | [→](api_summary_sharing.md#tomsecretsrelayupgraderefused) |
+| `TomSecretsRelayBudget` | typedef | One budget of the relay client | [→](api_summary_sharing.md#tomsecretsrelaybudget) |
+| `TomSecretsRelayBudgetSpent` | final class | A relay request's turn is too far away | [→](api_summary_sharing.md#tomsecretsrelaybudgetspent) |
+| `TomSecretsRelayPacer` | final class | The turns of the requests to one relay server | [→](api_summary_sharing.md#tomsecretsrelaypacer) |
 | `TomSecretsDeviceRecord` | final class | One paired device. | [→](api_summary_sharing.md#tomsecretsdevicerecord) |
 | `TomSecretsGitHubAuth` | enum | How a device reaches GitHub: the App sign-in or a pasted token. | [→](api_summary_sharing.md#tomsecretsdevicerecord) |
 | `TomSecretsDeviceRecords` | final class | The device records of the primary vault `file`. | [→](api_summary_sharing.md#tomsecretsdevicerecords) |
@@ -423,6 +426,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsReceivePairingAt` | The receiving side connecting to a pairing window at `address`:`port` (`tomSecretsReceivePairing` over TCP). | [→](api_summary_sharing.md#functions) |
 | `tomSecretsReceivePairingVia` | The receiving side through a relay. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRelayWebSocket` | Opens a WebSocket to a relay, keeping a refusal's status and message. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsRetryAfter` | A `Retry-After` header's delay, or null. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRelayFor` | The relay an id names, built for this device. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRelayNeedsToken` | Whether pairing through a relay needs a token of this machine's own. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsNewLinkId` | A new link id (128 random bits). | [→](api_summary_sharing.md#functions) |
@@ -487,6 +491,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsRelayStaleAfter` | `Duration` | How old a pairing folder may get before the next host deletes it: one hour. | [→](api_summary_sharing.md#constants) |
 | `tomSecretsLinkIdPattern` | `RegExp` | What a link id is: 8–128 of `A-Z a-z 0-9 _ -`. | [→](api_summary_sharing.md#constants) |
 | `tomSecretsInboxExpiry` | `Duration` | How long a package stays in an inbox before any member's sync deletes it: 30 days. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsRelayClientBudgets` | `List<TomSecretsRelayBudget>` | What the relay client spends on one relay: 5 a second, 60 a minute, 1,000 a day. | [→](api_summary_sharing.md#constants) |
+| `tomSecretsRelayLongestWait` | `Duration` | The longest a relay request waits for its turn: 70 seconds. | [→](api_summary_sharing.md#constants) |
 
 ---
 
@@ -767,10 +773,13 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsRecordedHost` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrecordedhost) |
 | `TomSecretsRelay` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelay) |
 | `TomSecretsRelayException` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelayexception) |
+| `TomSecretsRelayBudget` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelaybudget) |
+| `TomSecretsRelayBudgetSpent` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelaybudgetspent) |
 | `TomSecretsRelayFileExists` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelayfileexists) |
 | `TomSecretsRelayFolder` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelayfolder) |
 | `TomSecretsRelayId` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelayid) |
 | `TomSecretsRelayKind` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelaykind) |
+| `TomSecretsRelayPacer` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelaypacer) |
 | `TomSecretsRelayService` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelayservice) |
 | `TomSecretsRelayUpgradeRefused` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelayupgraderefused) |
 | `TomSecretsRepositoryKey` | Key Files and Outer Encryption | [→](api_summary_protection.md#tomsecretsrepositorykey) |
@@ -979,6 +988,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsRelayWebSocket` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRepositoryKeyHandle` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsRequestDigest` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsRetryAfter` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsSameText` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsSetBreachCheckExcluded` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsSettleConflicts` | Sync, Merge and Compaction | [→](api_summary_sync.md#functions) |
@@ -1068,6 +1078,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsProductGroup` | Vaults and Resolution | [→](api_summary_vaults.md#constants) |
 | `tomSecretsQrCapacity` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRecipientsSuffix` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsRelayClientBudgets` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
+| `tomSecretsRelayLongestWait` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRelayPairFolder` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRelayStaleAfter` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#constants) |
 | `tomSecretsRetentionTrailer` | Sync, Merge and Compaction | [→](api_summary_sync.md#constants) |

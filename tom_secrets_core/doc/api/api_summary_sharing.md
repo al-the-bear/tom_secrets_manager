@@ -56,6 +56,9 @@
   - [TomSecretsGitHubRelay](#tomsecretsgithubrelay)
   - [TomSecretsServerRelay](#tomsecretsserverrelay)
   - [TomSecretsRelayUpgradeRefused](#tomsecretsrelayupgraderefused)
+  - [TomSecretsRelayBudget](#tomsecretsrelaybudget)
+  - [TomSecretsRelayBudgetSpent](#tomsecretsrelaybudgetspent)
+  - [TomSecretsRelayPacer](#tomsecretsrelaypacer)
   - [TomSecretsDeviceRecord](#tomsecretsdevicerecord)
   - [TomSecretsDeviceRecords](#tomsecretsdevicerecords)
   - [TomSecretsMemberFields](#tomsecretsmemberfields)
@@ -1273,7 +1276,7 @@ A pairing received by a machine being set up, held in memory until the setup: th
 
 ### TomSecretsServerRelay
 
-**[C]** The own relay server as the relay (`tsm:<url>`, part-relay 1.): all three services over `tom_secrets_relay`'s `/v1` API. Pairing: `POST /v1/pair` allocates the nameplate, both sides open the WebSocket `/v1/pair/<nameplate>`. Link: the WebSocket `/v1/link/<link-id>` with the instance token. Mailbox: `PUT` with the instance token and `Tsm-Expires`; listing, fetching and deleting with the recipient's proof (the relay's challenge decrypted with the member key, kept 4 minutes, asked again once when refused). Credentials travel as `Authorization: Bearer`.
+**[C]** The own relay server as the relay (`tsm:<url>`, part-relay 1.): all three services over `tom_secrets_relay`'s `/v1` API. Pairing: `POST /v1/pair` allocates the nameplate, both sides open the WebSocket `/v1/pair/<nameplate>`. Link: the WebSocket `/v1/link/<link-id>` with the instance token. Mailbox: `PUT` with the instance token and `Tsm-Expires`; listing, fetching and deleting with the recipient's proof (the relay's challenge decrypted with the member key, kept 4 minutes, asked again once when refused). Credentials travel as `Authorization: Bearer`. Every request and WebSocket opened waits for its turn on the relay's `TomSecretsRelayPacer`; a `429` with `Retry-After` is waited out and asked again once.
 
 **Kind:** `final class`
 
@@ -1281,8 +1284,9 @@ A pairing received by a machine being set up, held in memory until the setup: th
 
 | Member | Type | Description |
 | --- | --- | --- |
-| `TomSecretsServerRelay(id, {token, httpClient, connect, clock, timeout})` | — | The relay `id` with the instance `token` (null: none; pairing needs none); requests through `httpClient`, WebSockets through `connect` (default `tomSecretsRelayWebSocket`). |
+| `TomSecretsServerRelay(id, {token, httpClient, connect, clock, pacer, timeout})` | — | The relay `id` with the instance `token` (null: none; pairing needs none); requests through `httpClient`, WebSockets through `connect` (default `tomSecretsRelayWebSocket`), each in its turn on `pacer` (default `TomSecretsRelayPacer.of(id.address)`). |
 | `token` | `String?` | The instance token. |
+| `pacer` | `TomSecretsRelayPacer` | Where the requests wait for their turn. |
 | `timeout` | `Duration` | How long a request may take (30 seconds). |
 | `close()` | `void` | Closes the HTTP client. |
 
@@ -1298,9 +1302,52 @@ A WebSocket upgrade the relay answered with `status` instead of 101, with the re
 
 | Member | Type | Description |
 | --- | --- | --- |
-| `TomSecretsRelayUpgradeRefused(status, message)` | const | A refusal. |
+| `TomSecretsRelayUpgradeRefused(status, message, {retryAfter})` | const | A refusal; `retryAfter` from the answer's `Retry-After`. |
 | `status` | `int` | The HTTP status. |
 | `message` | `String?` | What the relay said. |
+| `retryAfter` | `Duration?` | How long the relay asks to wait (a `429`), or null. |
+
+---
+
+### TomSecretsRelayBudget
+
+**[C]** One budget of the relay client: `({int limit, Duration window})`, at most `limit` requests within `window`.
+
+**Kind:** `typedef`
+
+---
+
+### TomSecretsRelayBudgetSpent
+
+**[C]** A request's turn is further away than the pacer's longest wait (the day's budget spent): thrown instead of holding the caller for hours.
+
+**Kind:** `final class` (implements `Exception`)
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsRelayBudgetSpent(until)` | const | Spent until `until`. |
+| `until` | `DateTime` | When the next request may go. |
+
+---
+
+### TomSecretsRelayPacer
+
+**[C]** The turns of the requests to one relay server (part-relay, DP-65): a sliding window per budget (`tomSecretsRelayClientBudgets`: 5 a second, 60 a minute, 1,000 a day, about half the relay's per-address defaults), so a device stays under the relay's limits with room for the other processes and devices behind the same address. One pacer per relay address in the process, shared by every `TomSecretsServerRelay` of it; frames inside an open channel are not requests.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsRelayPacer({budgets, longestWait, clock, sleep})` | — | A pacer spending `budgets`, the time read from `clock`, waiting with `sleep` (tests replace both). |
+| `of(address)` | `static TomSecretsRelayPacer` | The pacer of the relay at `address` in this process. |
+| `budgets` | `List<TomSecretsRelayBudget>` | The budgets. |
+| `longestWait` | `Duration` | The longest wait before `turn` refuses. |
+| `turn()` | `Future<void>` | Waits for this request's turn (in the order asked) and counts it; throws `TomSecretsRelayBudgetSpent` when the turn is further away than `longestWait` (nothing counted). |
+| `waitOut(retryAfter)` | `Future<bool>` | A request the relay refused for its limits is asked again once after waiting `retryAfter`, when it is no longer than `longestWait`; true when it may be asked again. |
 
 ---
 
@@ -1678,6 +1725,8 @@ A share (single-entry export): entries for another person, who sent them, when; 
 | `tomSecretsQrCapacity` | `int` | The most characters a QR code holds (version 40, level L, byte mode): 2953. |
 | `tomSecretsInboxFolder` | `String` | The folder beside a shared vault holding the members' inboxes: `inbox`. |
 | `tomSecretsInboxExpiry` | `Duration` | How long a package stays in an inbox before any member's sync deletes it: 30 days. |
+| `tomSecretsRelayClientBudgets` | `List<TomSecretsRelayBudget>` | **[C]** What the relay client spends on one relay: 5 a second, 60 a minute, 1,000 a day. |
+| `tomSecretsRelayLongestWait` | `Duration` | **[C]** The longest a relay request waits for its turn: 70 seconds. |
 
 ### Functions
 
@@ -1711,7 +1760,8 @@ A share (single-entry export): entries for another person, who sent them, when; 
 | `tomSecretsPairingAddresses` | `Future<List<InternetAddress>> tomSecretsPairingAddresses()` | This machine's LAN and VPN addresses (`tomSecretsIsPairingAddress`). |
 | `tomSecretsReceivePairingAt` | `Future<TomSecretsPairingReceived> tomSecretsReceivePairingAt(String address, int port, {required TomSecretsPairingCode code, required String device, required Future<TomSecretsPairingPeerKeys> Function(String giver, TomSecretsPairingBundle bundle) keysFor, Duration connectTimeout = const Duration(seconds: 10)})` | The receiving side connecting to a pairing window at `address`:`port` (`tomSecretsReceivePairing` over TCP). Throws `TomSecretsPairingException` (`closed` when nothing answers there). |
 | `tomSecretsReceivePairingVia` | `Future<TomSecretsPairingReceived> tomSecretsReceivePairingVia(TomSecretsRelay relay, {required TomSecretsPairingCode code, required String device, required Future<TomSecretsPairingPeerKeys> Function(String giver, TomSecretsPairingBundle bundle) keysFor, Duration timeout = const Duration(minutes: 5)})` | **[C]** The receiving side through a relay: joins the pairing hosted under the code's number and runs `tomSecretsReceivePairing` over the channel. Throws `TomSecretsRelayException` naming the relay when it fails. |
-| `tomSecretsRelayWebSocket` | `Future<WebSocket> tomSecretsRelayWebSocket(Uri url, Map<String, String> headers)` | **[C]** Opens the WebSocket `url` with `headers`, doing the handshake itself so a refusal keeps its status and the relay's message (`TomSecretsRelayUpgradeRefused`). |
+| `tomSecretsRelayWebSocket` | `Future<WebSocket> tomSecretsRelayWebSocket(Uri url, Map<String, String> headers)` | **[C]** Opens the WebSocket `url` with `headers`, doing the handshake itself so a refusal keeps its status, the relay's message and its `Retry-After` (`TomSecretsRelayUpgradeRefused`). |
+| `tomSecretsRetryAfter` | `Duration? tomSecretsRetryAfter(String? header)` | **[C]** A `Retry-After` header's delay in seconds, or null (a date or anything else). |
 | `tomSecretsRelayFor` | `TomSecretsRelay tomSecretsRelayFor(TomSecretsRelayId id, {String? token, String device = 'tsm', String? githubApi})` | **[C]** The relay `id` names, built for this device: GitHub with this machine's GitHub `token` (required), the relay server with its instance `token` (optional); a magic-wormhole server throws `TomSecretsRelayException` (`unsupported`). |
 | `tomSecretsRelayNeedsToken` | `bool tomSecretsRelayNeedsToken(TomSecretsRelayId id)` | **[C]** Whether pairing through `id` needs a token of this machine's own (GitHub's repository token; a relay server's instance token is not needed to pair). |
 | `tomSecretsNewLinkId` | `String tomSecretsNewLinkId()` | **[C]** A new link id: 16 random bytes (128 bits) in base64url without padding. |

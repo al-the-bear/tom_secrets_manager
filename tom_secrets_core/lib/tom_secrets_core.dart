@@ -46,6 +46,7 @@ export 'src/relay.dart';
 // The age format and the member keys (no vault format), re-exported.
 export 'package:tom_secrets_age/tom_secrets_age.dart';
 export 'src/github_relay.dart';
+export 'src/relay_pacer.dart';
 export 'src/server_relay.dart';
 export 'src/relay_link.dart';
 export 'src/resolution.dart';

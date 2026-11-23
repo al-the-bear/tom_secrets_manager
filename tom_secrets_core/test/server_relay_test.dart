@@ -34,12 +34,25 @@ final class _FakeRelay {
   String? nameplate;
   int challenges = 0;
 
+  /// How many of the next requests answer 429 with `Retry-After: 2`.
+  int busy = 0;
+
   String get base => 'http://127.0.0.1:${server.port}/relay';
 
   Future<void> _handle(HttpRequest request) async {
     requests.add(request);
     final path = request.uri.path;
     final res = request.response;
+    if (busy > 0) {
+      busy--;
+      res
+        ..statusCode = 429
+        ..headers.set('retry-after', '2')
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({'error': 'too many puts per instance token'}));
+      await res.close();
+      return;
+    }
     Future<void> answer(int status, [Object? json]) async {
       res.statusCode = status;
       if (json != null) {
@@ -313,6 +326,60 @@ void main() {
     expect(
       tomSecretsRelayNeedsToken(TomSecretsRelayId.parse('tsm:https://r.x')),
       isFalse,
+    );
+  });
+
+  group('a relay\'s limits', () {
+    late List<Duration> slept;
+    late TomSecretsServerRelay paced;
+    setUp(() {
+      slept = [];
+      paced = TomSecretsServerRelay(
+        TomSecretsRelayId.parse('tsm:${fake.base}'),
+        token: 'instance-token-1',
+        pacer: TomSecretsRelayPacer(sleep: (d) async => slept.add(d)),
+      );
+    });
+    tearDown(() => paced.close());
+
+    TomSecretsMailboxItem item() => TomSecretsMailboxItem(
+      recipient: 'a' * 52,
+      itemId: 'x',
+      bytes: Uint8List.fromList([1]),
+      expires: DateTime.utc(2026, 12, 1),
+    );
+
+    test('a 429 with Retry-After is waited out and asked again once', () async {
+      fake.busy = 1;
+      await paced.put(item());
+      expect(slept, [const Duration(seconds: 2)]);
+      expect(fake.items, contains('${'a' * 52}/x'));
+      expect(fake.requests.where((r) => r.method == 'PUT'), hasLength(2));
+    });
+
+    test('a second 429 is said with the relay\'s message', () async {
+      fake.busy = 2;
+      await expectLater(
+        paced.put(item()),
+        throwsA(
+          isA<TomSecretsRelayException>().having(
+            (e) => e.message,
+            'message',
+            contains('too many puts per instance token'),
+          ),
+        ),
+      );
+      expect(slept, [const Duration(seconds: 2)]);
+    });
+
+    test(
+      'a refused WebSocket upgrade with Retry-After is waited out once',
+      () async {
+        fake.busy = 1;
+        final a = await paced.link('link-abcdef12');
+        expect(slept, [const Duration(seconds: 2)]);
+        await a.close();
+      },
     );
   });
 }

@@ -15,6 +15,11 @@
 ///   recipient's proof (a token the relay encrypts to the member key with
 ///   `age`, decrypted here, valid 5 minutes).
 ///
+/// Every request and every WebSocket opened waits for its turn on the
+/// relay's [TomSecretsRelayPacer] (shared by every client of that relay in
+/// the process), so a device stays under the relay's per-address limits; a
+/// `429` with `Retry-After` is waited out and asked again once.
+///
 /// Every credential travels as `Authorization: Bearer`. The relay sees
 /// ciphertext only: the pairing's and the link's own handshakes run inside
 /// the channel, a mailbox item is an `age` package.
@@ -33,6 +38,7 @@ import 'package:tom_secrets_age/tom_secrets_age.dart';
 
 import 'github_relay.dart';
 import 'relay.dart';
+import 'relay_pacer.dart';
 import 'share.dart';
 
 /// The relay server [id] names (`tsm:https://relay.example`), reached with
@@ -41,21 +47,27 @@ import 'share.dart';
 final class TomSecretsServerRelay implements TomSecretsRelay {
   /// The relay [id] (`tsm:<url>`) with the instance [token]; requests go
   /// through [httpClient] (default a fresh client), WebSockets through
-  /// [connect] (default `WebSocket.connect`).
+  /// [connect] (default `WebSocket.connect`), each in its turn on [pacer]
+  /// (default the relay's in this process, [TomSecretsRelayPacer.of]).
   TomSecretsServerRelay(
     this.id, {
     this.token,
     http.Client? httpClient,
     Future<WebSocket> Function(Uri url, Map<String, String> headers)? connect,
     DateTime Function()? clock,
+    TomSecretsRelayPacer? pacer,
     this.timeout = const Duration(seconds: 30),
   }) : _http = httpClient ?? http.Client(),
        _connect = connect ?? tomSecretsRelayWebSocket,
-       _clock = clock ?? DateTime.now {
+       _clock = clock ?? DateTime.now,
+       pacer = pacer ?? TomSecretsRelayPacer.of(id.address) {
     if (id.kind != TomSecretsRelayKind.server) {
       throw ArgumentError.value(id, 'id', 'not a relay server');
     }
   }
+
+  /// Where the requests wait for their turn.
+  final TomSecretsRelayPacer pacer;
 
   @override
   final TomSecretsRelayId id;
@@ -109,12 +121,39 @@ final class TomSecretsServerRelay implements TomSecretsRelay {
     return 'HTTP ${r.statusCode}';
   }
 
+  /// Waits for the next request's turn; a spent budget is said.
+  Future<void> _turn() async {
+    try {
+      await pacer.turn();
+    } on TomSecretsRelayBudgetSpent catch (e) {
+      throw _failure(
+        'this device has made as many requests to it as it may for now; '
+        'the next one goes at ${e.until.toLocal()}',
+      );
+    }
+  }
+
   Future<http.Response> _send(
     String method,
     String path, {
     Map<String, String> headers = const {},
     List<int>? body,
   }) async {
+    var r = await _sendOnce(method, path, headers: headers, body: body);
+    if (r.statusCode == 429 &&
+        await pacer.waitOut(tomSecretsRetryAfter(r.headers['retry-after']))) {
+      r = await _sendOnce(method, path, headers: headers, body: body);
+    }
+    return r;
+  }
+
+  Future<http.Response> _sendOnce(
+    String method,
+    String path, {
+    Map<String, String> headers = const {},
+    List<int>? body,
+  }) async {
+    await _turn();
     final request = http.Request(method, _url(path));
     request.headers.addAll(headers);
     if (body != null) {
@@ -140,11 +179,32 @@ final class TomSecretsServerRelay implements TomSecretsRelay {
     String nameplate,
     Map<String, String> headers,
   ) async {
+    try {
+      return await _openOnce(path, nameplate, headers);
+    } on TomSecretsRelayUpgradeRefused catch (e) {
+      if (e.status != 429 || !await pacer.waitOut(e.retryAfter)) {
+        throw _failure(_upgradeRefusal(e, nameplate));
+      }
+    }
+    try {
+      return await _openOnce(path, nameplate, headers);
+    } on TomSecretsRelayUpgradeRefused catch (e) {
+      throw _failure(_upgradeRefusal(e, nameplate));
+    }
+  }
+
+  /// One WebSocket opened in its turn; a refused upgrade is rethrown.
+  Future<TomSecretsPairingChannel> _openOnce(
+    String path,
+    String nameplate,
+    Map<String, String> headers,
+  ) async {
+    await _turn();
     final WebSocket socket;
     try {
       socket = await _connect(_ws(path), headers).timeout(timeout);
-    } on TomSecretsRelayUpgradeRefused catch (e) {
-      throw _failure(_upgradeRefusal(e, nameplate));
+    } on TomSecretsRelayUpgradeRefused {
+      rethrow;
     } on WebSocketException catch (e) {
       throw _failure('it refused the connection: ${e.message}');
     } on TimeoutException {
@@ -403,11 +463,18 @@ final class _ServerChannel implements TomSecretsPairingChannel {
 /// A WebSocket upgrade the relay answered with [status] instead of 101,
 /// and the relay's [message] (its JSON `error`), if any.
 final class TomSecretsRelayUpgradeRefused implements Exception {
-  /// A refusal.
-  const TomSecretsRelayUpgradeRefused(this.status, this.message);
+  /// A refusal; [retryAfter] from the answer's `Retry-After`.
+  const TomSecretsRelayUpgradeRefused(
+    this.status,
+    this.message, {
+    this.retryAfter,
+  });
 
   /// The HTTP status.
   final int status;
+
+  /// How long the relay asks to wait (a `429`), or null.
+  final Duration? retryAfter;
 
   /// What the relay said.
   final String? message;
@@ -449,7 +516,13 @@ Future<WebSocket> tomSecretsRelayWebSocket(
       } on FormatException {
         // Not the relay's JSON.
       }
-      throw TomSecretsRelayUpgradeRefused(response.statusCode, message);
+      throw TomSecretsRelayUpgradeRefused(
+        response.statusCode,
+        message,
+        retryAfter: tomSecretsRetryAfter(
+          response.headers.value(HttpHeaders.retryAfterHeader),
+        ),
+      );
     }
     final accept = base64.encode(
       sha1
