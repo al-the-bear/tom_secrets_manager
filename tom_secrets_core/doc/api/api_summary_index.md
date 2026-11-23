@@ -367,6 +367,8 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsRelayFileExists` | final class | A relay file that exists already | [→](api_summary_sharing.md#tomsecretsrelayfileexists) |
 | `TomSecretsStorageRelayFolder` | final class | A `TomSecretsRelayFolder` over a `tom_core_storage` backend | [→](api_summary_sharing.md#tomsecretsstoragerelayfolder) |
 | `TomSecretsGitHubRelay` | final class | GitHub as the relay | [→](api_summary_sharing.md#tomsecretsgithubrelay) |
+| `TomSecretsServerRelay` | final class | The own relay server as the relay (`tsm:`) | [→](api_summary_sharing.md#tomsecretsserverrelay) |
+| `TomSecretsRelayUpgradeRefused` | final class | A WebSocket upgrade the relay refused | [→](api_summary_sharing.md#tomsecretsrelayupgraderefused) |
 | `TomSecretsDeviceRecord` | final class | One paired device. | [→](api_summary_sharing.md#tomsecretsdevicerecord) |
 | `TomSecretsGitHubAuth` | enum | How a device reaches GitHub: the App sign-in or a pasted token. | [→](api_summary_sharing.md#tomsecretsdevicerecord) |
 | `TomSecretsDeviceRecords` | final class | The device records of the primary vault `file`. | [→](api_summary_sharing.md#tomsecretsdevicerecords) |
@@ -420,6 +422,9 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsPairingAddresses` | This machine's LAN and VPN addresses (`tomSecretsIsPairingAddress`). | [→](api_summary_sharing.md#functions) |
 | `tomSecretsReceivePairingAt` | The receiving side connecting to a pairing window at `address`:`port` (`tomSecretsReceivePairing` over TCP). | [→](api_summary_sharing.md#functions) |
 | `tomSecretsReceivePairingVia` | The receiving side through a relay. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsRelayWebSocket` | Opens a WebSocket to a relay, keeping a refusal's status and message. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsRelayFor` | The relay an id names, built for this device. | [→](api_summary_sharing.md#functions) |
+| `tomSecretsRelayNeedsToken` | Whether pairing through a relay needs a token of this machine's own. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsPairingSetupProblem` | Why a bundle cannot set a machine up, or null when it can: the primary must be in it, with its token when it is in a GitHub repository. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsReceivePairingForSetup` | Receives a pairing for a machine being set up as `device`: connects to the giving machine's window at `address`:`port` with `code`, answers with the public keys of fresh trust material (made `now`) and `linkAddress`, where this machine's approval link will listen (the giver records it and opens the link), and refuses a bundle it cannot be set up from (`tomSecretsPairingSetupProblem`); a `linkAddress` that is no approval link throws `ArgumentError`. | [→](api_summary_sharing.md#functions) |
 | `tomSecretsParsePairingAddress` | Splits `host:port` (an IPv6 address in brackets: `[fd00::1]:47900`) as the giving machine's Pairing screen shows it. | [→](api_summary_sharing.md#functions) |
@@ -762,6 +767,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsRelayId` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelayid) |
 | `TomSecretsRelayKind` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelaykind) |
 | `TomSecretsRelayService` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelayservice) |
+| `TomSecretsRelayUpgradeRefused` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrelayupgraderefused) |
 | `TomSecretsRepositoryKey` | Key Files and Outer Encryption | [→](api_summary_protection.md#tomsecretsrepositorykey) |
 | `TomSecretsResolution` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsresolution) |
 | `TomSecretsResolveException` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretsresolveexception) |
@@ -770,6 +776,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsRotationException` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrotationexception) |
 | `TomSecretsRotationKind` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrotationkind) |
 | `TomSecretsRotations` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsrotations) |
+| `TomSecretsServerRelay` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsserverrelay) |
 | `TomSecretsShare` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretsshare) |
 | `TomSecretsSharedAttachment` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedattachment) |
 | `TomSecretsSharedEntry` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssharedentry) |
@@ -958,6 +965,9 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsRecipientsFileName` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRedeemToken` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRegistrableDomain` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsRelayFor` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsRelayNeedsToken` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
+| `tomSecretsRelayWebSocket` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsRepositoryKeyHandle` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsRequestDigest` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsSameText` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |

@@ -54,6 +54,8 @@
   - [TomSecretsRelayFileExists](#tomsecretsrelayfileexists)
   - [TomSecretsStorageRelayFolder](#tomsecretsstoragerelayfolder)
   - [TomSecretsGitHubRelay](#tomsecretsgithubrelay)
+  - [TomSecretsServerRelay](#tomsecretsserverrelay)
+  - [TomSecretsRelayUpgradeRefused](#tomsecretsrelayupgraderefused)
   - [TomSecretsDeviceRecord](#tomsecretsdevicerecord)
   - [TomSecretsDeviceRecords](#tomsecretsdevicerecords)
   - [TomSecretsMemberFields](#tomsecretsmemberfields)
@@ -1261,6 +1263,39 @@ A pairing received by a machine being set up, held in memory until the setup: th
 
 ---
 
+### TomSecretsServerRelay
+
+**[C]** The own relay server as the relay (`tsm:<url>`, part-relay 1.): all three services over `tom_secrets_relay`'s `/v1` API. Pairing: `POST /v1/pair` allocates the nameplate, both sides open the WebSocket `/v1/pair/<nameplate>`. Link: the WebSocket `/v1/link/<link-id>` with the instance token. Mailbox: `PUT` with the instance token and `Tsm-Expires`; listing, fetching and deleting with the recipient's proof (the relay's challenge decrypted with the member key, kept 4 minutes, asked again once when refused). Credentials travel as `Authorization: Bearer`.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsServerRelay(id, {token, httpClient, connect, clock, timeout})` | — | The relay `id` with the instance `token` (null: none; pairing needs none); requests through `httpClient`, WebSockets through `connect` (default `tomSecretsRelayWebSocket`). |
+| `token` | `String?` | The instance token. |
+| `timeout` | `Duration` | How long a request may take (30 seconds). |
+| `close()` | `void` | Closes the HTTP client. |
+
+---
+
+### TomSecretsRelayUpgradeRefused
+
+A WebSocket upgrade the relay answered with `status` instead of 101, with the relay's `message` (its JSON `error`), if any.
+
+**Kind:** `final class`
+
+#### Members
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsRelayUpgradeRefused(status, message)` | const | A refusal. |
+| `status` | `int` | The HTTP status. |
+| `message` | `String?` | What the relay said. |
+
+---
+
 ### TomSecretsDeviceRecord
 
 One paired device.
@@ -1667,6 +1702,9 @@ A share (single-entry export): entries for another person, who sent them, when; 
 | `tomSecretsPairingAddresses` | `Future<List<InternetAddress>> tomSecretsPairingAddresses()` | This machine's LAN and VPN addresses (`tomSecretsIsPairingAddress`). |
 | `tomSecretsReceivePairingAt` | `Future<TomSecretsPairingReceived> tomSecretsReceivePairingAt(String address, int port, {required TomSecretsPairingCode code, required String device, required Future<TomSecretsPairingPeerKeys> Function(String giver, TomSecretsPairingBundle bundle) keysFor, Duration connectTimeout = const Duration(seconds: 10)})` | The receiving side connecting to a pairing window at `address`:`port` (`tomSecretsReceivePairing` over TCP). Throws `TomSecretsPairingException` (`closed` when nothing answers there). |
 | `tomSecretsReceivePairingVia` | `Future<TomSecretsPairingReceived> tomSecretsReceivePairingVia(TomSecretsRelay relay, {required TomSecretsPairingCode code, required String device, required Future<TomSecretsPairingPeerKeys> Function(String giver, TomSecretsPairingBundle bundle) keysFor, Duration timeout = const Duration(minutes: 5)})` | **[C]** The receiving side through a relay: joins the pairing hosted under the code's number and runs `tomSecretsReceivePairing` over the channel. Throws `TomSecretsRelayException` naming the relay when it fails. |
+| `tomSecretsRelayWebSocket` | `Future<WebSocket> tomSecretsRelayWebSocket(Uri url, Map<String, String> headers)` | **[C]** Opens the WebSocket `url` with `headers`, doing the handshake itself so a refusal keeps its status and the relay's message (`TomSecretsRelayUpgradeRefused`). |
+| `tomSecretsRelayFor` | `TomSecretsRelay tomSecretsRelayFor(TomSecretsRelayId id, {String? token, String device = 'tsm', String? githubApi})` | **[C]** The relay `id` names, built for this device: GitHub with this machine's GitHub `token` (required), the relay server with its instance `token` (optional); a magic-wormhole server throws `TomSecretsRelayException` (`unsupported`). |
+| `tomSecretsRelayNeedsToken` | `bool tomSecretsRelayNeedsToken(TomSecretsRelayId id)` | **[C]** Whether pairing through `id` needs a token of this machine's own (GitHub's repository token; a relay server's instance token is not needed to pair). |
 | `tomSecretsPairingSetupProblem` | `String? tomSecretsPairingSetupProblem(TomSecretsPairingBundle bundle, {Set<String> ownTokens = const {}})` | Why a bundle cannot set a machine up, or null when it can: the primary must be in it, with its token when it is in a GitHub repository (in the bundle, or one this machine holds itself for one of `ownTokens`). |
 | `tomSecretsReceivePairingForSetup` | `Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({String? address, int? port, TomSecretsRelay? relay, Map<String, String> ownTokens = const {}, required TomSecretsPairingCode code, required String device, String? linkAddress, DateTime? now, Duration connectTimeout = const Duration(seconds: 10)})` | Receives a pairing for a machine being set up as `device`: connects to the giving machine's window at `address`:`port` with `code` — or, with `relay`, joins the pairing hosted there (`ownTokens`: this machine's own GitHub tokens, by `owner/name`) — answers with the public keys of fresh trust material (made `now`) and `linkAddress`, where this machine's approval link will listen (the giver records it and opens the link), and refuses a bundle it cannot be set up from (`tomSecretsPairingSetupProblem`); a `linkAddress` that is no approval link throws `ArgumentError`. |
 | `tomSecretsParsePairingAddress` | `(String host, int port) tomSecretsParsePairingAddress(String text)` | Splits `host:port` (an IPv6 address in brackets: `[fd00::1]:47900`) as the giving machine's Pairing screen shows it. Throws `FormatException`. |

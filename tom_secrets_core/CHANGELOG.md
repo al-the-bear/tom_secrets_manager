@@ -2,6 +2,14 @@
 
 ## 0.2.22
 
+- The relay server as a relay (`tsm:<url>`): `TomSecretsServerRelay`, the
+  client of `tom_secrets_relay`'s `/v1` API (pairing over its WebSocket
+  rendezvous, the approval link with the instance token, the mailbox with
+  the recipient's proof); `tomSecretsRelayWebSocket` keeps a refused
+  upgrade's status and message (`TomSecretsRelayUpgradeRefused`).
+- `tomSecretsRelayFor` builds the relay an id names (GitHub with this
+  machine's token, the relay server with its instance token), and
+  `tomSecretsRelayNeedsToken` tells whether pairing through it needs a token.
 - The `age` format, the member keys and HKDF moved to the new package
   `tom_secrets_age` (no vault format in it, so the relay server can use
   them); this library re-exports it, so nothing changes for its users.

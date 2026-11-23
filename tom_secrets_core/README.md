@@ -148,7 +148,7 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | Approval link (Noise KK + ML-KEM-768) | `TomSecretsLinkSession`, `TomSecretsApprovalChannel` |
 | Pairing (SPAKE2, RFC 9382) | `TomSecretsPairingCode`, `tomSecretsGivePairing`, `tomSecretsReceivePairing`, `TomSecretsPairingWindow` |
 | Device records | `TomSecretsDeviceRecords` |
-| Relays (phase C): one interface for the transports (pairing, mailbox, link), relay ids; GitHub as the relay for pairing (frames as files, polled) and the mailbox (the inbox folders); the pairing window hosting on a relay beside the LAN | `TomSecretsRelay`, `TomSecretsRelayId`, `TomSecretsPairingChannel`, `TomSecretsGitHubRelay`, `TomSecretsRelayFolder`, `tomSecretsReceivePairingVia` |
+| Relays (phase C): one interface for the transports (pairing, mailbox, link), relay ids; GitHub as the relay for pairing (frames as files, polled) and the mailbox (the inbox folders); the relay server (`tsm:`) for pairing, the link and the mailbox; the pairing window hosting on a relay beside the LAN | `TomSecretsRelay`, `TomSecretsRelayId`, `TomSecretsPairingChannel`, `TomSecretsGitHubRelay`, `TomSecretsServerRelay`, `tomSecretsRelayFor`, `TomSecretsRelayFolder`, `tomSecretsReceivePairingVia` |
 | The `age` v1 file format (phase C): hybrid `mlkem768x25519` and classical `X25519` recipients, a passphrase (`scrypt`), the armour; checked against the age testkit and `filippo.io/age` | `tomSecretsAgeEncrypt`, `tomSecretsAgeEncryptPassphrase`, `tomSecretsAgeDecrypt`, `tomSecretsAgeArmor`, `TomSecretsAgeIdentity` |
 | Single-entry exports (phase C): entries as a share for members' keys, a passphrase or a classical key, as armoured text, a QR code or a `.tsmshare` file; the `inbox/<member>/` folders' names and expiry | `TomSecretsShare`, `tomSecretsShareOf`, `tomSecretsWriteShare`, `tomSecretsReadShare`, `tomSecretsImportShare`, `tomSecretsShareFitsQr`, `tomSecretsInboxPath`, `tomSecretsInboxExpired` |
 | Shared vaults (phase C): a key file alone, the recipients file `<vault>.keys.age` to the members' hybrid keys, adding and removing members | `TomSecretsSharedVaultKeys`, `tomSecretsWriteRecipientsFile`, `tomSecretsReadRecipientsFile`, `tomSecretsNewSharedVault` |
@@ -516,7 +516,13 @@ a nameplate (the code's number) and a `TomSecretsPairingChannel`, an
 approval-link channel the pairing runs over unchanged. GitHub is a relay
 when the new machine reaches the repository already (its own token): the
 frames are files under `relay/pair/<nameplate>/`, polled every 2 seconds
-with conditional requests, and deleted when both sides are done.
+with conditional requests, and deleted when both sides are done. The own
+relay server (`tsm:<url>`, `tom_secrets_relay`) is a relay for all three
+services: `TomSecretsServerRelay` allocates the nameplate with
+`POST /v1/pair` and both sides meet on a WebSocket; the link needs the
+server's instance token in its token mode; the mailbox reads need the
+recipient's proof, which the relay encrypts to the member key and this
+side decrypts. `tomSecretsRelayFor` builds the relay an id names.
 
 ```dart
 final relay = TomSecretsGitHubRelay.withToken(
