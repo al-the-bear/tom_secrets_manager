@@ -39,6 +39,7 @@ export 'src/pairing.dart';
 export 'src/pairing_setup.dart';
 export 'src/pairing_words.dart';
 export 'src/passkey.dart';
+export 'src/webauthn.dart';
 export 'src/password_generator.dart';
 export 'src/primary.dart';
 export 'src/relay.dart';

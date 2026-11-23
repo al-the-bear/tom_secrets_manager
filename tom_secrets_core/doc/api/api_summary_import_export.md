@@ -23,6 +23,11 @@
   - [TomSecretsPasskeyFields](#tomsecretspasskeyfields)
   - [TomSecretsPasskeyException](#tomsecretspasskeyexception)
   - [TomSecretsPasskey](#tomsecretspasskey)
+  - [TomSecretsPasskeyAlgorithm](#tomsecretspasskeyalgorithm)
+  - [TomSecretsPasskeyKey](#tomsecretspasskeykey)
+  - [TomSecretsWebAuthnException](#tomsecretswebauthnexception)
+  - [TomSecretsPasskeyRegistration](#tomsecretspasskeyregistration)
+  - [TomSecretsPasskeyAssertion](#tomsecretspasskeyassertion)
   - [TomSecretsBitwardenKeys](#tomsecretsbitwardenkeys)
   - [TomSecretsCsvBrowser](#tomsecretscsvbrowser)
   - [TomSecretsKdbxImportResult](#tomsecretskdbximportresult)
@@ -33,9 +38,9 @@
 
 ## Overview
 
-The import and export module reads 1Password (1PUX, CSV), Enpass (JSON, CSV), Bitwarden (JSON, plain or password-protected) and the browsers' CSV exports into one source model and writes it into a vault the same way for every source, with re-import matching, a dry-run preview and a report that names entries but never values; passkeys are kept in KeePassXC's `KPEX_PASSKEY_*` fields; another KDBX file is imported as a group or merged; a vault or a group is exported as KDBX, CSV, Bitwarden's JSON or Enpass's JSON.
+The import and export module reads 1Password (1PUX, CSV), Enpass (JSON, CSV), Bitwarden (JSON, plain or password-protected) and the browsers' CSV exports into one source model and writes it into a vault the same way for every source, with re-import matching, a dry-run preview and a report that names entries but never values; passkeys are kept in KeePassXC's `KPEX_PASSKEY_*` fields, made and signed with as a WebAuthn authenticator (ES256, Ed25519, `none` attestation) for the OS passkey providers; another KDBX file is imported as a group or merged; a vault or a group is exported as KDBX, CSV, Bitwarden's JSON or Enpass's JSON.
 
-Source files: `lib/src/import.dart`, `lib/src/import_1password.dart`, `lib/src/import_enpass.dart`, `lib/src/export_enpass.dart`, `lib/src/passkey.dart`, `lib/src/import_bitwarden.dart`, `lib/src/import_browser_csv.dart`, `lib/src/import_kdbx.dart`, `lib/src/export.dart`.
+Source files: `lib/src/import.dart`, `lib/src/import_1password.dart`, `lib/src/import_enpass.dart`, `lib/src/export_enpass.dart`, `lib/src/passkey.dart`, `lib/src/webauthn.dart`, `lib/src/import_bitwarden.dart`, `lib/src/import_browser_csv.dart`, `lib/src/import_kdbx.dart`, `lib/src/export.dart`.
 
 ---
 
@@ -61,6 +66,11 @@ Object
 ├── TomSecretsPasskeyFields
 ├── TomSecretsPasskeyException
 ├── TomSecretsPasskey
+├── TomSecretsPasskeyAlgorithm (enum)
+├── TomSecretsPasskeyKey (typedef)
+├── TomSecretsWebAuthnException
+├── TomSecretsPasskeyRegistration
+├── TomSecretsPasskeyAssertion
 ├── TomSecretsBitwardenKeys
 ├── TomSecretsCsvBrowser (enum)
 ├── TomSecretsKdbxImportResult
@@ -481,6 +491,107 @@ A passkey with its private key.
 
 ---
 
+### TomSecretsPasskeyAlgorithm
+
+The kind of a passkey's key pair (its COSE algorithm).
+
+**Kind:** `enum`
+
+#### Values
+
+| Value | Description |
+| --- | --- |
+| `es256` | ECDSA on P-256 with SHA-256 (COSE -7), what most sites ask for. |
+| `edDsa` | Ed25519 (COSE -8). |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `cose` | `int` | The COSE algorithm number. |
+
+---
+
+### TomSecretsPasskeyKey
+
+A passkey's private key as the authenticator signs with it: the P-256 scalar or the Ed25519 seed (32 bytes each).
+
+**Kind:** `typedef`
+
+```dart
+typedef TomSecretsPasskeyKey = ({TomSecretsPasskeyAlgorithm algorithm, Uint8List secret});
+```
+
+---
+
+### TomSecretsWebAuthnException
+
+A WebAuthn request this authenticator cannot answer.
+
+**Kind:** `final class`
+
+#### Constructors
+
+| Constructor | Kind | Description |
+| --- | --- | --- |
+| `TomSecretsWebAuthnException(message)` | const | Refused for `message`. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `message` | `String` | What is wrong. |
+
+---
+
+### TomSecretsPasskeyRegistration
+
+A passkey just made, with what its registration answers.
+
+**Kind:** `final class`
+
+#### Constructors
+
+| Constructor | Kind | Description |
+| --- | --- | --- |
+| `TomSecretsPasskeyRegistration({passkey, credentialId, authenticatorData, attestationObject, publicKeySpki, algorithm})` | const | The registration of `passkey`. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `passkey` | `TomSecretsPasskey` | The passkey to keep. |
+| `credentialId` | `Uint8List` | The credential id. |
+| `authenticatorData` | `Uint8List` | The authenticator data with the attested credential data. |
+| `attestationObject` | `Uint8List` | The attestation object (`fmt` `none`). |
+| `publicKeySpki` | `Uint8List` | The public key as DER SubjectPublicKeyInfo (`getPublicKey()`). |
+| `algorithm` | `TomSecretsPasskeyAlgorithm` | The key pair's algorithm. |
+
+---
+
+### TomSecretsPasskeyAssertion
+
+An assertion: what a sign-in answers.
+
+**Kind:** `final class`
+
+#### Constructors
+
+| Constructor | Kind | Description |
+| --- | --- | --- |
+| `TomSecretsPasskeyAssertion({credentialId, authenticatorData, signature, userHandle})` | const | An assertion of `credentialId`. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `credentialId` | `Uint8List` | The credential id. |
+| `authenticatorData` | `Uint8List` | The authenticator data. |
+| `signature` | `Uint8List` | The signature over the authenticator data and the client data's hash (DER for ES256, 64 bytes for Ed25519). |
+| `userHandle` | `Uint8List?` | The user handle, when the passkey has one. |
+
+---
+
 ### TomSecretsBitwardenKeys
 
 The encryption and MAC keys of a Bitwarden export password.
@@ -580,6 +691,12 @@ A plaintext export (CSV, Bitwarden JSON) and what it left behind.
 | `tomSecretsIdentitiesCategory` | `String` | `Identities`, the subgroup of identities (as 1Password's). |
 | `tomSecretsBrowserCsvLosses` | `List<String>` | What a browser CSV import loses, named in every report. |
 | `tomSecretsCsvExportColumns` | `List<String>` | The CSV export's columns: `Title`, `URL`, `Username`, `Password`, `Notes`, `OTPAuth`, `Group`, `Tags`. |
+| `tomSecretsWebAuthnFlagUp` | `int` | User present (0x01). |
+| `tomSecretsWebAuthnFlagUv` | `int` | User verified (0x04). |
+| `tomSecretsWebAuthnFlagBe` | `int` | Backup eligible (0x08). |
+| `tomSecretsWebAuthnFlagBs` | `int` | Backed up (0x10). |
+| `tomSecretsWebAuthnFlagAt` | `int` | Attested credential data included (0x40). |
+| `tomSecretsPasskeyFlags` | `int` | The flags of every answer: present, verified, backup eligible, backed up. |
 
 ### Functions
 
@@ -599,6 +716,16 @@ A plaintext export (CSV, Bitwarden JSON) and what it left behind.
 | `tomSecretsBase64Url` | `String tomSecretsBase64Url(String text)` | `text` (base64, base64url, padded or not) as base64url without padding. |
 | `tomSecretsDecodeBase64` | `Uint8List tomSecretsDecodeBase64(String text)` | The bytes of base64 or base64url `text`, padded or not. |
 | `tomSecretsPasskeyPem` | `String tomSecretsPasskeyPem(Object key)` | `key` as PKCS#8 PEM: a PEM (PKCS#8 as it is; SEC1 `EC PRIVATE KEY` converted), base64 or base64url DER (PKCS#8 or SEC1), 32 raw bytes or their base64 (a P-256 scalar), or a JWK (a map or its JSON text; `EC` on `P-256`, or `OKP` on `Ed25519`). |
+| `tomSecretsPasskeyKeyOf` | `TomSecretsPasskeyKey tomSecretsPasskeyKeyOf(String pem)` | The key of the PKCS#8 PEM `pem` (as `tomSecretsPasskeyPem` writes it). Throws `TomSecretsPasskeyException` for another key. |
+| `tomSecretsPasskeysIn` | `List<({KdbxEntry entry, TomSecretsPasskey passkey})> tomSecretsPasskeysIn(KdbxFile file)` | The passkeys of `file`'s entries (its recycle bin left out), with the entry each is kept in. |
+| `tomSecretsPasskeyHome` | `String? tomSecretsPasskeyHome(Map<String, KdbxFile> candidates, TomSecretsPasskey passkey)` | The vault of `candidates` (store name → its file) that takes `passkey`: the one holding a passkey of the same relying party and user handle, else one with a login of the site, else the first. Null without candidates. |
+| `tomSecretsKeepPasskey` | `KdbxEntry tomSecretsKeepPasskey(KdbxFile file, TomSecretsPasskey passkey, {KdbxGroup? group})` | Keeps `passkey` in `file`: in the login entry of its relying party and user name that has no passkey yet, else in a new login entry in `group` (default the root group) titled after the site. A passkey of the same relying party and user handle is replaced. Answers the entry. |
+| `tomSecretsCreatePasskey` | `Future<TomSecretsPasskeyRegistration> tomSecretsCreatePasskey({required String rpId, required Uint8List userHandle, String? userName, List<int> algorithms = const [-7], Random? random})` | Makes a passkey for `rpId` and the user with the first of `algorithms` (COSE numbers, the site's order) this authenticator makes: ES256 or Ed25519. Throws `TomSecretsWebAuthnException` when the site offers neither. |
+| `tomSecretsPasskeyAssertion` | `Future<TomSecretsPasskeyAssertion> tomSecretsPasskeyAssertion(TomSecretsPasskey passkey, List<int> clientDataHash)` | Signs in with `passkey`: the authenticator data for its relying party and the signature over it and `clientDataHash`. Throws `TomSecretsPasskeyException` for a key it cannot read. |
+| `tomSecretsRpIdHash` | `Uint8List tomSecretsRpIdHash(String rpId)` | SHA-256 of `rpId`, the authenticator data's first 32 bytes. |
+| `tomSecretsPasskeyClientDataJson` | `Uint8List tomSecretsPasskeyClientDataJson({required String type, required String challenge, required String origin, String? packageName})` | The client data a provider builds for an app (no browser gave its hash): `type` `webauthn.create` or `webauthn.get`, the request's `challenge`, the caller's `origin` (an app's `android:apk-key-hash:<…>`), the app's `packageName`. |
+| `tomSecretsPasskeyRegistrationJson` | `String tomSecretsPasskeyRegistrationJson(TomSecretsPasskeyRegistration registration, {Uint8List? clientDataJson})` | The registration's `PublicKeyCredential` JSON (`RegistrationResponseJSON`), with the `clientDataJson` the provider built, or a placeholder when the browser gave the hash. |
+| `tomSecretsPasskeyAssertionJson` | `String tomSecretsPasskeyAssertionJson(TomSecretsPasskeyAssertion assertion, {Uint8List? clientDataJson})` | The assertion's `PublicKeyCredential` JSON (`AuthenticationResponseJSON`), with the client data as for `tomSecretsPasskeyRegistrationJson`. |
 | `tomSecretsBitwardenNeedsPassword` | `bool tomSecretsBitwardenNeedsPassword(String text)` | Whether a Bitwarden export is password-protected (its password is needed). |
 | `tomSecretsReadBitwardenJson` | `Future<TomSecretsImportSource> tomSecretsReadBitwardenJson(String text, {String? password})` | Reads Bitwarden's JSON export, a password-protected one with `password`; folders become groups, types map as 1Password's, the item id into `tsm.import.bitwarden.id`; a wrong password and an account-restricted export are refused. |
 | `tomSecretsBitwardenExportKeys` | `Future<TomSecretsBitwardenKeys> tomSecretsBitwardenExportKeys({required String password, required String salt, int kdfType = 0, int iterations = 600000, int? memoryMiB, int? parallelism})` | The keys of a password-protected export: PBKDF2-SHA256 (0) or Argon2id over the SHA-256 of the salt (1), then HKDF-Expand with `enc` and `mac`. |

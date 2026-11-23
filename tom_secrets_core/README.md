@@ -166,7 +166,8 @@ describes it (clang on macOS and Linux, MSVC on Windows). The library re-exports
 | Another KDBX file, as a group or merged | `tomSecretsImportKdbxAsGroup`, `tomSecretsImportKdbxMerged` |
 | One import for every source, with preview and re-import | `tomSecretsImport`, `TomSecretsImportReport` |
 | Exports: KDBX under a new password, CSV, Bitwarden JSON, Enpass JSON | `tomSecretsExportKdbx`, `tomSecretsExportCsv`, `tomSecretsExportBitwardenJson`, `tomSecretsExportEnpassJson` |
-| Passkeys in KeePassXC's fields | `TomSecretsPasskey`, `tomSecretsPasskeyPem` |
+| Passkeys in KeePassXC's fields | `TomSecretsPasskey`, `tomSecretsPasskeyPem`, `tomSecretsPasskeysIn`, `tomSecretsKeepPasskey` |
+| Passkeys made and signed with for the OS providers (WebAuthn) | `tomSecretsCreatePasskey`, `tomSecretsPasskeyAssertion`, `tomSecretsPasskeyRegistrationJson`, `tomSecretsPasskeyAssertionJson` |
 | First run, fresh or from a pairing | `TomSecretsFirstRun.run`, `TomSecretsFirstRun.runPaired` |
 | Device settings container | `TomSecretsDeviceSettings`, `TomSecretsDeviceContainer`, `TomSecretsDeviceKeys` |
 
@@ -672,6 +673,23 @@ on both sides become a conflict. Saving the vault after the user confirms is
 the caller's. Passkeys that carry their private key are written into
 KeePassXC's `KPEX_PASSKEY_*` fields (`tomSecretsPasskeyPem` converts PEM, DER,
 a raw P-256 scalar or a JWK).
+
+The OS passkey providers (the macOS AutoFill provider, Android's Credential
+Manager provider) use this package as a WebAuthn authenticator. It is never
+reached through the client endpoint.
+
+- `tomSecretsCreatePasskey` makes a passkey with the first algorithm the
+  site offers that it supports, ES256 or Ed25519. It answers the
+  authenticator data, the `none` attestation and the public key.
+- `tomSecretsPasskeyAssertion` signs a sign-in.
+- Both set the flags user present, verified, backup eligible and backed up,
+  and the counter 0, as synced passkeys do.
+- `tomSecretsPasskeyRegistrationJson` and `tomSecretsPasskeyAssertionJson`
+  write the `PublicKeyCredential` JSON that Credential Manager returns.
+- `tomSecretsPasskeyClientDataJson` makes the client data for an app.
+- `tomSecretsKeepPasskey` keeps a new passkey in the site's login entry, or
+  in a new entry. `tomSecretsPasskeyHome` picks the vault it goes into.
+- `tomSecretsPasskeysIn` lists a vault's passkeys.
 
 Bitwarden's JSON export (`tomSecretsReadBitwardenJson`, awaited: a
 password-protected export derives its key) and the browsers' CSV exports

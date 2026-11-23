@@ -306,3 +306,193 @@ final class _Der {
 
   List<_Element> readAll() => [for (; _at < bytes.length;) read()];
 }
+
+/// **[C]** The kind of a passkey's key pair (its COSE algorithm).
+enum TomSecretsPasskeyAlgorithm {
+  /// ECDSA on P-256 with SHA-256 (COSE -7), what most sites ask for.
+  es256(-7),
+
+  /// Ed25519 (COSE -8).
+  edDsa(-8);
+
+  const TomSecretsPasskeyAlgorithm(this.cose);
+
+  /// The COSE algorithm number.
+  final int cose;
+}
+
+/// **[C]** A passkey's private key as the authenticator signs with it: the
+/// P-256 scalar or the Ed25519 seed (32 bytes each).
+typedef TomSecretsPasskeyKey = ({
+  TomSecretsPasskeyAlgorithm algorithm,
+  Uint8List secret,
+});
+
+/// **[C]** The key of the PKCS#8 PEM [pem] (as [tomSecretsPasskeyPem]
+/// writes it). Throws [TomSecretsPasskeyException] for another key.
+TomSecretsPasskeyKey tomSecretsPasskeyKeyOf(String pem) {
+  final der = tomSecretsDecodeBase64(
+    pem
+        .replaceAll(RegExp(r'-----[A-Z ]+-----'), '')
+        .replaceAll(RegExp(r'\s'), ''),
+  );
+  final top = _Der(der).read();
+  if (top.tag != 0x30) throw TomSecretsPasskeyException('not DER');
+  final parts = _Der(top.content).readAll();
+  if (parts.length < 3 || parts[1].tag != 0x30 || parts[2].tag != 0x04) {
+    throw TomSecretsPasskeyException('not PKCS#8');
+  }
+  final algorithm = _Der(parts[1].content).readAll();
+  final oid = algorithm.first.content;
+  if (_same(oid, _ed25519Oid)) {
+    final seed = _Der(parts[2].content).read();
+    if (seed.content.length != 32) {
+      throw TomSecretsPasskeyException('an Ed25519 key is 32 bytes');
+    }
+    return (
+      algorithm: TomSecretsPasskeyAlgorithm.edDsa,
+      secret: Uint8List.fromList(seed.content),
+    );
+  }
+  if (_same(oid, _ecPublicKeyOid) &&
+      algorithm.length > 1 &&
+      _same(algorithm[1].content, _p256Oid)) {
+    final sec1 = _Der(_Der(parts[2].content).read().content).readAll();
+    if (sec1.length < 2 || sec1[1].tag != 0x04) {
+      throw TomSecretsPasskeyException('not an EC private key');
+    }
+    return (
+      algorithm: TomSecretsPasskeyAlgorithm.es256,
+      secret: Uint8List.fromList(sec1[1].content),
+    );
+  }
+  throw TomSecretsPasskeyException('a key that is neither P-256 nor Ed25519');
+}
+
+/// **[C]** The passkeys of [file]'s entries (its recycle bin left out),
+/// with the entry each is kept in.
+List<({KdbxEntry entry, TomSecretsPasskey passkey})> tomSecretsPasskeysIn(
+  KdbxFile file,
+) {
+  final bin = file.recycleBin;
+  final out = <({KdbxEntry entry, TomSecretsPasskey passkey})>[];
+  void walk(KdbxGroup group) {
+    if (bin != null && identical(group, bin)) return;
+    for (final e in group.entries) {
+      final p = TomSecretsPasskey.fromEntry(e);
+      if (p != null) out.add((entry: e, passkey: p));
+    }
+    group.groups.forEach(walk);
+  }
+
+  walk(file.body.rootGroup);
+  return out;
+}
+
+/// Whether [e]'s URL names [relyingParty] (its host the relying party or
+/// below it).
+bool _ofSite(KdbxEntry e, String relyingParty) {
+  final rp = relyingParty.toLowerCase();
+  final url = e.getString(KdbxKeyCommon.URL)?.getText() ?? '';
+  final host = Uri.tryParse(url.contains('://') ? url : 'https://$url')?.host;
+  if (host == null || host.isEmpty) return false;
+  final h = host.toLowerCase();
+  return h == rp || h.endsWith('.$rp');
+}
+
+/// **[C]** The vault of [candidates] (store name → its file, the vaults a
+/// new passkey may go into) that takes [passkey]: the one holding a passkey
+/// of the same relying party and user handle, else one with a login of the
+/// site (outside its recycle bin), else the first. Null without
+/// candidates.
+String? tomSecretsPasskeyHome(
+  Map<String, KdbxFile> candidates,
+  TomSecretsPasskey passkey,
+) {
+  for (final MapEntry(:key, :value) in candidates.entries) {
+    if (tomSecretsPasskeysIn(value).any(
+      (p) =>
+          p.passkey.relyingParty == passkey.relyingParty &&
+          p.passkey.userHandle == passkey.userHandle,
+    )) {
+      return key;
+    }
+  }
+  for (final MapEntry(:key, :value) in candidates.entries) {
+    final bin = value.recycleBin;
+    bool holds(KdbxGroup g) =>
+        !(bin != null && identical(g, bin)) &&
+        (g.entries.any((e) => _ofSite(e, passkey.relyingParty)) ||
+            g.groups.any(holds));
+    if (holds(value.body.rootGroup)) return key;
+  }
+  return candidates.keys.firstOrNull;
+}
+
+/// **[C]** Keeps [passkey] in [file]: in the login entry of its relying
+/// party and user name that has no passkey yet (its URL's host the relying
+/// party or below it), else in a new login entry in [group] (default the
+/// root group) titled after the site, with the URL `https://<rp>` and the
+/// user name. A passkey of the same relying party and user handle is
+/// replaced (the site registered again). Answers the entry.
+KdbxEntry tomSecretsKeepPasskey(
+  KdbxFile file,
+  TomSecretsPasskey passkey, {
+  KdbxGroup? group,
+}) {
+  bool ofSite(KdbxEntry e) => _ofSite(e, passkey.relyingParty);
+
+  final existing = tomSecretsPasskeysIn(file);
+  final same = existing
+      .where(
+        (p) =>
+            p.passkey.relyingParty == passkey.relyingParty &&
+            p.passkey.userHandle != null &&
+            p.passkey.userHandle == passkey.userHandle,
+      )
+      .firstOrNull;
+  KdbxEntry? target = same?.entry;
+  if (target == null) {
+    final bin = file.recycleBin;
+    KdbxEntry? found;
+    void walk(KdbxGroup g) {
+      if (found != null || (bin != null && identical(g, bin))) return;
+      for (final e in g.entries) {
+        final user = e.getString(KdbxKeyCommon.USER_NAME)?.getText() ?? '';
+        if (ofSite(e) &&
+            TomSecretsPasskey.fromEntry(e) == null &&
+            (passkey.userName == null ||
+                user.isEmpty ||
+                user == passkey.userName)) {
+          found = e;
+          return;
+        }
+      }
+      g.groups.forEach(walk);
+    }
+
+    walk(file.body.rootGroup);
+    target = found;
+  }
+  if (target == null) {
+    final parent = group ?? file.body.rootGroup;
+    target = KdbxEntry.create(file, parent)
+      ..setString(KdbxKeyCommon.TITLE, PlainValue(passkey.relyingParty))
+      ..setString(
+        KdbxKeyCommon.URL,
+        PlainValue('https://${passkey.relyingParty}'),
+      );
+    if (passkey.userName != null) {
+      target.setString(KdbxKeyCommon.USER_NAME, PlainValue(passkey.userName!));
+    }
+    parent.addEntry(target);
+  } else if ((target.getString(KdbxKeyCommon.USER_NAME)?.getText() ?? '')
+          .isEmpty &&
+      passkey.userName != null) {
+    target.setString(KdbxKeyCommon.USER_NAME, PlainValue(passkey.userName!));
+  }
+  for (final MapEntry(:key, :value) in passkey.fields.entries) {
+    target.setString(key, value);
+  }
+  return target;
+}

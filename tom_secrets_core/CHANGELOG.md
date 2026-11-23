@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.26
+
+- Passkeys for the OS providers (part-password-manager,
+  part-os-integration, DP-120): the package as a WebAuthn authenticator.
+  - `tomSecretsCreatePasskey` makes ES256 or Ed25519, by the site's order,
+    with the `none` attestation.
+  - `tomSecretsPasskeyAssertion` signs a sign-in.
+  - Both set the flags present, verified, backup eligible and backed up,
+    and the counter 0.
+  - `tomSecretsPasskeyRegistrationJson` and `tomSecretsPasskeyAssertionJson`
+    write the `PublicKeyCredential` JSON; `tomSecretsPasskeyClientDataJson`
+    makes an app's client data.
+  - `tomSecretsPasskeyKeyOf` reads a passkey's key, `tomSecretsPasskeysIn`
+    lists a vault's passkeys.
+  - `tomSecretsKeepPasskey` keeps a new passkey in the site's login entry,
+    else in a new entry; `tomSecretsPasskeyHome` picks the vault.
+  - Checked against py_webauthn 3.0.1 as a relying party.
+
 ## 0.2.25
 
 - A magic-wormhole mailbox server as a relay (part-relay, DP-66, DP-180):
