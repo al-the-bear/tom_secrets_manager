@@ -193,6 +193,7 @@ final class Demo {
     DateTime Function()? rateLimitClock,
     String? knownHostsFile,
     String agentPipe = TomSecretsRuntime.agentPipe,
+    TomSecretsRelay Function(String relay, String? token)? linkRelayFor,
   }) async {
     final service = await TomSecretsService.launch(
       TomSecretsServiceConfig(
@@ -225,6 +226,7 @@ final class Demo {
         rateLimitClock: rateLimitClock,
         knownHostsFile: knownHostsFile,
         agentPipe: agentPipe,
+        linkRelayFor: linkRelayFor,
       ),
     );
     addTearDown(service.stop);

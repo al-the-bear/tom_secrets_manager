@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.24.0
+
+- The approval link through a relay server (part-relay): a host keeps the
+  relay channel of each approver whose pairing agreed on a relay link open
+  while unlocked (`TomSecretsRelayLinkHost`), an approver falls back to the
+  relay when the host's address does not answer (`TomSecretsApproverLinks`),
+  the handshake unchanged over the channel; the relay's instance token from
+  the keychain (`relay.token.set`, `relay.token.list`); `status` reports
+  every link (`links`: state, way, reason); `pair.identity` takes a relay
+  server, `pair.record` a `link`; the pairing mode offers its relay server
+  for the link and keeps the handover's instance token. Needs
+  `tom_secrets_core` 0.2.23.
+
 ## 0.23.2
 
 - `tomSecretsServiceVersion` (in the welcome and `status`) is the package's

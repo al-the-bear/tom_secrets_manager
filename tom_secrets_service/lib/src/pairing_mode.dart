@@ -26,6 +26,8 @@ import 'package:tom_core_storage/settings.dart' show TomSecretStore;
 import 'package:tom_secrets_client/admin.dart';
 import 'package:tom_secrets_core/tom_secrets_core.dart';
 
+import 'relay_links.dart';
+
 /// Runs the pairing mode for [handover]: reads tsm's lines from [lines],
 /// answers through [answer], keeps keys in [keychain] (null: none on this
 /// machine); [relayFor] builds the relay a handover names (default
@@ -99,6 +101,12 @@ Future<int> tomSecretsRunPairingMode(
     return 7;
   }
 
+  // [C] A relay server named for the pairing is offered for the approval
+  // link too (part-relay); its instance token, when the handover carries
+  // one, is kept in the keychain for the link.
+  final linkRelay = relayId?.kind == TomSecretsRelayKind.server
+      ? relayId!.text
+      : null;
   TomSecretsPairingReceipt? receipt;
   try {
     if (handover.address != null && handover.port != null) {
@@ -109,6 +117,7 @@ Future<int> tomSecretsRunPairingMode(
           code: code,
           device: handover.device,
           linkAddress: handover.approvalLink,
+          linkRelay: linkRelay,
         );
       } on TomSecretsPairingException catch (e) {
         // Not reachable there: the relay next, when the handover names one
@@ -136,6 +145,7 @@ Future<int> tomSecretsRunPairingMode(
         code: code,
         device: handover.device,
         linkAddress: handover.approvalLink,
+        linkRelay: linkRelay,
       );
     }
   } on TomSecretsRelayException catch (e) {
@@ -186,6 +196,17 @@ Future<int> tomSecretsRunPairingMode(
         settings: TomSecretsDeviceSettings(approvalLink: handover.approvalLink),
         deviceKey: deviceKey,
       );
+      final instanceToken = handover.relayToken;
+      if (linkRelay != null &&
+          receipt.link != null &&
+          keychain != null &&
+          instanceToken != null &&
+          instanceToken.isNotEmpty) {
+        await keychain.write(
+          tomSecretsRelayTokenHandle(receipt.link!.relay),
+          instanceToken,
+        );
+      }
       answer({'status': 'setUp', 'bootstrap': result.bootstrapPath});
       return 0;
     } on TomSecretsFirstRunException catch (e) {

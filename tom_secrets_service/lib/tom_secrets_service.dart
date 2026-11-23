@@ -27,6 +27,7 @@ export 'src/log.dart';
 export 'src/pairing_mode.dart';
 export 'src/peer_identity.dart';
 export 'src/rate_limits.dart';
+export 'src/relay_links.dart';
 export 'src/secret_frame.dart';
 export 'src/service.dart';
 export 'src/token_check.dart';

@@ -20,6 +20,10 @@
 /// otherwise `approve`. A host that rotated its link key sends the new one
 /// first; it is recorded as the one-shot delivery records it. A session
 /// that ends is opened again after a pause that grows to five minutes.
+///
+/// **[C]** A host whose pairing agreed on a relay link is reached through
+/// the relay server when its address does not answer, or when it has none
+/// (part-relay): the same handshake over the relay's channel.
 library;
 
 import 'dart:async';
@@ -31,6 +35,7 @@ import 'package:tom_secrets_core/tom_secrets_core.dart';
 import 'approvals.dart';
 import 'identity.dart';
 import 'link_client.dart';
+import 'relay_links.dart';
 
 /// The longest pause before a session to a host is opened again.
 const Duration tomSecretsLinkRetryMax = Duration(minutes: 5);
@@ -45,7 +50,16 @@ final class TomSecretsApproverLinks {
     this.approvals, {
     this.retry = const Duration(seconds: 5),
     this.timeout = const Duration(seconds: 10),
-  });
+    this.relayFor,
+    TomSecretsLinkStates? states,
+  }) : states = states ?? TomSecretsLinkStates();
+
+  /// Builds a relay server with its instance token, for hosts reached
+  /// through one; null: no relay links.
+  final TomSecretsLinkRelayFor? relayFor;
+
+  /// Where the links' states are kept (`statusReport.links`).
+  final TomSecretsLinkStates states;
 
   /// The service.
   final TomSecretsApprovalHost service;
@@ -89,16 +103,21 @@ final class TomSecretsApproverLinks {
     final trust = service.trust;
     final wanted = {
       for (final h in trust.hosts)
-        if (h.address != null) h.host: h,
+        if (h.address != null ||
+            (relayFor != null && h.relay != null && h.linkId != null))
+          h.host: h,
     };
     for (final name in [..._links.keys]) {
       final h = wanted[name];
       final link = _links[name]!;
       if (h == null ||
           h.address != link.address ||
+          h.relay != link.relay ||
+          h.linkId != link.linkId ||
           !_sameKey(h.linkKey, link.hostKey)) {
         unawaited(link.stop());
         _links.remove(name);
+        states.remove(name, 'host');
       }
     }
     for (final h in wanted.values) {
@@ -113,6 +132,7 @@ final class TomSecretsApproverLinks {
       await l.stop();
     }
     _links.clear();
+    states.removeRole('host');
   }
 
   /// The qualified id the apps know a paired [host]'s prompt
@@ -287,12 +307,16 @@ final class TomSecretsApproverLinks {
 final class _HostLink {
   _HostLink(this.links, TomSecretsRecordedHost recorded)
     : host = recorded.host,
-      address = recorded.address!,
+      address = recorded.address,
+      relay = links.relayFor == null ? null : recorded.relay,
+      linkId = recorded.linkId,
       hostKey = recorded.linkKey;
 
   final TomSecretsApproverLinks links;
   final String host;
-  final String address;
+  final String? address;
+  final String? relay;
+  final String? linkId;
   TomSecretsLinkPublicKey hostKey;
 
   TomSecretsLinkSession? session;
@@ -313,23 +337,52 @@ final class _HostLink {
     'approvalId': TomSecretsApproverLinks.qualified(host, id),
   };
 
+  /// The channel to the host: its address first (the VPN or the LAN), then
+  /// the relay server the pairing agreed on (part-relay).
+  Future<(TomSecretsApprovalChannel, String)> _channel() async {
+    Object? failure;
+    final address = this.address;
+    if (address != null) {
+      final at = address.lastIndexOf(':');
+      final port = at < 0 ? null : int.tryParse(address.substring(at + 1));
+      if (at > 0 && port != null) {
+        try {
+          final socket = await Socket.connect(
+            address.substring(0, at),
+            port,
+            timeout: links.timeout,
+          );
+          // A write that fails (the host went away) is reported through
+          // `done`; the session then ends, and the link is opened again.
+          unawaited(socket.done.then<void>((_) {}, onError: (Object _) {}));
+          return (TomSecretsSocketChannel(socket), 'address');
+        } on Object catch (e) {
+          failure = e;
+        }
+      }
+    }
+    final relay = this.relay;
+    final linkId = this.linkId;
+    final relayFor = links.relayFor;
+    if (relay == null || linkId == null || relayFor == null) {
+      throw failure ?? StateError('no way to $host');
+    }
+    final r = await relayFor(relay);
+    return (await r.link(linkId), 'relay');
+  }
+
   Future<void> _connect() async {
     if (_stopped) return;
-    final at = address.lastIndexOf(':');
-    final port = at < 0 ? null : int.tryParse(address.substring(at + 1));
-    if (at <= 0 || port == null) return;
+    String? via;
+    TomSecretsApprovalChannel? channel;
     try {
-      final socket = await Socket.connect(
-        address.substring(0, at),
-        port,
-        timeout: links.timeout,
-      );
-      // A write that fails (the host went away) is reported through `done`;
-      // the session then ends, and the link is opened again.
-      unawaited(socket.done.then<void>((_) {}, onError: (Object _) {}));
+      links.states.set(host, 'host', state: 'connecting');
+      final (c, how) = await _channel();
+      channel = c;
+      via = how;
       final trust = _service.trust;
       final s = await TomSecretsLinkSession.initiate(
-        TomSecretsSocketChannel(socket),
+        c,
         me: await trust.linkKeyFor(host, now: _service.now),
         hostKey: hostKey,
         device: trust.device,
@@ -340,12 +393,21 @@ final class _HostLink {
       }
       session = s;
       _pause = Duration.zero;
-      _service.log.info('approver_link_open', {'host': host});
+      links.states.set(host, 'host', state: 'connected', via: via);
+      _service.log.info('approver_link_open', {'host': host, 'via': via});
       s.messages.listen(
         (m) => unawaited(_onMessage(s, m)),
         onDone: () => _ended(s),
       );
     } on Object catch (e) {
+      await channel?.close();
+      links.states.set(
+        host,
+        'host',
+        state: 'unreachable',
+        via: via ?? (relay != null && linkId != null ? 'relay' : 'address'),
+        reason: tomSecretsRelayLinkReason(e),
+      );
       _service.log.info('approver_link_failed', {
         'host': host,
         'error': e.runtimeType.toString(),
@@ -432,6 +494,7 @@ final class _HostLink {
       });
     }
     _service.log.info('approver_link_closed', {'host': host});
+    links.states.set(host, 'host', state: 'unreachable', reason: 'closed');
     _scheduleAgain();
   }
 

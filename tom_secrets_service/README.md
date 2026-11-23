@@ -371,6 +371,15 @@ own, `TomSecretsApprovals` (protocol.md 7, 9), is the default;
   host's group, sent as `grant`), an `always` with a client token as its
   `exe-token` grant with the token. A host that rotated its link key sends the
   new one first; it is recorded.
+- **Through a relay server** (`TomSecretsRelayLinkHost`, protocol.md 9.8,
+  part-relay): when a pairing agreed on a relay server for the link, the
+  host keeps the relay channel of each such approver open while unlocked
+  and answers the handshake when the approver comes; the approver tries the
+  host's address first and opens the relay channel when it does not answer
+  (or the host has none). The relay's instance token is the one the app
+  keeps in the keychain (`relay.token.set`); a relay that refuses the link
+  is shown like an unreachable link. `status` lists every link with its
+  state, its way (`address` or `relay`) and what failed (`links`).
 
 ### Pairing records
 
@@ -378,8 +387,11 @@ The apps run the pairing between two machines (`TomSecretsPairingWindow` and
 `tomSecretsReceivePairingAt` of `tom_secrets_core`; protocol.md 6.3, 9.8).
 The service gives this device's public keys (`pair.identity`) and keeps what
 the pairing gave (`pair.record`): the peer as an approver of this host and/or
-a host this device approves for, with the approval-token key both derived,
-and on the giving side the device record in the primary. `pair.revoke` ends a
+a host this device approves for, with the approval-token key both derived
+and **[C]** the relay link both sides agreed on, and on the giving side the
+device record in the primary. A machine set up by `tsm pair --relay
+tsm:<url>` offers that relay server for the link, and keeps the relay's
+instance token (`--token-env`) in the keychain. `pair.revoke` ends a
 pairing, `pair.list` lists the device records.
 
 ### The audit log
@@ -407,7 +419,8 @@ revokes the old one. Failed authentications delay the next one (1 s, 2 s,
 | `subscribe` | the events `unlocked`, `locked`, `unlock_needed`, `store_changed`, `store_state`, `key_expiry`, `approval_needed`, `approval_closed`, `rate_limited` |
 | `approve`, `approvals.list`, `approval.issue`, `approval.redeem`, `approvers.cliSwitch` | answering approvals, and command-line approvals on or off |
 | `grants.list`, `grants.add`, `grants.revoke` | the allow list |
-| `pair.identity`, `pair.record`, `pair.revoke`, `pair.list` | pairing records |
+| `pair.identity`, `pair.record`, `pair.revoke`, `pair.list` | pairing records; **[C]** `pair.identity` with a relay server names it for the approval link with a fresh link id, `pair.record`'s `link` keeps the relay link agreed |
+| `relay.token.set`, `relay.token.list` | **[C]** a relay server's instance token kept in the keychain for the approval link through it (manager app only); never answered |
 | `audit.query` | the audit log |
 | `settings.get`, `settings.set` | the device settings (a write only from the manager app) |
 | `keys` | every key with its due date; **[C]** the typed certificates and PGP keys of the stores served with their own expiry (kinds `certificate`, `pgp_key`, reminded from 30 days before) |
@@ -578,7 +591,8 @@ session) the service never locks itself, the maximum unlocked time included.
 | `TomSecretsIdentity`, `TomSecretsPeerMeasurer` | the measured client: `TomSecretsSystemPeerMeasurer`, `TomSecretsInterpreters`, `TomSecretsFileHashes`, `TomSecretsPin` |
 | `TomSecretsGrant` | a signed grant of the allow list |
 | `TomSecretsLinkServer` | the approval link of this host |
-| `TomSecretsApproverLinks` | this device's sessions to the hosts it approves for |
+| `TomSecretsApproverLinks` | this device's sessions to the hosts it approves for (by their address, else **[C]** through the relay server) |
+| `TomSecretsRelayLinkHost`, `TomSecretsLinkStates` | **[C]** the relay channels this host's approvers come through, and every link's state |
 | `TomSecretsAuditLog`, `TomSecretsAuditRecord` | the encrypted audit log |
 | `TomSecretsExpiringKey`, `TomSecretsKeyDate` | key-expiry reminders |
 | `TomSecretsLockTimer`, `TomSecretsIdleSource` | the lock policy's timer and the input idle time |

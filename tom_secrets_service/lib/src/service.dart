@@ -39,13 +39,14 @@ import 'link_server.dart';
 import 'lock_policy.dart';
 import 'log.dart';
 import 'peer_identity.dart';
+import 'relay_links.dart';
 import 'rate_limits.dart';
 import 'secret_frame.dart';
 import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.23.2';
+const String tomSecretsServiceVersion = '0.24.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -76,6 +77,7 @@ final class TomSecretsServiceConfig {
     this.helperExecutables,
     this.lastUsedInterval,
     this.approverLinkRetry = const Duration(seconds: 5),
+    this.linkRelayFor,
     this.rateLimits = const TomSecretsRateLimitSettings(),
     this.rateLimitClock,
     this.sshAgent = true,
@@ -182,6 +184,11 @@ final class TomSecretsServiceConfig {
   /// The first pause before a session to a paired host is opened again
   /// (doubling up to five minutes); tests make it short.
   final Duration approverLinkRetry;
+
+  /// **[C]** Builds the relay server an approval link goes through, with
+  /// the instance token the keychain keeps for it (tests hand in their own);
+  /// null: `TomSecretsServerRelay`.
+  final TomSecretsRelay Function(String relay, String? token)? linkRelayFor;
 
   /// The client endpoint's rate limits (protocol.md 11).
   final TomSecretsRateLimitSettings rateLimits;
@@ -379,6 +386,8 @@ final class TomSecretsService
   late String _primaryLocator = config.bootstrap.primary;
   TomSecretsApprovals? _approvals;
   TomSecretsApproverLinks? _approverLinks;
+  TomSecretsRelayLinkHost? _relayLinkHost;
+  final TomSecretsLinkStates _linkStates = TomSecretsLinkStates();
   TomSecretsAuditLog? _audit;
   TomSecretsLinkServer? _linkServer;
   Timer? _lastUsedTimer;
@@ -717,6 +726,18 @@ final class TomSecretsService
       _approverLinks = TomSecretsApproverLinks(
         this,
         approvals,
+        retry: config.approverLinkRetry,
+        relayFor: linkRelay,
+        states: _linkStates,
+      )..start();
+      // [C] The channels the approvers with a relay link come through.
+      _relayLinkHost = TomSecretsRelayLinkHost(
+        trust: trust,
+        host: config.host,
+        approvals: approvals,
+        relayFor: linkRelay,
+        states: _linkStates,
+        log: log,
         retry: config.approverLinkRetry,
       )..start();
       final refresh = settings.refreshMinutes;
@@ -1472,6 +1493,8 @@ final class TomSecretsService
     'service': {'version': tomSecretsServiceVersion, 'start': startedAt},
     'stores': [for (final s in _vaults.status) s.toJson()],
     'expiring': [for (final k in expiring) k.toJson()],
+    // [C] The approval links and their state (part-relay).
+    if (!isLocked) 'links': _linkStates.report,
     'admins': _admins.where((a) => a.authenticated).length,
     'hardening': _hardening,
     // [B] The ssh-agent's endpoint, when it runs (part-os-integration).
@@ -1498,6 +1521,8 @@ final class TomSecretsService
     await _flushLastUsed();
     await _approverLinks?.stop();
     _approverLinks = null;
+    await _relayLinkHost?.stop();
+    _relayLinkHost = null;
     _approvals?.abandonAll();
     _browserOnce.clear();
     await _approvals?.closeLinks();
@@ -1528,6 +1553,64 @@ final class TomSecretsService
 
   /// The approval link's listener, while unlocked and configured.
   TomSecretsLinkServer? get linkServer => _linkServer;
+
+  /// **[C]** The channels on relay servers the approvers come through,
+  /// while unlocked.
+  TomSecretsRelayLinkHost? get relayLinkHost => _relayLinkHost;
+
+  /// **[C]** The state of every approval link (`statusReport.links`).
+  List<Map<String, Object?>> get linkStates => _linkStates.report;
+
+  /// **[C]** The instance token the keychain keeps for the relay server
+  /// [relay] (`tsm:<url>`), or null.
+  Future<String?> relayToken(String relay) async {
+    final keychain = config.keychain;
+    if (keychain == null) return null;
+    try {
+      return await keychain.read(tomSecretsRelayTokenHandle(relay));
+    } on TomSecretStoreException catch (e) {
+      log.error('keychain_failed', e);
+      return null;
+    }
+  }
+
+  /// **[C]** Keeps [token] in the keychain as the instance token of the
+  /// relay server [relay] (null or empty: removes it), and opens the links
+  /// through it again. Throws [StateError] where no keychain is available,
+  /// [FormatException] for no relay server.
+  Future<void> setRelayToken(String relay, String? token) async {
+    final keychain = config.keychain;
+    if (keychain == null) throw StateError('no keychain on this machine');
+    if (!tomSecretsIsLinkRelay(relay)) {
+      throw FormatException('not a relay server (tsm:<url>): $relay');
+    }
+    final handle = tomSecretsRelayTokenHandle(
+      TomSecretsRelayId.parse(relay).text,
+    );
+    if (token == null || token.isEmpty) {
+      await keychain.delete(handle);
+    } else {
+      await keychain.write(handle, token);
+    }
+    log.info('relay_token_set', {'kept': token != null && token.isNotEmpty});
+    // The links through it go again with the token.
+    await _relayLinkHost?.stop();
+    _relayLinkHost?.start();
+    final links = _approverLinks;
+    if (links != null) {
+      await links.stop();
+      links.start();
+    }
+  }
+
+  /// **[C]** The relay server [relay] for an approval link, with the
+  /// instance token kept for it.
+  Future<TomSecretsRelay> linkRelay(String relay) async {
+    final token = await relayToken(relay);
+    final build = config.linkRelayFor;
+    if (build != null) return build(relay, token);
+    return TomSecretsServerRelay(TomSecretsRelayId.parse(relay), token: token);
+  }
 
   // ── TomSecretsApprovalHost ───────────────────────────────────────────
 
@@ -2083,13 +2166,21 @@ final class TomSecretsService
   /// This device's public keys for a pairing (`pair.identity`,
   /// part-sharing): its approver key, its approval-link key and the address
   /// its link listens on (null when it does not).
-  Future<TomSecretsPairingPeerKeys> pairingIdentity() async {
+  ///
+  /// **[C]** With [relay], a relay server (`tsm:<url>`), the keys name it
+  /// and a fresh link id: the approval link may go through it (part-relay).
+  Future<TomSecretsPairingPeerKeys> pairingIdentity({String? relay}) async {
     final trust = _trust;
     if (trust == null) throw StateError('locked');
+    if (relay != null && !tomSecretsIsLinkRelay(relay)) {
+      throw FormatException('not a relay server (tsm:<url>): $relay');
+    }
     return TomSecretsPairingPeerKeys(
       linkKey: (await trust.linkKey()).publicKey,
       approverKey: (await trust.approverKey()).publicKey,
       linkAddress: _linkServer?.address,
+      linkRelay: relay == null ? null : TomSecretsRelayId.parse(relay).text,
+      linkId: relay == null ? null : tomSecretsNewLinkId(),
     );
   }
 
@@ -2106,6 +2197,7 @@ final class TomSecretsService
     TomSecretsLinkPublicKey? approverLinkKey,
     TomSecretsLinkPublicKey? hostLinkKey,
     String? hostAddress,
+    ({String relay, String linkId})? link,
     ({String? platform, List<String> keyIds})? record,
   }) async {
     final trust = _trust;
@@ -2120,6 +2212,7 @@ final class TomSecretsService
       approverLinkKey: approverLinkKey,
       hostLinkKey: hostLinkKey,
       hostAddress: hostAddress,
+      link: link,
     );
     await writeTrust();
     if (record != null) {
@@ -2141,6 +2234,7 @@ final class TomSecretsService
     }
     await _approvals?.reload();
     _approverLinks?.refresh();
+    _relayLinkHost?.refresh();
     log.info('paired', {
       'device': device,
       'approver': approverKey != null,
@@ -2166,6 +2260,7 @@ final class TomSecretsService
     if (recorded) await savePrimary();
     await _approvals?.reload();
     _approverLinks?.refresh();
+    _relayLinkHost?.refresh();
     log.info('pairing_revoked', {'device': device});
     return trusted || recorded;
   }
@@ -4086,6 +4181,52 @@ final class _AdminSession {
     }
   }
 
+  /// **[C]** The relay servers' instance tokens in the keychain
+  /// (part-relay): `relay.token.set {relay, token}` keeps one (an empty or
+  /// absent token removes it), `relay.token.list {relays}` answers which of
+  /// [relays] have one; a token is never answered.
+  Future<void> _relayTokens(int id, String op, Map<String, Object?> m) async {
+    try {
+      switch (op) {
+        case 'relay.token.set':
+          final relay = m['relay'];
+          final token = m['token'];
+          if (relay is! String || (token != null && token is! String)) {
+            throw const FormatException(
+              'relay.token.set names a relay server and its token',
+            );
+          }
+          await service.setRelayToken(relay, token as String?);
+          connection.send({'op': 'ok', 'id': id});
+        case 'relay.token.list':
+          final relays = m['relays'];
+          if (relays is! List || relays.any((r) => r is! String)) {
+            throw const FormatException('relay.token.list names relays');
+          }
+          connection.send({
+            'op': 'relayTokens',
+            'id': id,
+            'relays': {
+              for (final r in relays.cast<String>())
+                r:
+                    tomSecretsIsLinkRelay(r) &&
+                    await service.relayToken(r) != null,
+            },
+          });
+      }
+    } on FormatException catch (e) {
+      connection.sendError(id, 'malformed', e.message, {'reason': 'relay'});
+    } on StateError catch (e) {
+      connection.sendError(id, 'unavailable', e.message, {
+        'reason': 'no_keychain',
+      });
+    } on TomSecretStoreException catch (e) {
+      connection.sendError(id, 'unavailable', 'the keychain: $e', {
+        'reason': 'keychain',
+      });
+    }
+  }
+
   /// The pairing requests (protocol.md 6.3, part-sharing): the app runs the
   /// pairing itself; the service gives this device's public keys and keeps
   /// what the pairing gave.
@@ -4094,7 +4235,11 @@ final class _AdminSession {
     try {
       switch (op) {
         case 'pair.identity':
-          final keys = await service.pairingIdentity();
+          final relay = m['relay'];
+          if (relay != null && relay is! String) {
+            malformed('pair.identity names a relay server');
+          }
+          final keys = await service.pairingIdentity(relay: relay as String?);
           connection.send({
             'op': 'pairIdentity',
             'id': id,
@@ -4121,7 +4266,23 @@ final class _AdminSession {
           final a = (approver as Map?)?.cast<String, Object?>();
           final h = (host as Map?)?.cast<String, Object?>();
           final r = (record as Map?)?.cast<String, Object?>();
+          final link = m['link'];
+          ({String relay, String linkId})? relayLink;
+          if (link != null) {
+            if (link is! Map ||
+                link['relay'] is! String ||
+                link['linkId'] is! String ||
+                !tomSecretsIsLinkRelay(link['relay'] as String) ||
+                !tomSecretsLinkIdPattern.hasMatch(link['linkId'] as String)) {
+              malformed('pair.record\'s link is a relay server and a link id');
+            }
+            relayLink = (
+              relay: TomSecretsRelayId.parse(link['relay'] as String).text,
+              linkId: link['linkId'] as String,
+            );
+          }
           await service.recordPairing(
+            link: relayLink,
             device: device,
             tokenKey: token,
             approverKey: a == null
@@ -5020,6 +5181,14 @@ final class _AdminSession {
           return;
         }
         await _relay(id, op, m);
+      case 'relay.token.set' || 'relay.token.list':
+        if (!isApp) {
+          connection.sendError(id, 'denied', 'only the manager app', {
+            'reason': 'wrong_executable',
+          });
+          return;
+        }
+        await _relayTokens(id, op, m);
       case 'pair.identity' || 'pair.record' || 'pair.revoke' || 'pair.list':
         if (!isApp) {
           connection.sendError(id, 'denied', 'only the manager app', {
