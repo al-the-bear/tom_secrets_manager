@@ -590,7 +590,7 @@ packages:
       path: "../tom_secrets_core"
       relative: true
     source: path
-    version: "0.2.23"
+    version: "0.2.24"
   typed_data:
     dependency: transitive
     description:
