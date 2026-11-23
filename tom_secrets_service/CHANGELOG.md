@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.23.2
+
+- `tomSecretsServiceVersion` (in the welcome and `status`) is the package's
+  version again; 0.23.0 and 0.23.1 named 0.23.0. A test holds the two
+  together.
+
 ## 0.23.1
 
 - The pairing mode receives through a relay server too (`tsm pair --relay
