@@ -28,8 +28,9 @@ import 'package:tom_secrets_core/tom_secrets_core.dart';
 
 /// Runs the pairing mode for [handover]: reads tsm's lines from [lines],
 /// answers through [answer], keeps keys in [keychain] (null: none on this
-/// machine); [relayFor] builds the relay a handover names (default GitHub
-/// reached with the handover's token). Answers the exit code: 0 set up, 2
+/// machine); [relayFor] builds the relay a handover names (default
+/// `tomSecretsRelayFor`: a relay server, or GitHub reached with the
+/// handover's token). Answers the exit code: 0 set up, 2
 /// the handover cannot be used, 6 the pairing failed (also through the
 /// relay, the error naming it), 7 the setup failed or no password came.
 Future<int> tomSecretsRunPairingMode(
@@ -39,7 +40,7 @@ Future<int> tomSecretsRunPairingMode(
   required TomSecretStore? keychain,
   TomSecretsRelay Function(
     TomSecretsRelayId id,
-    String token,
+    String? token,
     String? apiUrl,
     String device,
   )?
@@ -68,10 +69,17 @@ Future<int> tomSecretsRunPairingMode(
         : TomSecretsDeviceKeyMode.parse(handover.deviceKey!);
     if (handover.relay case final relay?) {
       relayId = TomSecretsRelayId.parse(relay);
-      if (relayId.kind != TomSecretsRelayKind.github) {
+      if (relayId.kind == TomSecretsRelayKind.wormhole) {
         throw FormatException(
           'pairing through ${relayId.text} is not available in this '
-          'version: a GitHub repository (github:<owner>/<repo>)',
+          'version: a relay server (tsm:<url>) or a GitHub repository '
+          '(github:<owner>/<repo>)',
+        );
+      }
+      if (tomSecretsRelayNeedsToken(relayId) &&
+          (handover.relayToken ?? '').isEmpty) {
+        throw FormatException(
+          'pairing through ${relayId.text} needs this machine\'s token for it',
         );
       }
     }
@@ -111,18 +119,20 @@ Future<int> tomSecretsRunPairingMode(
       }
     }
     if (receipt == null) {
-      final token = handover.relayToken!;
+      final token = handover.relayToken;
       final build =
           relayFor ??
-          (id, token, api, device) => TomSecretsGitHubRelay.withToken(
+          (id, token, api, device) => tomSecretsRelayFor(
             id,
-            token,
+            token: token,
             device: device,
-            baseUrl: api ?? 'https://api.github.com',
+            githubApi: api,
           );
       receipt = await tomSecretsReceivePairingForSetup(
         relay: build(relayId!, token, handover.relayApi, handover.device),
-        ownTokens: {relayId.address: token},
+        ownTokens: tomSecretsRelayNeedsToken(relayId)
+            ? {relayId.address: token!}
+            : const {},
         code: code,
         device: handover.device,
         linkAddress: handover.approvalLink,

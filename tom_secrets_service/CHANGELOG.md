@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.23.1
+
+- The pairing mode receives through a relay server too (`tsm pair --relay
+  tsm:<url>`), with no token; the relay is built by `tom_secrets_core`'s
+  `tomSecretsRelayFor`. Needs `tom_secrets_client` 0.2.13.
+
 ## 0.23.0
 
 - The pairing mode receives through a GitHub relay (part-relay, `tsm pair

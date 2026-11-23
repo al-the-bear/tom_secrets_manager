@@ -317,9 +317,15 @@ void main() {
         answer: answers.add,
         keychain: keychain,
         relayFor: (relayId, token, api, device) {
+          if (relayId.kind == TomSecretsRelayKind.server) {
+            // A relay server: no token. The rendezvous itself is the
+            // GitHub fake's, which carries the same channel.
+            expect(token, isNull);
+            return relay('demo-receiver-token', device);
+          }
           expect(relayId, id);
           expect(api, 'http://fake.api.test');
-          return relay(token, device);
+          return relay(token!, device);
         },
       );
       await lines.cancel();
@@ -390,8 +396,29 @@ void main() {
       },
     );
 
+    test('through a relay server: no token, none kept', () async {
+      final (w, code) = await giving();
+      final (exit, answers, keychain) = await run(
+        TomSecretsPairingHandover(
+          dataDirectory: '${demo.dir}/paired',
+          code: code.text,
+          device: 'bigbeast',
+          deviceKey: 'keyfile',
+          relay: 'tsm:https://relay.example',
+        ),
+        password: primaryPassword,
+      );
+      expect(exit, 0, reason: '$answers');
+      expect(TomSecretsPairingReport.fromJson(answers.first).tokens, isEmpty);
+      expect((await w.result).receiver, 'bigbeast');
+      final team =
+          TomSecretsVaultLocator.parse('github:$slug/team.kdbx')
+              as TomSecretsGitHubLocator;
+      expect(await keychain.read(team.tokenHandle), isNull);
+    });
+
     test('no pairing on the relay: the pairing fails naming the relay; a '
-        'relay that is no GitHub repository is refused', () async {
+        'relay this version does not carry is refused', () async {
       final (exit, answers, _) = await run(
         handover(TomSecretsPairingCode(77, ['guitar', 'orbit'])),
       );
@@ -406,8 +433,7 @@ void main() {
           dataDirectory: '${demo.dir}/paired',
           code: '77-guitar-orbit',
           device: 'bigbeast',
-          relay: 'tsm:https://relay.example',
-          relayToken: 'x',
+          relay: 'wormhole:wss://relay.example',
         ),
       );
       expect(refused, 2);

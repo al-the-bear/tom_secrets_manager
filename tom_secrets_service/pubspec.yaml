@@ -3,7 +3,7 @@ description: >-
   The secrets service of the Tom Secrets Manager: a background process that
   holds one user's unlocked vaults and answers local clients, the manager
   app and tsm.
-version: 0.23.0
+version: 0.23.1
 homepage: https://enterprise-flutter.dev
 repository: https://github.com/al-the-bear/tom_secrets_manager
 
@@ -20,7 +20,7 @@ dependencies:
     path: ../tom_secrets_core
   # Frames, the strict JSON, discovery and the reference grammar: one
   # implementation for the clients and the service (repository guideline).
-  tom_secrets_client: ^0.2.12
+  tom_secrets_client: ^0.2.13
   tom_core_storage: ^0.1.2
   # The vault unit's push failures (TomCasExhaustedException, ...).
   tom_core_sync: ^0.1.0

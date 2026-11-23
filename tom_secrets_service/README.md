@@ -112,9 +112,11 @@ when the giving machine's pairing waits there too: after the address when
 one is given (the LAN and the VPN first), else alone, with `relayToken`,
 this machine's own token for the repository, which also opens the primary
 when the primary is there and is kept for it like a token the bundle
-carries. A relay that fails ends the pairing with code 6, its message
-naming the relay; a relay that is no GitHub repository is a handover that
-cannot be used.
+carries. A relay server (`tsm pair --relay tsm:<url>`) needs no token: the
+pairing meets on its WebSocket rendezvous and no token is kept. A relay
+that fails ends the pairing with code 6, its message naming the relay; a
+magic-wormhole server, which this version does not carry, is a handover
+that cannot be used.
 
 | Exit code | Meaning |
 | --- | --- |
