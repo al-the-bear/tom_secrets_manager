@@ -28,6 +28,7 @@ Each part's own documentation:
 | The command line `tsm` | [`tsm` user guide](https://github.com/al-the-bear/tom_secrets_clients/blob/main/clients/dart/tsm/doc/tsm_user_guide.md) |
 | The desktop app | [app user guide](https://github.com/al-the-bear/tom_app_secrets_manager/blob/main/tom_secrets_app/doc/user_guide.md) |
 | The mobile app | [mobile user guide](https://github.com/al-the-bear/tom_app_secrets_manager/blob/main/tom_secrets_mobile/doc/user_guide.md) |
+| The browser extension | [browser user guide](https://github.com/al-the-bear/tom_app_secrets_manager/blob/main/tom_secrets_browser/doc/user_guide.md) |
 
 ## How these documents are written
 
