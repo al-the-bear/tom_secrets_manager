@@ -382,11 +382,11 @@ relay's own keys are under `relay:`.
 | `link.perToken` | int | 10 | links per instance token |
 | `link.frameBytes` | int | 65536 | the link's frame limit |
 | `link.aloneHours` | int | 24 | how long one side waits alone |
-| `mailbox.putsPerHour` | int | 30 | puts per address |
+| `mailbox.putsPerHour` | int | 30 | puts per instance token (in open mode per address) |
 | `mailbox.itemBytes` | int | 1048576 | an item's size limit |
 | `mailbox.itemsPerRecipient`, `mailbox.bytesPerRecipient` | int | 200, 52428800 | a recipient's limits |
 | `mailbox.maxExpiryDays` | int | 30 | an item's longest life |
-| `proof.challengesPerHour` | int | 20 | proof challenges per address |
+| `proof.challengesPerHour` | int | 20 | proof challenges per recipient |
 | `proof.minutes` | int | 5 | a proof's lifetime |
 | `expiryMinutes` | int | 10 | how often expired items are removed |
 
