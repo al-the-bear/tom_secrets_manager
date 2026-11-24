@@ -133,3 +133,39 @@ when the export falls short. Its comment then reads
 `<!-- diagram <n>-<slug> hand-drawn`, and the export writes only its PNG.
 The drawing's `data-tsm-source` attribute holds its source's hash (from
 `--hash`), so the check still notices a changed source.
+
+## Screenshots
+
+The guides' screenshots and transcripts are made from demo data, never from
+real secrets, by one command per kind. Each writes its files where the guide
+that shows them lives, as `<screen>-<state>-<theme>.png` (`light`, `dark`).
+
+| Kind | Command, run in | Writes |
+| --- | --- | --- |
+| desktop app | `flutter test --tags screenshots --update-goldens test/screenshots` in `tom_secrets_ui` | `tom_secrets_app/doc/images/` |
+| phone, tablet | the same in `tom_secrets_mobile` | `tom_secrets_mobile/doc/images/` |
+| browser extension | `npm run build && npm run screenshots` in `tom_secrets_browser/extension` | `tom_secrets_browser/doc/images/` |
+| `tsm` | `TSM_UPDATE_TRANSCRIPTS=1 dart test test/transcripts_test.dart` in `tsm` | the guide's transcript blocks |
+
+- **The Flutter screens** are pumped over the tests' fake service and demo
+  vaults (the phone's over a fake GitHub), at 1440×900 for the desktop,
+  390×844 for a phone and 1024×1366 for a tablet, in both themes, with the
+  real fonts: Roboto and the Material icons from the Flutter SDK, and a
+  monospace font of the system (`tom_secrets_ui`'s `screenshots.dart`).
+  The tests are tagged `screenshots` and run only with `--update-goldens`;
+  `testkit :test`, `flutter test` and `ci.sh :test` skip them, so no run
+  compares them.
+- **The extension** is loaded into headless Chromium (Playwright; once
+  `npx playwright install chromium`) with the tests' fake host answering
+  demo logins, on a demo login page served on 127.0.0.1: the in-page list,
+  the save bar and the popup, in the light theme.
+- **The `tsm` transcripts** are sessions against a demo installation. In the
+  guide, a block marked `<!-- transcript <name> -->` holds a session, and
+  `test/transcripts_test.dart` names its commands. The test fails when the
+  guide no longer shows what `tsm` prints; the command above writes it
+  again.
+
+The operating systems' own dialogs are not made this way: Windows' passkey
+dialog, macOS's AutoFill and passkey sheets, Safari's extension settings,
+Touch ID and Windows Hello. The user captures them during the live checks,
+or the guide describes them without an image.
