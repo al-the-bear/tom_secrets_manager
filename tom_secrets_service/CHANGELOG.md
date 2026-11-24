@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.25.5
+
+- The client endpoint in the macOS app's App Group container (protocol.md
+  3.1, part-browser): when the service runs from the manager app's tools
+  folder and the app names its App Group (`TSMAppGroup`), it also listens
+  on `~/Library/Group Containers/<group>/tsm/client.sock`, which the
+  sandboxed Safari Web Extension's host reaches. `tomSecretsAppGroupOf`,
+  `tomSecretsAppGroupClientSocketFor`, the configuration's
+  `groupClientSocket`.
+
 ## 0.25.4
 
 - The Windows passkey plugin `tsm-passkey-plugin.exe` beside the service is

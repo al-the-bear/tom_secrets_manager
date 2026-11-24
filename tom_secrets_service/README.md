@@ -215,6 +215,13 @@ single-instance lock, released by the OS when the process dies;
 | admin | `admin.sock` | a localhost TCP port in `admin.port` |
 | ssh-agent [B] | `agent.sock` | the named pipe `\\.\pipe\tsm-ssh-agent` |
 
+**[C]** On macOS, when the service runs from the manager app's tools folder
+and the app names its App Group (`TSMAppGroup` in its `Info.plist`, the
+team-signed build; `tomSecretsAppGroupClientSocketFor`), the client
+endpoint is also offered at
+`~/Library/Group Containers/<group>/tsm/client.sock`, for the sandboxed
+Safari Web Extension (protocol.md 3.1). It is removed at the stop.
+
 The client endpoint answers `hello` with `welcome`, then `get` and `getMany`
 (1 to 256 references), each resolved through `tom_secrets_core`. While the
 service is locked, a waiting request tells the subscribed admins

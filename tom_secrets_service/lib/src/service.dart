@@ -46,7 +46,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.25.4';
+const String tomSecretsServiceVersion = '0.25.5';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -76,6 +76,7 @@ final class TomSecretsServiceConfig {
     this.browserHostExecutables,
     this.helperExecutables,
     this.passkeyPluginExecutables,
+    this.groupClientSocket,
     this.lastUsedInterval,
     this.approverLinkRetry = const Duration(seconds: 5),
     this.linkRelayFor,
@@ -177,6 +178,11 @@ final class TomSecretsServiceConfig {
   /// browser host's (protocol.md 5.8); null (an in-process service in
   /// tests): any executable of that file name.
   final Set<String>? passkeyPluginExecutables;
+
+  /// **[C]** A second path of the client endpoint (macOS): the socket in
+  /// the app's App Group container the sandboxed Safari extension
+  /// reaches (`tomSecretsAppGroupClientSocketFor`); null: none.
+  final String? groupClientSocket;
 
   /// The real paths of the developer-tool helpers (`tsm`, which
   /// `git-credential-tsm` and `docker-credential-tsm` resolve to, or copies
@@ -405,6 +411,7 @@ final class TomSecretsService
   TomSecretsLinkServer? _linkServer;
   Timer? _lastUsedTimer;
   ServerSocket? _clientServer;
+  ServerSocket? _groupClientServer;
   ServerSocket? _adminServer;
   String _clientToken = '';
   final Set<_ClientSession> _clients = {};
@@ -483,6 +490,16 @@ final class TomSecretsService
     }
     _clientServer!.listen((socket) => _ClientSession(this, socket));
     _adminServer!.listen((socket) => _AdminSession(this, socket));
+    if (config.groupClientSocket case final path?
+        when runtime.transport == TomSecretsTransport.unix) {
+      // An extra like the agent: a start goes on without it.
+      try {
+        _groupClientServer = await _bindGroupClient(path);
+        _groupClientServer!.listen((socket) => _ClientSession(this, socket));
+      } on Object catch (e) {
+        config.log.error('group_socket_unavailable', e);
+      }
+    }
     if (config.sshAgent) {
       // The agent is an extra: a start goes on without it (another process
       // holds the pipe, a socket path too long), and says so in the log.
@@ -509,8 +526,36 @@ final class TomSecretsService
     );
   }
 
+  /// Binds the client endpoint at [path] in the App Group container: its
+  /// folder made only the user's, a socket a dead service left replaced.
+  static Future<ServerSocket> _bindGroupClient(String path) async {
+    final dir = Directory(File(path).parent.path);
+    await dir.create(recursive: true);
+    await Process.run('chmod', ['700', dir.path]);
+    if (await FileSystemEntity.type(path, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      await File(path).delete();
+    }
+    return ServerSocket.bind(
+      InternetAddress(path, type: InternetAddressType.unix),
+      0,
+    );
+  }
+
   Future<void> _closeServers() async {
     await _clientServer?.close();
+    if (_groupClientServer != null) {
+      await _groupClientServer!.close();
+      _groupClientServer = null;
+      final path = config.groupClientSocket;
+      if (path != null) {
+        try {
+          await File(path).delete();
+        } on FileSystemException {
+          // Gone already.
+        }
+      }
+    }
     await _adminServer?.close();
     await _agent.close();
   }

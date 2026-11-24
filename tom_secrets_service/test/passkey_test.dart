@@ -432,8 +432,13 @@ void main() {
     });
     expect(((await refused)['details']! as Map)['reason'], 'refused');
 
-    // No app attached: nobody can confirm it.
+    // No app attached: nobody can confirm it. The service notices the
+    // closed connection on its own time; a busy machine may take a moment.
     await admin.close();
+    for (var i = 0; service.hasLocalApprover && i < 200; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+    expect(service.hasLocalApprover, isFalse);
     final alone = await answer(raw, create(4));
     expect((alone['details']! as Map)['reason'], 'no_approver');
     expect(File(demo.teamPath).readAsBytesSync(), before);

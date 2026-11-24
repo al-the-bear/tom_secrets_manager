@@ -97,6 +97,11 @@ Future<void> main() async {
         browserHostExecutables: lookup.browserHosts,
         helperExecutables: lookup.helpers,
         passkeyPluginExecutables: lookup.passkeyPlugins,
+        // The Safari extension's way in (macOS, the team-signed app): the
+        // client endpoint in the app's App Group container too.
+        groupClientSocket: tomSecretsAppGroupClientSocketFor(
+          Platform.resolvedExecutable,
+        ),
       ),
     );
   } on TomSecretsAlreadyRunning {
