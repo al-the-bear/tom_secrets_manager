@@ -43,6 +43,7 @@ of the apps; to read secrets from a program, go to the
 | --- | --- | --- |
 | [`tom_secrets_core`](tom_secrets_core/README.md) | vaults and locators, the GitHub cycle, the offline cache, the entry-level merge, key files and the outer encryption with key slots, dimensions and resolution, the KDBX mapping, the importers, the pairing and signature crypto | — |
 | [`tom_secrets_age`](tom_secrets_age/README.md) | the `age` v1 format (hybrid, classical and passphrase recipients, the armour), member keys and HKDF, without any vault format; `tom_secrets_core` re-exports it, the relay server uses it alone | — |
+| [`tom_secrets_import_cleaner`](tom_secrets_import_cleaner/README.md) | `tsm_import_cleaner`: cleans a password manager's export (Enpass, Bitwarden, 1Password, the browsers' CSV) for testing the import, the structure kept | — |
 | [`tom_secrets_service`](tom_secrets_service/README.md) | the secrets service: the client and admin endpoints, peer identity, approvals and grants, the approval link, the audit log, lock modes, the device settings | `tom_secrets_service` |
 
 Both are on pub.dev. The service takes the core by path inside this
@@ -91,6 +92,7 @@ tom_secrets_manager/
     example/               a resolution example
     test/                  the core's suite (one live GitHub test, skipped by default)
   tom_secrets_age/         the age format and member keys (no vault format)
+  tom_secrets_import_cleaner/  tsm_import_cleaner, export cleaning for import tests
   tom_secrets_service/     the secrets service executable and library
     bin/                   the executable: hardening, handover, launch
     lib/src/               endpoints, approvals, links, audit, vaults, identity, log

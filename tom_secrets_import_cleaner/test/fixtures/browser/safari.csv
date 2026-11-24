@@ -1,0 +1,2 @@
+Title,URL,Username,Password,Notes,OTPAuth
+Demo Mail,https://mail.example.com/,demo-user,demo-mail-pw,A demo note,otpauth://totp/Demo:demo-user?secret=JBSWY3DPEHPK3PXP&issuer=Demo

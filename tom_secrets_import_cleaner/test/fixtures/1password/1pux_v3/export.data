@@ -1,0 +1,682 @@
+{
+  "accounts": [
+    {
+      "attrs": {
+        "accountName": "Demo Account",
+        "name": "Demo",
+        "avatar": "",
+        "email": "demo@example.com",
+        "uuid": "demo-account",
+        "domain": "https://demo.1password.example/"
+      },
+      "vaults": [
+        {
+          "attrs": {
+            "uuid": "demo-vault-personal",
+            "desc": "",
+            "avatar": "",
+            "name": "Personal",
+            "type": "P"
+          },
+          "items": [
+            {
+              "uuid": "demo-login-1",
+              "favIndex": 1,
+              "createdAt": 1700000000,
+              "updatedAt": 1700086400,
+              "state": "active",
+              "categoryUuid": "001",
+              "details": {
+                "loginFields": [
+                  {
+                    "value": "demo.user@example.com",
+                    "id": "",
+                    "name": "username",
+                    "fieldType": "T",
+                    "designation": "username"
+                  },
+                  {
+                    "value": "demo-pw-current",
+                    "id": "",
+                    "name": "password",
+                    "fieldType": "P",
+                    "designation": "password"
+                  },
+                  {
+                    "value": "demo-pin-1234",
+                    "id": "pin",
+                    "name": "pin",
+                    "fieldType": "P",
+                    "designation": ""
+                  }
+                ],
+                "notesPlain": "Demo notes\nsecond line",
+                "sections": [
+                  {
+                    "title": "Extra",
+                    "name": "extra",
+                    "fields": [
+                      {
+                        "title": "PIN",
+                        "id": "x1",
+                        "value": {
+                          "concealed": "0000"
+                        }
+                      },
+                      {
+                        "title": "Account no",
+                        "id": "x2",
+                        "value": {
+                          "string": "DEMO-42"
+                        }
+                      },
+                      {
+                        "title": "Empty",
+                        "id": "x3",
+                        "value": {
+                          "string": ""
+                        }
+                      },
+                      {
+                        "title": "one-time password",
+                        "id": "TOTP_1",
+                        "value": {
+                          "totp": "otpauth://totp/Demo:demo.user?secret=JBSWY3DPEHPK3PXP&issuer=Demo&digits=6&period=30"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "title": "",
+                    "name": "empty",
+                    "fields": []
+                  }
+                ],
+                "passwordHistory": [
+                  {
+                    "value": "demo-pw-old-1",
+                    "time": 1699800000
+                  },
+                  {
+                    "value": "demo-pw-old-2",
+                    "time": 1699900000
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo Mail",
+                "url": "https://mail.example.com",
+                "urls": [
+                  {
+                    "label": "",
+                    "url": "https://mail.example.com"
+                  },
+                  {
+                    "label": "webmail",
+                    "url": "https://webmail.example.com"
+                  }
+                ],
+                "tags": [
+                  "mail",
+                  "demo"
+                ]
+              }
+            },
+            {
+              "uuid": "demo-login-2",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "005",
+              "details": {
+                "loginFields": [],
+                "sections": [
+                  {
+                    "title": "",
+                    "name": "s",
+                    "fields": [
+                      {
+                        "title": "password",
+                        "id": "password",
+                        "value": {
+                          "concealed": "demo-only-pw"
+                        }
+                      },
+                      {
+                        "title": "one-time password",
+                        "id": "TOTP_2",
+                        "value": {
+                          "totp": "GEZDGNBVGY3TQOJQ"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo Password",
+                "tags": []
+              }
+            },
+            {
+              "uuid": "demo-note-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "003",
+              "details": {
+                "notesPlain": "A demo secure note."
+              },
+              "overview": {
+                "title": "Demo Note"
+              }
+            },
+            {
+              "uuid": "demo-api-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "112",
+              "details": {
+                "sections": [
+                  {
+                    "title": "",
+                    "name": "s",
+                    "fields": [
+                      {
+                        "title": "username",
+                        "id": "username",
+                        "value": {
+                          "string": "demo-bot"
+                        }
+                      },
+                      {
+                        "title": "credential",
+                        "id": "credential",
+                        "value": {
+                          "concealed": "demo-token-abc"
+                        }
+                      },
+                      {
+                        "title": "type",
+                        "id": "type",
+                        "value": {
+                          "menu": "bearer"
+                        }
+                      },
+                      {
+                        "title": "hostname",
+                        "id": "hostname",
+                        "value": {
+                          "string": "api.example.com"
+                        }
+                      },
+                      {
+                        "title": "expires",
+                        "id": "expires",
+                        "value": {
+                          "date": 1893456000
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo API"
+              }
+            },
+            {
+              "uuid": "demo-server-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "110",
+              "details": {
+                "sections": [
+                  {
+                    "title": "",
+                    "name": "s",
+                    "fields": [
+                      {
+                        "title": "URL",
+                        "id": "url",
+                        "value": {
+                          "string": "ssh://demo.example.com"
+                        }
+                      },
+                      {
+                        "title": "username",
+                        "id": "username",
+                        "value": {
+                          "string": "root"
+                        }
+                      },
+                      {
+                        "title": "password",
+                        "id": "password",
+                        "value": {
+                          "concealed": "demo-server-pw"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "title": "Admin Console",
+                    "name": "admin",
+                    "fields": [
+                      {
+                        "title": "admin console URL",
+                        "id": "admin_console_url",
+                        "value": {
+                          "url": "https://panel.example.com"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo Server"
+              }
+            },
+            {
+              "uuid": "demo-card-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "002",
+              "details": {
+                "sections": [
+                  {
+                    "title": "",
+                    "name": "s",
+                    "fields": [
+                      {
+                        "title": "cardholder name",
+                        "id": "cardholder",
+                        "value": {
+                          "string": "Demo Holder"
+                        }
+                      },
+                      {
+                        "title": "type",
+                        "id": "type",
+                        "value": {
+                          "creditCardType": "visa"
+                        }
+                      },
+                      {
+                        "title": "number",
+                        "id": "ccnum",
+                        "value": {
+                          "creditCardNumber": "4111111111111111"
+                        }
+                      },
+                      {
+                        "title": "verification number",
+                        "id": "cvv",
+                        "value": {
+                          "concealed": "123"
+                        }
+                      },
+                      {
+                        "title": "expiry date",
+                        "id": "expiry",
+                        "value": {
+                          "monthYear": 202807
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo Card"
+              }
+            },
+            {
+              "uuid": "demo-identity-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "004",
+              "details": {
+                "sections": [
+                  {
+                    "title": "Identification",
+                    "name": "name",
+                    "fields": [
+                      {
+                        "title": "first name",
+                        "id": "firstname",
+                        "value": {
+                          "string": "Demo"
+                        }
+                      },
+                      {
+                        "title": "birth date",
+                        "id": "birthdate",
+                        "value": {
+                          "date": 946684800
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "title": "Address",
+                    "name": "address",
+                    "fields": [
+                      {
+                        "title": "address",
+                        "id": "address",
+                        "value": {
+                          "address": {
+                            "street": "1 Demo Street",
+                            "city": "Demo City",
+                            "zip": "12345",
+                            "state": "",
+                            "country": "de"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "title": "Internet Details",
+                    "name": "internet",
+                    "fields": [
+                      {
+                        "title": "email",
+                        "id": "email",
+                        "value": {
+                          "email": {
+                            "email_address": "demo@example.com",
+                            "provider": null
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo Identity"
+              }
+            },
+            {
+              "uuid": "demo-ssh-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "114",
+              "details": {
+                "sections": [
+                  {
+                    "title": "",
+                    "name": "s",
+                    "fields": [
+                      {
+                        "title": "private key",
+                        "id": "private_key",
+                        "value": {
+                          "sshKey": {
+                            "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nDEMO-NOT-A-REAL-KEY\n-----END OPENSSH PRIVATE KEY-----\n",
+                            "metadata": {
+                              "publicKey": "ssh-ed25519 AAAADEMO demo@example",
+                              "fingerprint": "SHA256:demo",
+                              "keyType": "ed25519"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo SSH Key"
+              }
+            },
+            {
+              "uuid": "demo-doc-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "006",
+              "details": {
+                "documentAttributes": {
+                  "fileName": "demo-document.txt",
+                  "documentId": "docdemo1",
+                  "decryptedSize": 27
+                }
+              },
+              "overview": {
+                "title": "Demo Document"
+              }
+            },
+            {
+              "uuid": "demo-attach-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "001",
+              "details": {
+                "loginFields": [
+                  {
+                    "value": "attach-user",
+                    "id": "",
+                    "name": "username",
+                    "fieldType": "T",
+                    "designation": "username"
+                  },
+                  {
+                    "value": "attach-pw",
+                    "id": "",
+                    "name": "password",
+                    "fieldType": "P",
+                    "designation": "password"
+                  }
+                ],
+                "sections": [
+                  {
+                    "title": "Files",
+                    "name": "f",
+                    "fields": [
+                      {
+                        "title": "recovery codes",
+                        "id": "f1",
+                        "value": {
+                          "file": {
+                            "fileName": "recovery.txt",
+                            "documentId": "filedemo1",
+                            "decryptedSize": 20
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo With Attachment"
+              }
+            },
+            {
+              "uuid": "demo-archived-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "archived",
+              "categoryUuid": "001",
+              "details": {
+                "loginFields": [
+                  {
+                    "value": "old-user",
+                    "id": "",
+                    "name": "username",
+                    "fieldType": "T",
+                    "designation": "username"
+                  },
+                  {
+                    "value": "old-pw",
+                    "id": "",
+                    "name": "password",
+                    "fieldType": "P",
+                    "designation": "password"
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo Archived"
+              }
+            },
+            {
+              "uuid": "demo-passkey-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "001",
+              "details": {
+                "loginFields": [
+                  {
+                    "value": "pk-user",
+                    "id": "",
+                    "name": "username",
+                    "fieldType": "T",
+                    "designation": "username"
+                  },
+                  {
+                    "value": "",
+                    "id": "",
+                    "name": "password",
+                    "fieldType": "P",
+                    "designation": "password"
+                  }
+                ],
+                "passkey": {
+                  "credentialId": "demo",
+                  "rpId": "passkey.example.com",
+                  "userHandle": "demo"
+                }
+              },
+              "overview": {
+                "title": "Demo Passkey Site",
+                "url": "https://passkey.example.com"
+              }
+            },
+            {
+              "uuid": "demo-same-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "001",
+              "details": {
+                "loginFields": [
+                  {
+                    "value": "same-a",
+                    "id": "",
+                    "name": "username",
+                    "fieldType": "T",
+                    "designation": "username"
+                  },
+                  {
+                    "value": "same-pw-a",
+                    "id": "",
+                    "name": "password",
+                    "fieldType": "P",
+                    "designation": "password"
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo Same Title"
+              }
+            },
+            {
+              "uuid": "demo-same-2",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "001",
+              "details": {
+                "loginFields": [
+                  {
+                    "value": "same-b",
+                    "id": "",
+                    "name": "username",
+                    "fieldType": "T",
+                    "designation": "username"
+                  },
+                  {
+                    "value": "same-pw-b",
+                    "id": "",
+                    "name": "password",
+                    "fieldType": "P",
+                    "designation": "password"
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo Same Title"
+              }
+            }
+          ]
+        },
+        {
+          "attrs": {
+            "uuid": "demo-vault-shared",
+            "desc": "",
+            "avatar": "",
+            "name": "@Shared",
+            "type": "U"
+          },
+          "items": [
+            {
+              "uuid": "demo-shared-1",
+              "favIndex": 0,
+              "createdAt": 1700000000,
+              "updatedAt": 1700000000,
+              "state": "active",
+              "categoryUuid": "001",
+              "details": {
+                "loginFields": [
+                  {
+                    "value": "team",
+                    "id": "",
+                    "name": "username",
+                    "fieldType": "T",
+                    "designation": "username"
+                  },
+                  {
+                    "value": "demo-team-pw",
+                    "id": "",
+                    "name": "password",
+                    "fieldType": "P",
+                    "designation": "password"
+                  }
+                ]
+              },
+              "overview": {
+                "title": "Demo Team Login",
+                "url": "https://team.example.com"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

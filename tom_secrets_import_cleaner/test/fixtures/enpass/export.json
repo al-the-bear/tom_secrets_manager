@@ -1,0 +1,921 @@
+{
+    "folders": [
+        {
+            "icon": "1008",
+            "parent_uuid": "",
+            "title": "Work",
+            "updated_at": 1700000000,
+            "uuid": "f0000000-0000-4000-8000-000000000001"
+        },
+        {
+            "icon": "1008",
+            "parent_uuid": "f0000000-0000-4000-8000-000000000001",
+            "title": "Servers",
+            "updated_at": 1700000000,
+            "uuid": "f0000000-0000-4000-8000-000000000002"
+        },
+        {
+            "icon": "1008",
+            "parent_uuid": "",
+            "title": "Personal",
+            "updated_at": 1700000000,
+            "uuid": "f0000000-0000-4000-8000-000000000003"
+        }
+    ],
+    "items": [
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "login",
+            "createdAt": 1700000000,
+            "favorite": 1,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Username",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "username",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "demo.user",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "E-mail",
+                    "order": 2,
+                    "sensitive": 0,
+                    "type": "email",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "demo@example.com",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Password",
+                    "order": 3,
+                    "sensitive": 1,
+                    "type": "password",
+                    "uid": 12,
+                    "updated_at": 1700000000,
+                    "value": "demo-enpass-pw",
+                    "value_updated_at": 1700000000,
+                    "history": [
+                        {
+                            "value": "demo-enpass-old-1",
+                            "updated_at": 1699800000
+                        },
+                        {
+                            "value": "demo-enpass-old-2",
+                            "updated_at": 1699900000
+                        }
+                    ]
+                },
+                {
+                    "deleted": 0,
+                    "label": "Second password",
+                    "order": 4,
+                    "sensitive": 1,
+                    "type": "password",
+                    "uid": 13,
+                    "updated_at": 1700000000,
+                    "value": "demo-second-pw",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Website",
+                    "order": 5,
+                    "sensitive": 0,
+                    "type": "url",
+                    "uid": 14,
+                    "updated_at": 1700000000,
+                    "value": "https://mail.example.com",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Webmail",
+                    "order": 6,
+                    "sensitive": 0,
+                    "type": "url",
+                    "uid": 15,
+                    "updated_at": 1700000000,
+                    "value": "https://webmail.example.com",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "One-time code",
+                    "order": 7,
+                    "sensitive": 1,
+                    "type": "totp",
+                    "uid": 16,
+                    "updated_at": 1700000000,
+                    "value": "JBSWY3DPEHPK3PXP",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "PIN",
+                    "order": 8,
+                    "sensitive": 1,
+                    "type": "pin",
+                    "uid": 17,
+                    "updated_at": 1700000000,
+                    "value": "4321",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Recovery",
+                    "order": 9,
+                    "sensitive": 0,
+                    "type": "section",
+                    "uid": 18,
+                    "updated_at": 1700000000,
+                    "value": "",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Hint",
+                    "order": 10,
+                    "sensitive": 0,
+                    "type": "text",
+                    "uid": 19,
+                    "updated_at": 1700000000,
+                    "value": "demo hint",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Codes",
+                    "order": 11,
+                    "sensitive": 1,
+                    "type": "multiline",
+                    "uid": 20,
+                    "updated_at": 1700000000,
+                    "value": "code-1\ncode-2",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 1,
+                    "label": "Removed",
+                    "order": 12,
+                    "sensitive": 0,
+                    "type": "text",
+                    "uid": 21,
+                    "updated_at": 1700000000,
+                    "value": "gone",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Empty",
+                    "order": 13,
+                    "sensitive": 0,
+                    "type": "text",
+                    "uid": 22,
+                    "updated_at": 1700000000,
+                    "value": "",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "KPEX_PASSKEY_FAKE",
+                    "order": 14,
+                    "sensitive": 0,
+                    "type": "text",
+                    "uid": 23,
+                    "updated_at": 1700000000,
+                    "value": "not a passkey",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [
+                "f0000000-0000-4000-8000-000000000002",
+                "f0000000-0000-4000-8000-000000000003"
+            ],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "Demo enpass note",
+            "subtitle": "demo.user",
+            "template_type": "login.default",
+            "title": "Demo Enpass Mail",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000001"
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "password",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Password",
+                    "order": 1,
+                    "sensitive": 1,
+                    "type": "password",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "demo-only-enpass",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "password.default",
+            "title": "Demo Enpass Password",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000002"
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "note",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "A demo note.",
+            "subtitle": "",
+            "template_type": "note.default",
+            "title": "Demo Enpass Note",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000003"
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "computer",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Hostname",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "text",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "server.example.com",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Username",
+                    "order": 2,
+                    "sensitive": 0,
+                    "type": "username",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "admin",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Password",
+                    "order": 3,
+                    "sensitive": 1,
+                    "type": "password",
+                    "uid": 12,
+                    "updated_at": 1700000000,
+                    "value": "demo-server-enpass",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Port",
+                    "order": 4,
+                    "sensitive": 0,
+                    "type": "text",
+                    "uid": 13,
+                    "updated_at": 1700000000,
+                    "value": "2222",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [
+                "f0000000-0000-4000-8000-000000000002"
+            ],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "computer.default",
+            "title": "Demo Enpass Server",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000004"
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "creditcard",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Cardholder",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "text",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "Demo Holder",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Number",
+                    "order": 2,
+                    "sensitive": 1,
+                    "type": "ccNumber",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "4111111111111111",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "CVC",
+                    "order": 3,
+                    "sensitive": 1,
+                    "type": "ccCvc",
+                    "uid": 12,
+                    "updated_at": 1700000000,
+                    "value": "123",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Expiry",
+                    "order": 4,
+                    "sensitive": 0,
+                    "type": "ccExpiry",
+                    "uid": 13,
+                    "updated_at": 1700000000,
+                    "value": "07/28",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "creditcard.default",
+            "title": "Demo Enpass Card",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000005"
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "identity",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "First name",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "text",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "Demo",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Birthday",
+                    "order": 2,
+                    "sensitive": 0,
+                    "type": "date",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "2000-01-01",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "identity.default",
+            "title": "Demo Enpass Identity",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000006"
+        },
+        {
+            "archived": 1,
+            "auto_submit": 1,
+            "category": "login",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Username",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "username",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "old",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Password",
+                    "order": 2,
+                    "sensitive": 1,
+                    "type": "password",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "old-pw",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "login.default",
+            "title": "Demo Enpass Archived",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000007"
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "login",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Username",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "username",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "bin",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Password",
+                    "order": 2,
+                    "sensitive": 1,
+                    "type": "password",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "bin-pw",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "login.default",
+            "title": "Demo Enpass Trashed",
+            "trashed": 1,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000008"
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "login",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Username",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "username",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "attach",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "login.default",
+            "title": "Demo Enpass Attachment",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000009",
+            "attachments": [
+                {
+                    "data": "ZGVtbyBhdHRhY2htZW50LCBubyBzZWNyZXQK",
+                    "kind": "text/plain",
+                    "name": "demo.txt",
+                    "order": 1,
+                    "updated_at": 1700000000
+                }
+            ]
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "login",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Username",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "username",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "pk-one",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Website",
+                    "order": 2,
+                    "sensitive": 0,
+                    "type": "url",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "https://one.passkey.example",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Passkey",
+                    "order": 3,
+                    "sensitive": 1,
+                    "type": "passkey",
+                    "uid": 12,
+                    "updated_at": 1700000000,
+                    "value": "{\"rpId\": \"one.passkey.example\", \"credentialId\": \"ZGVtby1jcmVkZW50aWFsLTE=\", \"userHandle\": \"ZGVtby11c2VyLTE\", \"userName\": \"pk-one\", \"privateKey\": \"MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWVxLodx4mWS2R/rHlg8ApfT3yqEBTlUYDozNiBnqccChRANCAARZi5yX5hCboBSM/c7Yfkuo2NII9h+DTAtAHXmKZzmiofaxbqPUMi8cp5LmxPgGWJU+5C73iwnyVN9z1a/39Viv\"}",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "login.default",
+            "title": "Demo Passkey One",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000010"
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "login",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Username",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "username",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "pk-two",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Password",
+                    "order": 2,
+                    "sensitive": 1,
+                    "type": "password",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "pk-two-pw",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "login.default",
+            "title": "Demo Passkey Two",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000011",
+            "passkey": {
+                "relyingParty": "two.passkey.example",
+                "credential_id": "ZGVtby1jcmVkZW50aWFsLTI",
+                "user_handle": "ZGVtby11c2VyLTI=",
+                "privateKey": {
+                    "kty": "EC",
+                    "crv": "P-256",
+                    "d": "CfpkgTQYGGbHaoN_iVMA-r-ut9CnF8lbthDDnrY4i5Y",
+                    "x": "ow2vWMAmYcOOIIk241YuB0nuUEfoNZ5x9lccXRK1z8Y",
+                    "y": "pwzQIT_RajjIMF64_woYXOh3iMafdM3HHB45rPJGzNU"
+                }
+            }
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "login",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Username",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "username",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "pk-three",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Passkey",
+                    "order": 2,
+                    "sensitive": 1,
+                    "type": "passkey",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "{\"rpId\": \"three.passkey.example\", \"credentialId\": \"ZGVtby1jcmVkZW50aWFsLTM\", \"privateKey\": \"-----BEGIN EC PRIVATE KEY-----\\nMHcCAQEEIF9CvAErGgq5OTcxchF+2ZvHcZVxljNrOwQ1dZmzSYUeoAoGCCqGSM49AwEHoUQDQgAEkxiDcxTUmPDfPLIlXa8MVwgLA53+YgdznU5YSmnvCq7nD+ZN4KEA9STeZV6ie4tZzigAjERYgbhl+AZ+cjc5kQ==\\n-----END EC PRIVATE KEY-----\\n\"}",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "login.default",
+            "title": "Demo Passkey Three",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000012"
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "login",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Username",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "username",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "pk-four",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Website",
+                    "order": 2,
+                    "sensitive": 0,
+                    "type": "url",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "https://four.passkey.example/login",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Passkey",
+                    "order": 3,
+                    "sensitive": 1,
+                    "type": "passkey",
+                    "uid": 12,
+                    "updated_at": 1700000000,
+                    "value": "{\"credentialId\": \"ZGVtby1jcmVkZW50aWFsLTQ\", \"privateKey\": \"oO69zIV+FryFysHI8SeF0xakx/f5IST3BnaP4Wnmfu0=\"}",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "login.default",
+            "title": "Demo Passkey Four",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000013"
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "login",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Username",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "username",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "pk-five",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Passkey",
+                    "order": 2,
+                    "sensitive": 1,
+                    "type": "passkey",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "{\"rpId\": \"five.passkey.example\", \"credentialId\": \"ZGVtby1jcmVkZW50aWFsLTU\", \"privateKey\": {\"kty\": \"OKP\", \"crv\": \"Ed25519\", \"d\": \"RiLoq9QTKqEyDy5ZUHm3TftcDXMiCoMu6zxoGmwaixY\"}}",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "login.default",
+            "title": "Demo Passkey Five",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000014"
+        },
+        {
+            "archived": 0,
+            "auto_submit": 1,
+            "category": "login",
+            "createdAt": 1700000000,
+            "favorite": 0,
+            "fields": [
+                {
+                    "deleted": 0,
+                    "label": "Username",
+                    "order": 1,
+                    "sensitive": 0,
+                    "type": "username",
+                    "uid": 10,
+                    "updated_at": 1700000000,
+                    "value": "pk-none",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Passkey",
+                    "order": 2,
+                    "sensitive": 1,
+                    "type": "passkey",
+                    "uid": 11,
+                    "updated_at": 1700000000,
+                    "value": "{\"rpId\": \"none.passkey.example\", \"credentialId\": \"ZGVtby1jcmVkZW50aWFsLTY\"}",
+                    "value_updated_at": 1700000000
+                }
+            ],
+            "folders": [],
+            "icon": {
+                "fav": "",
+                "image": {
+                    "file": "misc/login"
+                },
+                "type": 1,
+                "uuid": ""
+            },
+            "note": "",
+            "subtitle": "",
+            "template_type": "login.default",
+            "title": "Demo Passkey Without Key",
+            "trashed": 0,
+            "updated_at": 1700086400,
+            "uuid": "e0000000-0000-4000-8000-000000000015"
+        }
+    ]
+}

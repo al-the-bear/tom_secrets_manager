@@ -1,0 +1,189 @@
+{
+  "encrypted": false,
+  "folders": [
+    {
+      "id": "f0000000-0000-4000-8000-000000000001",
+      "name": "Work"
+    },
+    {
+      "id": "f0000000-0000-4000-8000-000000000002",
+      "name": "Work/Servers"
+    }
+  ],
+  "items": [
+    {
+      "passwordHistory": [
+        {
+          "lastUsedDate": "2025-03-01T10:00:00.000Z",
+          "password": "demo-old-pw-1"
+        }
+      ],
+      "revisionDate": "2026-01-02T03:04:05.000Z",
+      "creationDate": "2024-01-01T00:00:00.000Z",
+      "deletedDate": null,
+      "id": "10000000-0000-4000-8000-000000000001",
+      "organizationId": null,
+      "folderId": "f0000000-0000-4000-8000-000000000002",
+      "type": 1,
+      "reprompt": 0,
+      "name": "Demo Server",
+      "notes": "Demo note\nsecond line",
+      "favorite": true,
+      "fields": [
+        {
+          "name": "Region",
+          "value": "eu-demo",
+          "type": 0,
+          "linkedId": null
+        },
+        {
+          "name": "PIN",
+          "value": "0000",
+          "type": 1,
+          "linkedId": null
+        },
+        {
+          "name": "Admin",
+          "value": "true",
+          "type": 2,
+          "linkedId": null
+        },
+        {
+          "name": "Linked",
+          "value": null,
+          "type": 3,
+          "linkedId": 100
+        }
+      ],
+      "login": {
+        "fido2Credentials": [],
+        "uris": [
+          {
+            "match": null,
+            "uri": "https://demo.example.com"
+          },
+          {
+            "match": 1,
+            "uri": "https://admin.demo.example.com"
+          }
+        ],
+        "username": "demo-user",
+        "password": "demo-server-pw",
+        "totp": "otpauth://totp/Demo:demo-user?secret=JBSWY3DPEHPK3PXP&issuer=Demo"
+      },
+      "collectionIds": null
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000002",
+      "folderId": null,
+      "type": 2,
+      "name": "Demo Note",
+      "notes": "A demo secure note",
+      "favorite": false,
+      "secureNote": {
+        "type": 0
+      },
+      "revisionDate": "2026-01-02T03:04:05.000Z",
+      "creationDate": "2026-01-01T00:00:00.000Z",
+      "deletedDate": null
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000003",
+      "folderId": "f0000000-0000-4000-8000-000000000001",
+      "type": 3,
+      "name": "Demo Card",
+      "notes": null,
+      "favorite": false,
+      "card": {
+        "cardholderName": "Demo Person",
+        "brand": "Visa",
+        "number": "4111111111111111",
+        "expMonth": "12",
+        "expYear": "2030",
+        "code": "123"
+      },
+      "revisionDate": "2026-01-02T03:04:05.000Z",
+      "creationDate": "2026-01-01T00:00:00.000Z",
+      "deletedDate": null
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000004",
+      "folderId": null,
+      "type": 4,
+      "name": "Demo Identity",
+      "notes": null,
+      "favorite": false,
+      "identity": {
+        "title": "Dr",
+        "firstName": "Demo",
+        "middleName": null,
+        "lastName": "Person",
+        "email": "demo@example.com",
+        "passportNumber": "X0000000"
+      },
+      "revisionDate": "2026-01-02T03:04:05.000Z",
+      "creationDate": "2026-01-01T00:00:00.000Z",
+      "deletedDate": null
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000005",
+      "folderId": "f0000000-0000-4000-8000-000000000002",
+      "type": 5,
+      "name": "Demo SSH key",
+      "notes": null,
+      "favorite": false,
+      "sshKey": {
+        "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACCugojZUYfMesmzh7HV+6tQNJOprtGe04IcWAvhdjHh+gAAAJBY1a80WNWv\nNAAAAAtzc2gtZWQyNTUxOQAAACCugojZUYfMesmzh7HV+6tQNJOprtGe04IcWAvhdjHh+g\nAAAEDfHNWOC4/NQ2kmthoVhlH1QO1JRDYpfOuPjXQNw6ZY666CiNlRh8x6ybOHsdX7q1A0\nk6mu0Z7TghxYC+F2MeH6AAAADGRlbW9AZXhhbXBsZQE=\n-----END OPENSSH PRIVATE KEY-----\n",
+        "publicKey": "ssh-ed25519 AAAA-demo demo@example",
+        "keyFingerprint": "SHA256:demo"
+      },
+      "revisionDate": "2026-01-02T03:04:05.000Z",
+      "creationDate": "2026-01-01T00:00:00.000Z",
+      "deletedDate": null
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000006",
+      "folderId": null,
+      "type": 1,
+      "name": "Demo Trashed",
+      "login": {
+        "username": "gone",
+        "password": "demo-gone-pw",
+        "uris": []
+      },
+      "revisionDate": "2026-01-02T03:04:05.000Z",
+      "creationDate": "2026-01-01T00:00:00.000Z",
+      "deletedDate": "2026-01-03T00:00:00.000Z"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000007",
+      "folderId": null,
+      "type": 1,
+      "name": "Demo Passkey Site",
+      "login": {
+        "username": "demo-pk",
+        "password": null,
+        "uris": [
+          {
+            "match": null,
+            "uri": "https://pk.example.com"
+          }
+        ],
+        "fido2Credentials": [
+          {
+            "credentialId": "00000000-0000-4000-8000-0000000000aa",
+            "keyType": "public-key",
+            "keyAlgorithm": "ECDSA",
+            "keyCurve": "P-256",
+            "keyValue": "demo",
+            "rpId": "pk.example.com",
+            "userName": "demo-pk"
+          }
+        ]
+      },
+      "revisionDate": "2026-01-02T03:04:05.000Z",
+      "creationDate": "2026-01-01T00:00:00.000Z",
+      "deletedDate": null
+    }
+  ]
+}

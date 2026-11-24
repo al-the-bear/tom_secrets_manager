@@ -1,0 +1,5 @@
+"Title","Field","Value","Field","Value","Note"
+"Demo Enpass CSV Mail","Username","csv.user","Password","csv-enpass-pw","Website","https://mail.example.com","One-time code","JBSWY3DPEHPK3PXP","PIN","9876","Hint","demo hint","Line one
+line two, with ""quotes"""
+"Demo Enpass CSV Note","Just a note"
+"Demo Enpass CSV Login","E-mail","login@example.com","Password","login-pw",""

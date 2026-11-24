@@ -1,0 +1,4 @@
+name,url,username,password,note
+Demo Mail,https://mail.example.com/login,demo-user,demo-mail-pw,
+Demo Shop,https://shop.example.org/,demo@example.com,demo-shop-pw,"Two-line
+note"
