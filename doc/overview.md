@@ -805,6 +805,8 @@ the user's own passwords over from the commercial password managers.
 
 ## Where to go next
 
+- [The architecture](architecture.md): the repositories, the packages
+  and the main types inside each component, for a developer.
 - [The documentation index](README.md): every document about the whole
   product, and how they are made.
 - [The protocol document](https://github.com/al-the-bear/tom_secrets_clients/blob/main/protocol/protocol.md):

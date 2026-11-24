@@ -10,6 +10,7 @@ explain each part in detail; these documents tie them together.
 | Document | What it explains |
 | --- | --- |
 | [Overview](overview.md) | What Tom Secrets Manager is, its components, and how it works, for a reader who has never seen the code |
+| [Architecture](architecture.md) | The repositories, the packages and their dependencies, the layers, the main types inside each component, the runtime views, and where a change plugs in |
 | [Diagram style](diagram_style.md) | How the diagrams look, and why |
 
 Each part's own documentation:
