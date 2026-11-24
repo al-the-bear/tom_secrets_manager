@@ -132,7 +132,7 @@ what each talks to.
 <!-- diagram 2-other-parts
 ```mermaid
 flowchart LR
-  libs["TypeScript, Python, Go,<br/>Rust and Java clients"]:::library
+  libs["TypeScript, Python, Go,<br/&gt;Rust and Java clients"]:::library
   cpp["C++ client"]:::library --&gt; c["C client"]:::library
   plugin("Windows passkey plugin"):::program --&gt; c
   safari("Safari extension"):::program --&gt; skit["TomSecretsSafariKit"]:::library
@@ -221,7 +221,7 @@ resolved value.
 ```mermaid
 flowchart LR
   loc["TomSecretsVaultLocator"]:::library
-  codec["tomSecretsDecodeStored<br/>(outer.dart, stored_vault.dart)"]:::library
+  codec["tomSecretsDecodeStored<br/&gt;(outer.dart, stored_vault.dart)"]:::library
   kdbx[("KdbxFile")]:::vault
   meta["TomSecretsMetadata"]:::library
   store["TomSecretsStore"]:::library
@@ -274,7 +274,7 @@ it.
 ```mermaid
 flowchart LR
   unit["TomSecretsVaultUnit"]:::library
-  storage["TomStorage<br/>(tom_core_storage)"]:::external
+  storage["TomStorage<br/&gt;(tom_core_storage)"]:::external
   merge["tomSecretsMergeVaults"]:::library
   cache["TomSecretsOfflineCache"]:::library
   hist["tomSecretsClassifyMove"]:::library
@@ -310,11 +310,11 @@ This diagram shows the core's trust material and what is built on it.
 ```mermaid
 flowchart LR
   trust["TomSecretsTrust"]:::library
-  appr{{"TomSecretsApproverKey<br/>Ed25519 + ML-DSA-65"}}:::key
+  appr{{"TomSecretsApproverKey<br/&gt;Ed25519 + ML-DSA-65"}}:::key
   grants["TomSecretsGrantsGroup"]:::library
   codes["tomSecretsApprovalCode"]:::library
-  pair["TomSecretsPairingWindow<br/>TomSecretsSpake2"]:::library
-  link["TomSecretsLinkSession<br/>Noise KK + ML-KEM-768"]:::library
+  pair["TomSecretsPairingWindow<br/&gt;TomSecretsSpake2"]:::library
+  link["TomSecretsLinkSession<br/&gt;Noise KK + ML-KEM-768"]:::library
   rec["TomSecretsDeviceRecords"]:::library
   trust --&gt; appr
   appr -. signs .-&gt; grants
@@ -369,11 +369,11 @@ This diagram shows sharing: member keys, shared vaults and shares.
 <!-- diagram 7-core-sharing
 ```mermaid
 flowchart LR
-  ident{{"TomSecretsMemberKey<br/>(tom_secrets_age)"}}:::key
-  agefmt["tomSecretsAgeEncrypt<br/>(tom_secrets_age)"]:::library
+  ident{{"TomSecretsMemberKey<br/&gt;(tom_secrets_age)"}}:::key
+  agefmt["tomSecretsAgeEncrypt<br/&gt;(tom_secrets_age)"]:::library
   members["tomSecretsAddMember"]:::library
-  shared["TomSecretsSharedVaultKeys<br/>tomSecretsWriteRecipientsFile"]:::library
-  share["TomSecretsShare<br/>tomSecretsWriteShare"]:::library
+  shared["TomSecretsSharedVaultKeys<br/&gt;tomSecretsWriteRecipientsFile"]:::library
+  share["TomSecretsShare<br/&gt;tomSecretsWriteShare"]:::library
   rot["TomSecretsRotations"]:::library
   ident --&gt; members
   members --&gt; shared
@@ -438,8 +438,8 @@ This diagram shows a client's request through the service.
 <!-- diagram 8-service-request
 ```mermaid
 flowchart LR
-  sock["client.sock,<br/>App Group socket"]:::file
-  sess["Client session<br/>(service.dart)"]:::library
+  sock["client.sock,<br/&gt;App Group socket"]:::file
+  sess["Client session<br/&gt;(service.dart)"]:::library
   peer["TomSecretsSystemPeerMeasurer"]:::library
   rate["TomSecretsRateLimits"]:::library
   vs["TomSecretsVaultSet"]:::library
@@ -495,9 +495,9 @@ flowchart LR
   svc("TomSecretsService"):::program
   vs["TomSecretsVaultSet"]:::library
   gh["TomSecretsGitHubOpener"]:::library
-  dev["TomSecretsDeviceContainer<br/>(core)"]:::library
+  dev["TomSecretsDeviceContainer<br/&gt;(core)"]:::library
   lock["TomSecretsLockTimer"]:::library
-  links["TomSecretsApproverLinks<br/>TomSecretsLinkServer"]:::library
+  links["TomSecretsApproverLinks<br/&gt;TomSecretsLinkServer"]:::library
   relay["TomSecretsRelayLinkHost"]:::library
   log["TomSecretsLog"]:::library
   svc --&gt; vs
@@ -552,15 +552,14 @@ built on them.
 ```mermaid
 flowchart LR
   subgraph lib["tom_secrets_client"]
-    client["TomSecretsClient<br/>discoverTomSecrets"]:::library
-    admin["TomSecretsAdminClient<br/>TomSecretsRuntime<br/>tomSecretsStartService"]:::library
+    client["TomSecretsClient<br/&gt;discoverTomSecrets"]:::library
+    admin["TomSecretsAdminClient<br/&gt;TomSecretsRuntime<br/&gt;tomSecretsStartService"]:::library
   end
   tsm("tsm"):::program --&gt; client
   tsm --&gt; admin
   host("tsm-browser-host"):::program --&gt; client
   ui["tom_secrets_ui"]:::library --&gt; admin
   svc("tom_secrets_service"):::program --&gt; admin
-  class lib zoneDevice
 ```
 -->
 
@@ -602,9 +601,9 @@ same behaviour.
 <!-- diagram 11-conformance
 ```mermaid
 flowchart LR
-  cases["Case tables<br/>conformance/cases/*.json"]:::file
+  cases["Case tables<br/&gt;conformance/cases/*.json"]:::file
   driver("tool/conformance.py"):::program
-  runner["A runner per language<br/>conformance/runners/"]:::library
+  runner["A runner per language<br/&gt;conformance/runners/"]:::library
   lib["The client library"]:::library
   fake("fake_service"):::program
   cases --&gt; driver
@@ -655,8 +654,8 @@ flowchart LR
   conn["TomSecretsServiceConnection"]:::library
   sess["TomSecretsSession"]:::library
   shell["TomSecretsMainShell"]:::library
-  screens["Screens:<br/>vault browser, entry editor,<br/>clients, keys, sharing, ..."]:::library
-  ports["Ports:<br/>TomSecretsServiceHost,<br/>TomSecretsTray, TomSecretsNotifier, ..."]:::library
+  screens["Screens:<br/&gt;vault browser, entry editor,<br/&gt;clients, keys, sharing, ..."]:::library
+  ports["Ports:<br/&gt;TomSecretsServiceHost,<br/&gt;TomSecretsTray, TomSecretsNotifier, ..."]:::library
   app --&gt; host
   app --&gt; conn
   conn --&gt; sess
@@ -712,12 +711,12 @@ This diagram shows the desktop composition root.
 <!-- diagram 13-desktop
 ```mermaid
 flowchart LR
-  main("tom_secrets_app<br/>lib/main.dart"):::program
+  main("tom_secrets_app<br/&gt;lib/main.dart"):::program
   host["TomSecretsHost"]:::library
   sh["TomSecretsDesktopServiceHost"]:::library
-  shell["TomSecretsPluginTray,<br/>TomSecretsPluginWindow,<br/>TomSecretsPluginNotifier"]:::library
-  chan["Platform channels:<br/>autofill, capture, clipboard,<br/>hotkeys, login, session"]:::library
-  kb["TomSecretsMacKeyboard,<br/>TomSecretsWindowsKeyboard,<br/>TomSecretsX11Keyboard"]:::library
+  shell["TomSecretsPluginTray,<br/&gt;TomSecretsPluginWindow,<br/&gt;TomSecretsPluginNotifier"]:::library
+  chan["Platform channels:<br/&gt;autofill, capture, clipboard,<br/&gt;hotkeys, login, session"]:::library
+  kb["TomSecretsMacKeyboard,<br/&gt;TomSecretsWindowsKeyboard,<br/&gt;TomSecretsX11Keyboard"]:::library
   main --&gt; host
   host --&gt; sh
   host --&gt; shell
@@ -768,8 +767,8 @@ Android providers.
 flowchart LR
   app("TomSecretsMobileApp"):::program
   ui["tom_secrets_ui screens"]:::library
-  engine["TomSecretsMobileEngine<br/>implements TomSecretsAdminChannel"]:::library
-  vs["TomSecretsVaultSet<br/>(tom_secrets_service)"]:::library
+  engine["TomSecretsMobileEngine<br/&gt;implements TomSecretsAdminChannel"]:::library
+  vs["TomSecretsVaultSet<br/&gt;(tom_secrets_service)"]:::library
   af("TomSecretsAutofillService"):::program
   cred("TomSecretsCredentialService"):::program
   app --&gt; ui
@@ -863,13 +862,13 @@ This diagram shows the extension's scripts and the host.
 ```mermaid
 flowchart LR
   subgraph page["The page"]
-    content["ContentScript<br/>content.ts"]:::library
-    webauthn["installPasskeys<br/>webauthn-page.ts"]:::library
+    content["ContentScript<br/&gt;content.ts"]:::library
+    webauthn["installPasskeys<br/&gt;webauthn-page.ts"]:::library
   end
-  bg["Background<br/>background.ts"]:::library
+  bg["Background<br/&gt;background.ts"]:::library
   pages["popup.ts, list.ts, bar.ts"]:::library
-  hs["HostSession<br/>host.ts"]:::library
-  host("TomSecretsBrowserHost<br/>tsm-browser-host"):::program
+  hs["HostSession<br/&gt;host.ts"]:::library
+  host("TomSecretsBrowserHost<br/&gt;tsm-browser-host"):::program
   content --&gt; bg
   webauthn --&gt; content
   pages --&gt; bg
@@ -913,7 +912,7 @@ This diagram shows the relay server's parts.
 flowchart LR
   req["Requests"]:::client
   guard["TomSecretsRelayAddressGuard"]:::library
-  api["TomSecretsRelayServer<br/>relay_api.dart"]:::library
+  api["TomSecretsRelayServer<br/&gt;relay_api.dart"]:::library
   rv["TomSecretsRelayRendezvous"]:::library
   mb["TomSecretsRelayMailbox"]:::library
   disk[("Storage directory")]:::vault
@@ -947,14 +946,14 @@ This diagram shows the manual CI's stages in the order `:all` runs them.
 <!-- diagram 18-ci
 ```mermaid
 flowchart TB
-  a["analyze: every package, every language"]:::program
-  t["test: the unit tests"]:::program
-  i["integration: against the real service"]:::program
-  l["licences: the licence boundary"]:::program
-  c["conformance: every runner, every table"]:::program
-  s["standalone: no path into another repository"]:::program
-  d["docs: diagrams, links, line lengths"]:::program
-  r["release, mobile, relay:<br/>run on their own"]:::file
+  a["analyze: every package, every language"]:::step
+  t["test: the unit tests"]:::step
+  i["integration: against the real service"]:::step
+  l["licences: the licence boundary"]:::step
+  c["conformance: every runner, every table"]:::step
+  s["standalone: no path into another repository"]:::step
+  d["docs: diagrams, links, line lengths"]:::step
+  r["release, mobile, relay:<br/&gt;run on their own"]:::step
   a --&gt; t
   t --&gt; i
   i --&gt; l
@@ -1052,8 +1051,8 @@ This diagram shows the phone, where the app is the only process.
 ```mermaid
 flowchart LR
   subgraph phone["The phone"]
-    app("Mobile app<br/>with its engine"):::program
-    prov["Autofill and passkey<br/>services (Android)"]:::client
+    app("Mobile app<br/&gt;with its engine"):::program
+    prov["Autofill and passkey<br/&gt;services (Android)"]:::client
   end
   gh["GitHub"]:::external
   prov --&gt; app

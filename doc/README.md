@@ -65,8 +65,9 @@ Mermaid source and export it again. Never edit the SVG or PNG by hand.
 The comment starts with `<!-- diagram <n>-<slug>`, where `<n>` numbers the
 diagrams of the document and `<slug>` names this one. GitHub ends an HTML
 comment at the first line that holds `-->`, so the source writes every `>`
-as `&gt;` (`a --&gt; b`); the tools read it back as `>`, and the check
-refuses a source that holds `-->`. The export writes
+as `&gt;`, in an arrow (`a --&gt; b`) and anywhere else (`<br/&gt;`): one
+rule, nothing to judge. The tools read it back as `>`, and the check
+refuses a source that holds a raw `>`. The export writes
 `images/diagrams/<document>/<n>-<slug>.svg` and `.png` beside the document.
 The PNG is for places that show no SVG, such as an article on Medium.
 
@@ -116,12 +117,16 @@ which the export defines for every flowchart. A node names its class with
 | `vault` | cylinder `[( )]`, green | a vault, a store of secrets |
 | `key` | hexagon `{{ }}`, magenta | a key, a password, a token |
 | `external` | box, white | a service outside the product: GitHub, a relay |
+| `step` | box, white with a slate border | a step or stage of a procedure: a rotation step, a CI stage, an outcome |
+| `decision` | diamond `{ }`, white with a slate border | a question a flow branches on |
 | `zoneDevice` | subgraph, white | a trusted machine |
 | `zoneSandbox` | subgraph, amber | a sandbox: a browser, an app extension |
 | `zoneRemote` | subgraph, sand | a remote place: GitHub, the internet |
 
-A solid arrow carries data. A dashed arrow (`-.->`) is an authorisation or
-the way a key is used; the export draws it in magenta.
+A subgraph that is no machine, sandbox or remote place (a group of steps,
+a library's insides) takes no class. A solid arrow carries data. A dashed
+arrow (`-.->`) is an authorisation or the way a key is used; the export
+draws it in magenta.
 
 ## Checking and exporting
 

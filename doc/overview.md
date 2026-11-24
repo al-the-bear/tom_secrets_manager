@@ -37,7 +37,7 @@ flowchart LR
   subgraph desk["Each desktop or server"]
     person(["The user"]):::person
     app("Manager app"):::program
-    progs["Programs, scripts,<br/>ssh, git, the browser"]:::client
+    progs["Programs, scripts,<br/&gt;ssh, git, the browser"]:::client
     svc("Secrets service"):::program
     person --&gt; app
     app -- unlocks, approves --&gt; svc
@@ -47,7 +47,7 @@ flowchart LR
     mob("Mobile app"):::program
   end
   subgraph gh["GitHub"]
-    repo[("Vaults:<br/>KDBX files in<br/>private repositories")]:::vault
+    repo[("Vaults:<br/&gt;KDBX files in<br/&gt;private repositories")]:::vault
   end
   svc -- sync --&gt; repo
   mob -- sync --&gt; repo
@@ -105,9 +105,9 @@ flowchart LR
   progs["Programs"]:::client -- client endpoint --&gt; svc
   admin["Manager app, tsm"]:::client -- admin endpoint --&gt; svc
   ssh["ssh"]:::client -- ssh-agent endpoint --&gt; svc
-  svc("Secrets service"):::program --&gt; vaults[("Vaults<br/>in memory")]:::vault
+  svc("Secrets service"):::program --&gt; vaults[("Vaults<br/&gt;in memory")]:::vault
   svc -- fetch, save --&gt; gh["GitHub"]:::external
-  svc --&gt; audit["Encrypted<br/>audit log"]:::file
+  svc --&gt; audit["Encrypted<br/&gt;audit log"]:::file
 ```
 -->
 
@@ -138,7 +138,7 @@ operating system.
 flowchart LR
   person(["The user"]):::person --&gt; app("Desktop app"):::program
   app -- admin endpoint --&gt; svc("Secrets service"):::program
-  app --&gt; os["Tray, notifications,<br/>Touch ID, Windows Hello,<br/>AutoFill"]:::external
+  app --&gt; os["Tray, notifications,<br/&gt;Touch ID, Windows Hello,<br/&gt;AutoFill"]:::external
   svc --&gt; vaults[("Vaults")]:::vault
 ```
 -->
@@ -164,8 +164,8 @@ This diagram shows the phone app opening the vaults itself.
 flowchart LR
   person(["The user"]):::person --&gt; app
   subgraph phone["The phone"]
-    app("Mobile app"):::program --&gt; engine["In-app engine<br/>(vaults in memory)"]:::library
-    af["Android Autofill,<br/>passkeys"]:::client --&gt; app
+    app("Mobile app"):::program --&gt; engine["In-app engine<br/&gt;(vaults in memory)"]:::library
+    af["Android Autofill,<br/&gt;passkeys"]:::client --&gt; app
   end
   engine -- fetch, save --&gt; gh["GitHub"]:::external
   class phone zoneDevice
@@ -191,10 +191,10 @@ This diagram shows `tsm` between a shell or script and the service.
 <!-- diagram 5-tsm
 ```mermaid
 flowchart LR
-  shell["A shell, a script,<br/>a CI job"]:::client --&gt; tsm("tsm"):::program
+  shell["A shell, a script,<br/&gt;a CI job"]:::client --&gt; tsm("tsm"):::program
   tsm -- client endpoint --&gt; svc("Secrets service"):::program
-  tsm -- admin endpoint:<br/>start, unlock, pair --&gt; svc
-  tsm -- run --&gt; child["A command with<br/>its secrets"]:::client
+  tsm -- admin endpoint:<br/&gt;start, unlock, pair --&gt; svc
+  tsm -- run --&gt; child["A command with<br/&gt;its secrets"]:::client
 ```
 -->
 
@@ -249,7 +249,7 @@ flowchart LR
   end
   ext -- native messaging --&gt; host("tsm-browser-host"):::program
   host -- client endpoint --&gt; svc("Secrets service"):::program
-  app("Desktop app"):::program -. approves the<br/>first lookup .-&gt; svc
+  app("Desktop app"):::program -. approves the<br/&gt;first lookup .-&gt; svc
   class browser zoneSandbox
 ```
 -->
@@ -306,10 +306,10 @@ This diagram shows the developer tools that ask the service.
 ```mermaid
 flowchart LR
   ssh["ssh"]:::client -- agent protocol --&gt; svc
-  git["git"]:::client --&gt; h1["git-credential-tsm"]:::program
-  docker["docker"]:::client --&gt; h2["docker-credential-tsm"]:::program
-  aws["aws, the SDKs"]:::client --&gt; h3["tsm aws-credentials"]:::program
-  kube["kubectl"]:::client --&gt; h4["tsm kube-credential"]:::program
+  git["git"]:::client --&gt; h1("git-credential-tsm"):::program
+  docker["docker"]:::client --&gt; h2("docker-credential-tsm"):::program
+  aws["aws, the SDKs"]:::client --&gt; h3("tsm aws-credentials"):::program
+  kube["kubectl"]:::client --&gt; h4("tsm kube-credential"):::program
   h1 --&gt; svc("Secrets service"):::program
   h2 --&gt; svc
   h3 --&gt; svc
@@ -333,9 +333,9 @@ This diagram shows the operating systems' own autofill and passkey dialogs.
 ```mermaid
 flowchart LR
   mac["macOS AutoFill"]:::client --&gt; prov("AutoFill provider"):::program
-  prov --&gt; snap["Sealed snapshot<br/>of the logins"]:::file
-  andr["Android Autofill,<br/>passkeys"]:::client --&gt; mob("Mobile app"):::program
-  win["Windows passkey<br/>dialog"]:::client --&gt; plug("Passkey plugin"):::program
+  prov --&gt; snap["Sealed snapshot<br/&gt;of the logins"]:::file
+  andr["Android Autofill,<br/&gt;passkeys"]:::client --&gt; mob("Mobile app"):::program
+  win["Windows passkey<br/&gt;dialog"]:::client --&gt; plug("Passkey plugin"):::program
   plug --&gt; svc("Secrets service"):::program
 ```
 -->
@@ -357,9 +357,8 @@ This diagram shows a relay between two devices that cannot reach each other.
 <!-- diagram 11-relay
 ```mermaid
 flowchart LR
-  a("Device A"):::program -- encrypted frames --&gt; relay["Relay:<br/>relay server, GitHub<br/>or magic-wormhole"]:::external
+  a("Device A"):::program -- encrypted frames --&gt; relay["Relay:<br/&gt;relay server, GitHub<br/&gt;or magic-wormhole"]:::external
   relay -- encrypted frames --&gt; b("Device B"):::program
-  class relay zoneRemote
 ```
 -->
 
@@ -383,8 +382,8 @@ flowchart LR
   d1("Desktop"):::program -- commits --&gt; repo
   d2("Phone"):::program -- commits --&gt; repo
   subgraph gh["A private GitHub repository"]
-    repo[("fleet.kdbx.tsmx<br/>and other vaults")]:::vault
-    wf["Compaction<br/>workflow"]:::program
+    repo[("fleet.kdbx.tsmx<br/&gt;and other vaults")]:::vault
+    wf("Compaction<br/&gt;workflow"):::program
     wf -- cuts the history --&gt; repo
   end
   class gh zoneRemote
@@ -414,7 +413,7 @@ sequenceDiagram
   participant S as Secrets service
   participant A as Desktop app
   P-&gt;&gt;S: get [env:prod]db.main
-  Note over S: who asks? which entry?<br/>a grant? none
+  Note over S: who asks? which entry?<br/&gt;a grant? none
   S-&gt;&gt;A: approval needed: this program, this secret
   S--&gt;&gt;P: progress: waiting for approval
   A-&gt;&gt;S: approve, always: a signed grant
@@ -459,8 +458,8 @@ flowchart LR
   person --&gt; desk("Desktop app"):::program
   person --&gt; mob("Mobile app"):::program
   person --&gt; br("Browser extension"):::program
-  person --&gt; os("OS autofill,<br/>passkey dialogs"):::program
-  desk --&gt; v[("Personal and<br/>shared vaults")]:::vault
+  person --&gt; os("OS autofill,<br/&gt;passkey dialogs"):::program
+  desk --&gt; v[("Personal and<br/&gt;shared vaults")]:::vault
   mob --&gt; v
   br --&gt; v
   os --&gt; v
@@ -504,8 +503,8 @@ asked with `env` set to `prod` on the host `build-01`.
 <!-- diagram 15-resolution
 ```mermaid
 flowchart TB
-  req["fleet/Db/main<br/>env = prod, host = build-01"]:::client
-  c1["Db/main<br/>no overlay"]:::file
+  req["fleet/Db/main<br/&gt;env = prod, host = build-01"]:::client
+  c1["Db/main<br/&gt;no overlay"]:::file
   c2["@env:prod / Db/main"]:::file
   c3["@host:build-01 / @env:prod / Db/main"]:::file
   c4["@env:dev / Db/main"]:::file
@@ -551,10 +550,10 @@ other device by itself.
 ```mermaid
 flowchart LR
   subgraph lan["One network"]
-    give("Desktop app:<br/>pairing window"):::program
+    give("Desktop app:<br/&gt;pairing window"):::program
     new("New device"):::program
-    give -- announces the code's number<br/>over mDNS --&gt; new
-    new <-- SPAKE2 with ML-KEM-768,<br/>then the bundle --&gt; give
+    give -- announces the code's number<br/&gt;over mDNS --&gt; new
+    new <-- SPAKE2 with ML-KEM-768,<br/&gt;then the bundle --&gt; give
   end
   class lan zoneDevice
 ```
@@ -568,9 +567,9 @@ side's address.
 <!-- diagram 17-pair-vpn
 ```mermaid
 flowchart LR
-  give("Desktop app:<br/>pairing window"):::program
-  new("New server:<br/>tsm pair"):::program
-  new -- address and code typed,<br/>SPAKE2 with ML-KEM-768 --&gt; give
+  give("Desktop app:<br/&gt;pairing window"):::program
+  new("New server:<br/&gt;tsm pair"):::program
+  new -- address and code typed,<br/&gt;SPAKE2 with ML-KEM-768 --&gt; give
   give -- the bundle --&gt; new
 ```
 -->
@@ -583,7 +582,7 @@ other.
 <!-- diagram 18-pair-relay
 ```mermaid
 flowchart LR
-  give("Desktop app"):::program <-- encrypted frames --&gt; relay["Relay server,<br/>GitHub repository<br/>or magic-wormhole"]:::external
+  give("Desktop app"):::program <-- encrypted frames --&gt; relay["Relay server,<br/&gt;GitHub repository<br/&gt;or magic-wormhole"]:::external
   relay <-- encrypted frames --&gt; new("New device"):::program
 ```
 -->
@@ -610,7 +609,7 @@ flowchart LR
   subgraph desk["The user's desktop"]
     ds("Secrets service"):::program --&gt; app("Desktop app"):::program
   end
-  hs <-- approval link:<br/>prompts and answers --&gt; ds
+  hs <-- approval link:<br/&gt;prompts and answers --&gt; ds
   class server zoneDevice
   class desk zoneDevice
 ```
@@ -636,7 +635,7 @@ it.
 flowchart LR
   alice(["Alice"]):::person --&gt; ka{{"Alice's member key"}}:::key
   bob(["Bob"]):::person --&gt; kb{{"Bob's member key"}}:::key
-  rf["team.keys.age:<br/>the vault's keys,<br/>encrypted to each member"]:::file
+  rf["team.keys.age:<br/&gt;the vault's keys,<br/&gt;encrypted to each member"]:::file
   ka -.-&gt; rf
   kb -.-&gt; rf
   rf -.-&gt; v[("team.kdbx")]:::vault
@@ -664,10 +663,10 @@ This diagram shows the layers around a vault as it lies on GitHub.
 <!-- diagram 21-layers
 ```mermaid
 flowchart LR
-  e["Entries:<br/>logins, keys, tokens"]:::file
-  k[("KDBX 4.1 file:<br/>AES-256, key from<br/>Argon2id")]:::vault
-  o["Outer file .kdbx.tsmx:<br/>XChaCha20-Poly1305,<br/>a slot per repository key"]:::file
-  g["GitHub sees the name,<br/>the size, the commit times"]:::external
+  e["Entries:<br/&gt;logins, keys, tokens"]:::file
+  k[("KDBX 4.1 file:<br/&gt;AES-256, key from<br/&gt;Argon2id")]:::vault
+  o["Outer file .kdbx.tsmx:<br/&gt;XChaCha20-Poly1305,<br/&gt;a slot per repository key"]:::file
+  g["GitHub sees the name,<br/&gt;the size, the commit times"]:::external
   e -- inside --&gt; k
   k -- inside --&gt; o
   o -- stored on --&gt; g
@@ -689,13 +688,13 @@ This diagram shows who holds which key.
 ```mermaid
 flowchart LR
   person(["The user"]):::person --&gt; mp{{"Master password"}}:::key
-  sheet["Emergency sheet<br/>(printed)"]:::file --&gt; kf{{"Key file,<br/>repository key"}}:::key
-  kc["Each device's<br/>OS keychain"]:::file --&gt; kf
+  sheet["Emergency sheet<br/&gt;(printed)"]:::file --&gt; kf{{"Key file,<br/&gt;repository key"}}:::key
+  kc["Each device's<br/&gt;OS keychain"]:::file --&gt; kf
   kc --&gt; dk{{"Device key"}}:::key
-  dk -.-&gt; dev["Device settings:<br/>approver and<br/>link key pairs"]:::file
+  dk -.-&gt; dev["Device settings:<br/&gt;approver and<br/&gt;link key pairs"]:::file
   mp -.-&gt; prim[("Primary vault")]:::vault
   kf -.-&gt; prim
-  prim -.-&gt; rest[("Every other vault,<br/>grants, member key")]:::vault
+  prim -.-&gt; rest[("Every other vault,<br/&gt;grants, member key")]:::vault
 ```
 -->
 

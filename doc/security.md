@@ -25,9 +25,9 @@ This diagram shows what surrounds the entries of a vault on GitHub.
 ```mermaid
 flowchart LR
   e["Entries"]:::file
-  kdbx[("KDBX 4.1<br/>AES-256, inner stream ChaCha20,<br/>key: Argon2id over the<br/>master password and key file")]:::vault
-  outer["Outer file .kdbx.tsmx<br/>XChaCha20-Poly1305 (default)<br/>or AES-256-GCM,<br/>one slot per repository key"]:::file
-  gh["GitHub sees: the path,<br/>the size, the commits"]:::external
+  kdbx[("KDBX 4.1<br/&gt;AES-256, inner stream ChaCha20,<br/&gt;key: Argon2id over the<br/&gt;master password and key file")]:::vault
+  outer["Outer file .kdbx.tsmx<br/&gt;XChaCha20-Poly1305 (default)<br/&gt;or AES-256-GCM,<br/&gt;one slot per repository key"]:::file
+  gh["GitHub sees: the path,<br/&gt;the size, the commits"]:::external
   e --&gt; kdbx
   kdbx --&gt; outer
   outer --&gt; gh
@@ -59,9 +59,9 @@ This diagram shows the outer file's structure.
 <!-- diagram 2-tsmx
 ```mermaid
 flowchart TB
-  h["Header: magic TSMX, format 1,<br/>cipher id (1 AES-256-GCM, 2 XChaCha20-Poly1305),<br/>slot count (1 to 255)"]:::file
-  s["Per slot: key id (8 bytes of SHA-256 of the repository key),<br/>nonce, the file key wrapped (32 bytes), tag"]:::file
-  c["Content: nonce, then the KDBX file encrypted<br/>under the file key, tag"]:::file
+  h["Header: magic TSMX, format 1,<br/&gt;cipher id (1 AES-256-GCM, 2 XChaCha20-Poly1305),<br/&gt;slot count (1 to 255)"]:::file
+  s["Per slot: key id (8 bytes of SHA-256 of the repository key),<br/&gt;nonce, the file key wrapped (32 bytes), tag"]:::file
+  c["Content: nonce, then the KDBX file encrypted<br/&gt;under the file key, tag"]:::file
   h --&gt; s
   s --&gt; c
 ```
@@ -117,7 +117,7 @@ flowchart LR
   prim[("Primary vault")]:::vault
   others[("Further vaults")]:::vault
   dk{{"Device key"}}:::key
-  dev["Device settings:<br/>approver, link and<br/>audit-log keys"]:::file
+  dev["Device settings:<br/&gt;approver, link and<br/&gt;audit-log keys"]:::file
   mk{{"Member key"}}:::key
   rf["Recipients file"]:::file
   shared[("Shared vault")]:::vault
@@ -370,12 +370,12 @@ This diagram shows how the service decides a program's request.
 ```mermaid
 flowchart TB
   req["A request on the client endpoint"]:::client
-  m{"Measured?<br/>Same OS user?"}
-  g{"A grant signed by<br/>a recorded approver?"}
-  p["Prompt the approvers:<br/>the app, the approval link"]:::program
-  c["Approval code,<br/>a single-use token"]:::key
-  ok["The value"]:::file
-  no["Refused"]:::external
+  m{"Measured?<br/&gt;Same OS user?"}:::decision
+  g{"A grant signed by<br/&gt;a recorded approver?"}:::decision
+  p["Prompt the approvers:<br/&gt;the app, the approval link"]:::program
+  c["Approval code,<br/&gt;a single-use token"]:::key
+  ok["The value"]:::step
+  no["Refused"]:::step
   req --&gt; m
   m -- no --&gt; no
   m -- yes --&gt; g
@@ -589,11 +589,11 @@ member is removed.
 <!-- diagram 8-remove-member
 ```mermaid
 flowchart LR
-  before["team.keys.age<br/>to Alice, Bob, Carol"]:::file
-  rekey["New key file and<br/>repository key"]:::key
-  after["team.keys.age<br/>to Alice, Bob"]:::file
-  vault[("team.kdbx.tsmx<br/>re-keyed")]:::vault
-  mark["Entries marked<br/>rotate, due today"]:::file
+  before["team.keys.age<br/&gt;to Alice, Bob, Carol"]:::file
+  rekey["New key file and<br/&gt;repository key"]:::key
+  after["team.keys.age<br/&gt;to Alice, Bob"]:::file
+  vault[("team.kdbx.tsmx<br/&gt;re-keyed")]:::vault
+  mark["Entries marked<br/&gt;rotate, due today"]:::file
   before -- remove Carol --&gt; rekey
   rekey --&gt; after
   rekey --&gt; vault
@@ -631,16 +631,16 @@ This diagram shows a guided rotation's timeline.
 <!-- diagram 9-rotation
 ```mermaid
 flowchart LR
-  prep["Prepare:<br/>next keys in the primary"]:::program
-  take["Each device takes them<br/>at its next sync"]:::program
-  sw["Switch:<br/>vaults re-keyed<br/>(two slots for a repository key)"]:::program
-  mig["Migration period<br/>(14 days)"]:::file
-  fin["Finish:<br/>old key dropped,<br/>history cut"]:::program
+  prep["Prepare:<br/&gt;next keys in the primary"]:::step
+  take["Each device takes them<br/&gt;at its next sync"]:::step
+  sw["Switch:<br/&gt;vaults re-keyed<br/&gt;(two slots for a repository key)"]:::step
+  mig["Migration period<br/&gt;(14 days)"]:::step
+  fin["Finish:<br/&gt;old key dropped,<br/&gt;history cut"]:::step
   prep --&gt; take
   take --&gt; sw
   sw --&gt; mig
   mig --&gt; fin
-  cancel["Cancelled:<br/>next keys cleared"]:::file
+  cancel["Cancelled:<br/&gt;next keys cleared"]:::step
   prep -. cancel before the switch .-&gt; cancel
 ```
 -->

@@ -20,10 +20,10 @@ This diagram shows a desktop's folders and what each holds.
 <!-- diagram 1-folders
 ```mermaid
 flowchart LR
-  data["Data directory<br/>bootstrap.yaml<br/>device-settings.kdbx<br/>cache/, audit/<br/>service.log<br/>app-preferences.json"]:::file
-  run["Runtime directory<br/>client.sock, admin.sock,<br/>agent.sock<br/>service.lock, service.json"]:::file
-  group["App Group container<br/>(macOS)<br/>tsm/client.sock<br/>TomSecretsAutofill/"]:::file
-  kc{{"OS keychain:<br/>keys and tokens"}}:::key
+  data["Data directory<br/&gt;bootstrap.yaml<br/&gt;device-settings.kdbx<br/&gt;cache/, audit/<br/&gt;service.log<br/&gt;app-preferences.json"]:::file
+  run["Runtime directory<br/&gt;client.sock, admin.sock,<br/&gt;agent.sock<br/&gt;service.lock, service.json"]:::file
+  group["App Group container<br/&gt;(macOS)<br/&gt;tsm/client.sock<br/&gt;TomSecretsAutofill/"]:::file
+  kc{{"OS keychain:<br/&gt;keys and tokens"}}:::key
   data ~~~ run
   run ~~~ group
   group ~~~ kc
