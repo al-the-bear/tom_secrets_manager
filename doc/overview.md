@@ -816,6 +816,8 @@ the user's own passwords over from the commercial password managers.
 
 ## Where to go next
 
+- [The configuration reference](configuration.md): every file, setting,
+  field and environment variable.
 - [The flows](flows.md): every flow of the product step by step, with
   its failures.
 - [The security model](security.md): the encryption layers, every key

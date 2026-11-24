@@ -846,7 +846,7 @@ flowchart LR
   `webauthn.dll`; `ClientService` (`src/client_service.cpp`) implements
   the platform-free `PasskeyService` (`src/core.h`) over the C client.
   Tests: `tests/core_tests.cpp`, `tests/windows_tests.cpp`.
-- **`tom_pqc`** (`tom_ai/basics/tom_pqc`): the vendored C code in
+- **`tom_pqc`** (in the `tom_basics` repository): the vendored C code in
   `native/mlkem-native/` and `native/mldsa-native/`, compiled for the
   target by the build hook `hook/build.dart`, behind the Dart types
   `MlKem768`, `MlDsa65`, `MlKem768X25519` and `MlDsa65Ed25519`

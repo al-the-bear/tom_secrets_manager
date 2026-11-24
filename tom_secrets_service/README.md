@@ -127,77 +127,30 @@ pairing with code 6, its message naming the relay.
 
 ## Configuration
 
-### `bootstrap.yaml`
+Every key, setting and environment variable is in the
+[configuration reference](../doc/configuration.md), which a check holds to
+the code. In short:
 
-Plain text, no secret; the only configuration readable before the unlock.
-Its folder is the data directory, where the defaults go
-(`TomSecretsBootstrap`).
+- **`bootstrap.yaml`** in the data directory is the only configuration read
+  before the unlock: the primary vault's locator (`primary`, required), and
+  optionally `cache_dir`, `runtime_dir`, `device_key` (`auto`, `keychain`,
+  `vault`, `keyfile`), `device_container`, `host`, `log_level` and
+  `admin_executables` (`TomSecretsBootstrap`).
 
-| Key | Value | Default |
-| --- | --- | --- |
-| `primary` | the primary vault's locator: `file:<path>` or `github:<owner>/<repository>/<path>` | required |
-| `cache_dir` | the offline cache's folder | `<data>/cache` |
-| `runtime_dir` | the runtime directory | as protocol.md 3.1 names it |
-| `device_key` | where the device settings container's key is kept: `auto`, `keychain`, `vault`, `keyfile` | `auto` |
-| `device_container` | the device settings container's file | `<data>/device-settings.kdbx` |
-| `host` | this machine's host name | the OS host name |
-| `log_level` | `info` or `debug` | `info` |
-| `admin_executables` | further executables that may administer the service | none |
+  ```yaml
+  primary: github:example-org/vaults/primary.kdbx.tsmx
+  device_key: auto
+  host: workstation1
+  ```
 
-```yaml
-primary: github:example-org/vaults/primary.kdbx.tsmx
-device_key: auto
-host: workstation1
-log_level: info
-admin_executables:
-  - /opt/tom-secrets-manager-dev/tom_secrets_app
-```
-
-The device key modes: `keychain` is the OS keychain (`TomDesktopSecretStore`
-of `tom_core_storage`, service name `tom-secrets-manager`: the macOS login
-keychain, libsecret on Linux, the Windows Credential Manager), and the start
-is refused without one; `vault` is the primary vault's overlay entry
-`@host:<host>/.tom-secrets/device`, which no reference reaches; `keyfile` is a
-key file beside the container (mode 0600; on Windows an ACL of the user);
-`auto` takes the keychain where one answers and the vault otherwise (an SSH
-login without D-Bus or credential store).
-
-### Device settings
-
-Kept per machine, not synced, in the device settings container
-(`TomSecretsDeviceSettings` of `tom_secrets_core`, opened after the primary
-vault). The manager app writes them (`settings.set`); a value is applied at
-once where it can be, the rest at the next unlock.
-
-| Setting | Meaning | Default |
-| --- | --- | --- |
-| `serviceLock` | the service's lock policy: `mode` (`never`, `idle`, `osUnlock`: (c), relock on idle or at the screen lock and unlock with the OS unlock through the app), `idleSeconds`, `maxUnlockedSeconds`, `lockOnSleep` | never relock |
-| `appLock` | the app's lock policy, kept here for the app | idle, 10 minutes |
-| `defaultEnvironment` | the machine's default `env` dimension | none |
-| `servedStores` | the stores this machine serves | every one |
-| `refreshMinutes` | the refresh interval; 0 switches the timer off | 5 |
-| `offlineCache` | whether the offline cache is kept | true |
-| `keyExpiryWarningDays` | days before a GitHub token's expiry the reminders start | 14 |
-| `approvalTimeoutSeconds` | how long a request waits for an unlock or an approval | 60 |
-| `codeTimeoutSeconds` | how long an approval code is valid | 300 |
-| `approvalLink` | where this host's approval link listens (`address:port`, a VPN or LAN address, never all interfaces) | no link |
-| `startAtLogin` | whether the app starts at login | false |
-| `otherKeyWarningDays` | days before its due date the reminders of every other key start | 30 |
-| `keyPairAgeMonths` | rotation age of the approver and approval-link key pairs | 24 |
-| `primaryKeyAgeMonths` | rotation age a new key file or repository key of the primary vault gets | 24 |
-| `vaultKeyAgeMonths` | rotation age a new key file or repository key of every other vault gets | 12 |
-
-### Environment variables
-
-| Variable | Read by | Meaning |
-| --- | --- | --- |
-| `TSM_RUNTIME_DIR` | service, clients | the runtime directory, overriding the default |
-| `XDG_RUNTIME_DIR` | service, clients (Linux) | the runtime directory is `$XDG_RUNTIME_DIR/tsm`, else `/tmp/tsm-<uid>` |
-| `TMPDIR` | service, clients (macOS) | the runtime directory is `$TMPDIR/tsm` |
-| `LOCALAPPDATA`, `USERPROFILE` | service, clients (Windows) | the runtime directory is `%LOCALAPPDATA%\TomSecretsManager\run` |
-| `TSM_DATA_DIR` | the starters (app, `tsm`) | the data directory holding `bootstrap.yaml`; else `~/Library/Application Support/TomSecretsManager` (macOS), `%LOCALAPPDATA%\TomSecretsManager` (Windows), `$XDG_DATA_HOME/tom-secrets-manager` or `~/.local/share/tom-secrets-manager` |
-| `TSM_SERVICE` | `tsm` | the service executable `tsm start` and `tsm pair` run; else the one beside `tsm` |
-| `XDG_SESSION_ID`, `DISPLAY`, `WAYLAND_DISPLAY` | service (Linux) | whether a desktop session exists to measure the input idle time in |
+- **The device settings** are kept per machine, never synced, in the device
+  settings container (`TomSecretsDeviceSettings` of `tom_secrets_core`); the
+  manager app reads and writes them with `settings.get` and `settings.set`.
+  They hold the lock policies, the served stores, the refresh interval, the
+  timeouts, the approval link's address and the key ages.
+- **The environment:** `TSM_RUNTIME_DIR` moves the runtime directory (set it
+  for the service and its clients alike); the starters (the app, `tsm`) read
+  `TSM_DATA_DIR` and `TSM_SERVICE`.
 
 ## What it does
 
