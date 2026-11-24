@@ -67,8 +67,9 @@ The product lives in three public repositories, each BSD-3:
 | `tom_secrets_testkit` | test library | Dart | not published |
 | `tom_pqc` | library | Dart, C | pub.dev `tom_pqc` |
 
-Every package takes the others as published versions; no package reaches
-into another repository by path.
+Every package takes the packages of the other repositories as published
+versions; within a repository, siblings are taken by path. No package
+reaches into another repository by path.
 
 This diagram shows how the Dart packages depend on each other (runtime
 dependencies only).

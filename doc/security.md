@@ -71,7 +71,7 @@ A file has one slot normally, and two while a repository key is rotated
 (below): a device holding either key opens it.
 
 **What GitHub sees.** The repository holds the outer files (or plain KDBX
-files when no outer key is set), the recipients files of shared vaults, the
+files when no repository key is set), the recipients files of shared vaults, the
 inbox folders and the compaction workflow. GitHub, and anyone who can read
 the repository, sees the file names and sizes, when each commit was made
 and by which device, and the history up to the last compaction; never an
@@ -137,8 +137,8 @@ flowchart LR
 It opens the primary vault, together with the primary's key file. It is
 never stored: not in the keychain, not in the OS unlock, not on the
 emergency sheet. It is changed by a guided rotation (below), which keeps
-the next password in the primary until the switch; its rotation age is 24
-months. A lost master password cannot be recovered; the vaults are lost
+the next password in the primary until the switch; it has no rotation age
+of its own. A lost master password cannot be recovered; the vaults are lost
 with it. (`core/primary.dart`, `core/rotation.dart`,
 `core/device_settings.dart`.)
 
@@ -290,7 +290,8 @@ them into a vault. (`ui/state/autofill.dart`,
 A relay server in token mode admits a mailbox put or an approval link only
 with an instance token (at least 16 characters, in its `relay.yaml`). The
 app keeps the token in the keychain through the service
-(`tsm.relay-token.<relay>`), and it never leaves the service.
+(`tsm.relay-token.<the relay id in base64url>`), and it never leaves the
+service.
 (`tom_secrets_relay/lib/src/config.dart`, `service/relay_links.dart`.)
 
 ### The emergency sheet

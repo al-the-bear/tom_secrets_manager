@@ -102,7 +102,7 @@ Manager).
 | Item | Holds | Written and read by |
 | --- | --- | --- |
 | `tsm.key-file.<id>` | a vault's key file; `<id>` is the first 16 hex digits of SHA-256 over the vault's identity | the First run, the service |
-| `tsm.repository-key.<id>` | a repository's outer key | the First run, the service |
+| `tsm.repository-key.<id>` | a repository key (a vault's outer encryption) | the First run, the service |
 | `tsm.key-file.<id>.next`, `tsm.repository-key.<id>.next` | the next keys of a rotation | the service |
 | `tsm.device-settings.<host>` | the device settings container's key (keychain mode) | the service |
 | `tsm.admin.<serviceStart>`, `tsm.admin.index` | the admin key of each service start, and the list of starts | the app, `tsm` |
@@ -164,7 +164,7 @@ next unlock. Read by `TomSecretsDeviceSettings` (`tom_secrets_core`).
 | `approvalTimeoutSeconds` | int | 60 | how long a request waits for an unlock or an approval |
 | `codeTimeoutSeconds` | int | 300 | how long an approval code is valid |
 | `approvalLink` | `address:port` | no link | where this host's approval link listens (a VPN or LAN address, never all interfaces) |
-| `startAtLogin` | bool | `false` | whether the app starts at login |
+| `startAtLogin` | bool | `false` | not read: the app's "Start the app at login" switch is the OS's own login item, Run key or autostart entry |
 | `otherKeyWarningDays` | int | 30 | days before its due date the reminders of every other key start |
 | `keyPairAgeMonths` | int | 24 | rotation age of the approver and approval-link key pairs |
 | `primaryKeyAgeMonths` | int | 24 | rotation age a new key file or repository key of the primary gets |

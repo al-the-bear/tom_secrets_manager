@@ -46,8 +46,11 @@ of the apps; to read secrets from a program, go to the
 | [`tom_secrets_import_cleaner`](tom_secrets_import_cleaner/README.md) | `tsm_import_cleaner`: cleans a password manager's export (Enpass, Bitwarden, 1Password, the browsers' CSV) for testing the import, the structure kept | — |
 | [`tom_secrets_service`](tom_secrets_service/README.md) | the secrets service: the client and admin endpoints, peer identity, approvals and grants, the approval link, the audit log, lock modes, the device settings | `tom_secrets_service` |
 
-Both are on pub.dev. The service takes the core by path inside this
-repository; every other dependency comes from pub.dev.
+The core, the `age` library and the service are on pub.dev;
+`tom_secrets_import_cleaner` is a maintainers' tool, not published. Inside
+this repository the packages take each other by path (the core takes
+`tom_secrets_age`, the service the core); every other dependency comes from
+pub.dev.
 
 ## Getting started
 
@@ -69,12 +72,14 @@ Each package's suite runs with `testkit :test` from its folder.
 
 The product as a whole (how the parts fit together, how secrets are kept
 safe, the main flows) is explained in the documentation set,
-[`doc/`](doc/README.md). Each part's own documents:
+[`doc/`](doc/README.md); start with the [overview](doc/overview.md). Each
+part's own documents:
 
 | Topic | Document |
 | --- | --- |
 | Stores, overlays, resolution, the GitHub cycle, outer encryption, importers | [`tom_secrets_core` README](tom_secrets_core/README.md) |
 | Running and configuring the service, what it does, its limits | [`tom_secrets_service` README](tom_secrets_service/README.md) |
+| Operating the service on a desktop or a server | [operator's guide](tom_secrets_service/doc/user_guide.md) |
 | The wire format between the service and its clients | [protocol document](https://github.com/al-the-bear/tom_secrets_clients/blob/main/protocol/protocol.md) |
 | Installing the apps, the first run | [`tom_app_secrets_manager` README](https://github.com/al-the-bear/tom_app_secrets_manager#readme) |
 

@@ -86,7 +86,7 @@ dart pub add tom_secrets_core
 
 ```yaml
 dependencies:
-  tom_secrets_core: ^0.2.1
+  tom_secrets_core: ^0.2.28
 ```
 
 Requires Dart SDK `^3.10.0`. The post-quantum algorithms come from `tom_pqc`,
@@ -227,7 +227,9 @@ void main() {
 
 ## Examples
 
-The package has no `example/` folder. The test suite's
+`example/tom_secrets_core_example.dart` builds a demo vault in memory and
+resolves a key on two machines (the shared entry, a host's overlay). The
+test suite's
 `test/worked_examples_test.dart` runs the resolution examples of the design
 row by row, and `test/support/vaults.dart` builds demo vaults in memory the
 way the snippets below do.
@@ -795,15 +797,15 @@ vault (`@host:<host>/.tom-secrets/device`) or in a key file.
 
 ## Status
 
-Version 0.2.18. The test suite (`dart test`) covers the model, resolution, the
+Version 0.2.28. The test suite (`dart test`) covers the model, resolution, the
 merge and the GitHub cycle against a fake GitHub server, the offline cache,
 compaction, the outer encryption against the fixtures in `test/fixtures/outer/`,
 the importers against synthetic exports, trust rotation, and the approval
 material byte for byte against the protocol's vectors (signatures, approval
 codes, the link handshake, RFC 9382's SPAKE2 vectors), the member keys
-against keys `filippo.io/age` v1.3.2 made, and the `age` reader against the
-age testkit's hybrid and scrypt vectors (`test/fixtures/age/`,
-`test/fixtures/age_scrypt/`, C2SP CCTV); passphrase files and shares were
+against keys `filippo.io/age` v1.3.2 made; the `age` reader's own tests
+against the age testkit's hybrid and scrypt vectors (C2SP CCTV) are
+`tom_secrets_age`'s (`test/fixtures/`); passphrase files and shares were
 checked both ways with `filippo.io/age` v1.3.2.
 
 ### The live check on github.com

@@ -762,9 +762,11 @@ the entry's history and shows it in the app's Conflicts view until the user
 settles it.
 
 Each desktop keeps the last file it fetched of every vault, still encrypted, in
-an **offline cache**, so the vaults open without a network, and an edit made
-offline is merged when GitHub is back. The service refreshes the vaults every
-five minutes by default, at the cost of one small request when nothing moved.
+an **offline cache**, so the vaults open without a network; an edit waits
+until GitHub is back (a desktop saves nothing to an offline copy, the
+phone keeps the edit in memory and writes it then). The service refreshes
+the vaults every five minutes by default, at the cost of one small request
+when nothing moved.
 The **history compaction** keeps the repository from holding old keys' files
 forever; a history that was rewritten any other way is shown to the user, who
 decides which side wins.
@@ -840,9 +842,13 @@ the user's own passwords over from the commercial password managers.
 | --- | --- |
 | Approval code | A short code a waiting request shows when no approver is within reach; a trusted device answers it |
 | Approval link | The encrypted connection over which a paired desktop approves a server's requests |
+| Approval token | What a trusted device turns an approval code into; the waiting machine redeems it once |
 | Approver | A device whose app may answer approval prompts, recorded at pairing |
+| Desktop app | The manager app on macOS, Windows and Linux; the guides also call it the manager app |
 | Dimension | Something a value may depend on: `host`, `platform`, `env` or one the user declares |
+| Emergency sheet | A printout of a vault's keys (as QR codes) and a blank line for its master password |
 | Grant | A signed line in the primary vault allowing (or refusing) a program a secret on a host |
+| Inbox, mailbox | Where a share waits for its member: an inbox folder beside a shared vault, or a mailbox on a relay server |
 | Key file | A KeePass key file that adds to the master password |
 | Member key | A person's hybrid `age` key, to which shared vaults and shares are encrypted |
 | Overlay | A group named `@<dimension>:<value>` whose entries hold only for that value |
@@ -853,4 +859,5 @@ the user's own passwords over from the commercial password managers.
 | Repository key | The key of a vault's outer encryption |
 | Secrets service | The background program on each desktop and server that holds the unlocked vaults |
 | Share | Chosen entries encrypted for chosen members or a passphrase |
+| Store | A vault as the service serves it, by its name (`team` in `team/Api/Token`) |
 | Vault | A KDBX file of secrets: personal, shared or system |

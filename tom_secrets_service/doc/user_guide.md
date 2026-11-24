@@ -91,7 +91,7 @@ key on its standard input, which the starter keeps in the keychain.
 | Where | Started by | Stopped by |
 | --- | --- | --- |
 | A desktop | the manager app, when it opens and finds no service | Settings › "Stop the service", or `tsm stop` |
-| A desktop, at login | the app, with Settings › "Start at login" on (a login item on macOS, the Run key on Windows, an XDG autostart entry on Linux) | logging out (the service ends on SIGHUP) |
+| A desktop, at login | the app, with Settings › "Start the app at login, in the tray" on (a login item on macOS, the Run key on Windows, an XDG autostart entry on Linux) | logging out (the service ends on SIGHUP) |
 | A headless server | `tsm start` (see the [`tsm` user guide](https://github.com/al-the-bear/tom_secrets_clients/blob/main/clients/dart/tsm/doc/tsm_user_guide.md#tsm-start)) | `tsm stop`, or SIGTERM |
 
 **To start and unlock it on a server:**
@@ -115,6 +115,10 @@ The service executable exits with these codes when it cannot start:
 | 3 | already running |
 | 4 | the runtime directory is refused (wrong owner or mode) |
 | 5 | the keychain holding the device key is not available |
+
+In its pairing mode (run by `tsm pair`) it exits 0 when the machine is set
+up, 2 when the handover cannot be used, 6 when the pairing failed and 7
+when the setup failed (the [README](../README.md#the-pairing-mode)).
 
 ## The runtime and data directories
 

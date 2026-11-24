@@ -148,17 +148,32 @@ The drawing's `data-tsm-source` attribute holds its source's hash (from
 
 The overview is written to become an article on Medium: it tells one
 story, each section reads on its own, and it names no repository internals
-outside its closing links. Medium shows neither SVG nor Mermaid, so the
-article is the overview with two changes:
+outside its closing links. The article is generated from it:
+[`article/overview.medium.md`](article/overview.medium.md), with the
+diagrams' PNGs in `article/images/`. From `tom_secrets_build`:
 
-- each diagram's SVG image is replaced by its PNG (the same path with
-  `.png`), and the diagram's HTML comment is left out;
+```text
+node tool/render_diagrams.mjs ../../tom_secrets_manager/doc
+node tool/export_article.mjs ../../tom_secrets_manager/doc
+```
+
+The export differs from the overview in four ways:
+
+- each diagram's SVG image is replaced by its PNG, addressed on
+  `raw.githubusercontent.com` (Medium fetches images by URL), and the
+  diagram's HTML comment is left out;
 - each relative link becomes an absolute GitHub address in the
-  `tom_secrets_manager` repository
-  (`https://github.com/al-the-bear/tom_secrets_manager/blob/main/doc/...`).
+  `tom_secrets_manager` repository, a link to a heading of the overview the
+  overview on GitHub;
+- each paragraph and list item is on one line, as Medium's editor takes
+  pasted text;
+- a comment on the first line says the file is generated.
 
-The text in italics under the title is the article's subtitle. Run
-`render_diagrams.mjs` first, so the PNGs match their sources.
+The text in italics under the title is the article's subtitle. Never edit
+the article: edit the overview and export again. `ci.sh :docs` fails while
+the article is older than the overview (`export_article.mjs --check`); the
+documentation check leaves the `article/` folder out, its lines being
+Medium's.
 
 ## Screenshots
 

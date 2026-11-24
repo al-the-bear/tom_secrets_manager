@@ -398,7 +398,7 @@ revokes the old one. Failed authentications delay the next one (1 s, 2 s,
 | Requests | What they do |
 | --- | --- |
 | `unlock`, `unlockStore`, `lock`, `reload`, `status`, `shutdown` | the service's lifecycle; `unlock` also takes the OS unlock's sealed key bundle (`vault`, `bundle`: the composite key, never the password, protocol.md 6.4); `status` lists the stores with their state and source, the keys due (`expiring`), the lock mode and the hardening |
-| `subscribe` | the events `unlocked`, `locked`, `unlock_needed`, `store_changed`, `store_state`, `key_expiry`, `approval_needed`, `approval_closed`, `rate_limited` |
+| `subscribe` | the events `unlocked`, `locked`, `unlock_needed`, `store_changed`, `store_state`, `key_expiry`, `approval_needed`, `approval_closed`, `rate_limited`, `github_sign_in` |
 | `approve`, `approvals.list`, `approval.issue`, `approval.redeem`, `approvers.cliSwitch` | answering approvals, and command-line approvals on or off |
 | `grants.list`, `grants.add`, `grants.revoke` | the allow list |
 | `pair.identity`, `pair.record`, `pair.revoke`, `pair.list` | pairing records; **[C]** `pair.identity` with a relay server names it for the approval link with a fresh link id, `pair.record`'s `link` keeps the relay link agreed |
@@ -553,8 +553,9 @@ session) the service never locks itself, the maximum unlocked time included.
 - **Rate limits** (protocol.md 11), per measured identity, set by
   `TomSecretsServiceConfig.rateLimits` (`TomSecretsRateLimitSettings`, the
   protocol's values by default):
-  - `get`, `getMany`, `getFile`, `match` and `propose`: a token bucket of 20
-    a second, bursts of 50; over
+  - `get`, `getMany`, `getFile`, `match`, `propose` and **[C]** `passkeys`,
+    `passkeyGet`, `passkeyCreate`: a token bucket of 20 a second, bursts of
+    50; over
     it a request is answered `rate_limited` (`reason` `requests`,
     `retryAfterMs` until the next one may go);
   - ten refusals (`denied`, `not_found`, `ambiguous`) within a minute make

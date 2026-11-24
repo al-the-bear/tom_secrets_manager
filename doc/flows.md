@@ -32,7 +32,7 @@ sequenceDiagram
   participant K as Keychain
   participant D as Disk
   participant S as Service
-  U-&gt;&gt;A: name, master password, key file and outer key (optional)
+  U-&gt;&gt;A: name, master password, key file and repository key (optional)
   A-&gt;&gt;D: the new primary vault
   A-&gt;&gt;K: key file, repository key (when chosen)
   A-&gt;&gt;D: device settings container
@@ -46,7 +46,7 @@ first run broke off is not taken for set up. The key file and repository
 key go to the keychain, where the service takes them at every unlock.
 
 Fails with: `alreadySetUp` (a `bootstrap.yaml` exists), `primaryExists`,
-`inconsistent` (an outer key and a plain file name, or the reverse),
+`inconsistent` (a repository key and a plain file name, or the reverse),
 `keychainNeeded` (keys to keep but no keychain). The wizard goes back to
 the step concerned.
 
