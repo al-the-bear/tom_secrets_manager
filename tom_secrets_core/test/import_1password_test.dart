@@ -158,10 +158,10 @@ void main() {
       expect(text(e, 'Notes'), 'Demo notes\nsecond line');
       expect(text(e, 'pin'), 'demo-pin-1234', reason: 'a form field');
       expect(e.getString(const KdbxKey('pin')), isA<ProtectedValue>());
-      expect(text(e, 'Extra · PIN'), '0000');
-      expect(e.getString(const KdbxKey('Extra · PIN')), isA<ProtectedValue>());
-      expect(text(e, 'Extra · Account no'), 'DEMO-42');
-      expect(text(e, 'Extra · Empty'), isNull, reason: 'empty fields dropped');
+      expect(text(e, 'PIN'), '0000');
+      expect(e.getString(const KdbxKey('PIN')), isA<ProtectedValue>());
+      expect(text(e, 'Account no'), 'DEMO-42');
+      expect(text(e, 'Empty'), isNull, reason: 'empty fields dropped');
       expect(
         e.tags.get()!.split(';'),
         unorderedEquals(['mail', 'demo', 'favorite']),
@@ -225,10 +225,7 @@ void main() {
       expect(text(server, 'URL'), 'ssh://demo.example.com');
       expect(text(server, 'UserName'), 'root');
       expect(text(server, 'Password'), 'demo-server-pw');
-      expect(
-        text(server, 'Admin Console · admin console URL'),
-        'https://panel.example.com',
-      );
+      expect(text(server, 'admin console URL'), 'https://panel.example.com');
     });
 
     test('other categories go into subgroups with every field (DP-35)', () {
@@ -242,13 +239,10 @@ void main() {
       expect(text(card, 'verification number'), '123');
       expect(text(card, 'expiry date'), '2028-07');
       final id = entryAt(vault, [...personal, 'Identities'], 'Demo Identity');
-      expect(text(id, 'Identification · first name'), 'Demo');
-      expect(text(id, 'Identification · birth date'), '2000-01-01');
-      expect(
-        text(id, 'Address · address'),
-        '1 Demo Street, Demo City, 12345, de',
-      );
-      expect(text(id, 'Internet Details · email'), 'demo@example.com');
+      expect(text(id, 'first name'), 'Demo');
+      expect(text(id, 'birth date'), '2000-01-01');
+      expect(text(id, 'address'), '1 Demo Street, Demo City, 12345, de');
+      expect(text(id, 'email'), 'demo@example.com');
       final doc = entryAt(vault, [...personal, 'Documents'], 'Demo Document');
       expect(
         utf8.decode(doc.getBinary(const KdbxKey('demo-document.txt'))!.value),

@@ -155,15 +155,13 @@ TomSecretsImportSource tomSecretsReadEnpassJson(
   final custom = <TomSecretsImportField>[];
   final history = <TomSecretsImportOldPassword>[];
   Object? passkeyRaw = raw['passkey'];
-  var section = '';
   for (var i = 0; i < fields.length; i++) {
     final f = fields[i];
     final type = '${f['type'] ?? 'text'}';
     final label = '${f['label'] ?? ''}'.trim();
-    if (type == 'section') {
-      section = label;
-      continue;
-    }
+    // A section is only a heading in Enpass: its fields keep their own
+    // labels (a label used twice gets a number when written).
+    if (type == 'section') continue;
     if (type == 'passkey') {
       passkeyRaw ??= f['value'];
       continue;
@@ -188,10 +186,9 @@ TomSecretsImportSource tomSecretsReadEnpassJson(
     } else if (type == 'totp' && totp == null) {
       totp = value;
     } else {
-      final name = section.isEmpty ? label : '$section · $label';
       custom.add(
         TomSecretsImportField(
-          name.isEmpty ? type : name,
+          label.isEmpty ? type : label,
           value,
           isProtected:
               _flag(f['sensitive']) || type == 'password' || type == 'totp',

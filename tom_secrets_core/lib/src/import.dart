@@ -666,10 +666,13 @@ final class _Writer {
       put('${TomSecretsEntryFields.extraUrlPrefix}_$i', item.urls[i]);
     }
     for (final f in item.fields) {
+      // A standard name gets the category after it; a reserved or passkey
+      // name (`tsm.*`, `KPEX_PASSKEY_*`) must not keep its prefix, so it is
+      // marked in front: only the product and the importer write them.
       final name =
-          _standard.contains(f.name) ||
-              tomSecretsIsReservedName(f.name) ||
-              tomSecretsIsPasskeyField(f.name)
+          tomSecretsIsReservedName(f.name) || tomSecretsIsPasskeyField(f.name)
+          ? '(imported) ${f.name}'
+          : _standard.contains(f.name)
           ? '${f.name} (${item.category ?? 'imported'})'
           : f.name;
       put(name, f.value, protected: f.isProtected);

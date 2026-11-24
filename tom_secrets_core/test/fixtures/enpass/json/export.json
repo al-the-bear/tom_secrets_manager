@@ -193,6 +193,28 @@
                     "updated_at": 1700000000,
                     "value": "not a passkey",
                     "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Weitere Details",
+                    "order": 15,
+                    "sensitive": 0,
+                    "type": "section",
+                    "uid": 24,
+                    "updated_at": 1700000000,
+                    "value": "",
+                    "value_updated_at": 1700000000
+                },
+                {
+                    "deleted": 0,
+                    "label": "Hint",
+                    "order": 16,
+                    "sensitive": 0,
+                    "type": "text",
+                    "uid": 25,
+                    "updated_at": 1700000000,
+                    "value": "a second demo hint",
+                    "value_updated_at": 1700000000
                 }
             ],
             "folders": [

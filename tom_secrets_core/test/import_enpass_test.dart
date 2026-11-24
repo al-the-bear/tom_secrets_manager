@@ -125,16 +125,16 @@ void main() {
       expect(text(e, 'KP2A_URL_1'), 'https://webmail.example.com');
       expect(TomSecretsTotp.fromEntry(e)!.issuer, 'Demo Enpass Mail');
       expect(e.getString(const KdbxKey('PIN')), isA<ProtectedValue>());
-      expect(text(e, 'Recovery · Hint'), 'demo hint');
-      expect(text(e, 'Recovery · Codes'), 'code-1\ncode-2');
+      // A field keeps its own label: no section prefix. A label used
+      // twice (here in a second section) gets a number.
+      expect(text(e, 'Hint'), 'demo hint');
+      expect(text(e, 'Hint (2)'), 'a second demo hint');
+      expect(text(e, 'Codes'), 'code-1\ncode-2');
+      expect(e.getString(const KdbxKey('Codes')), isA<ProtectedValue>());
+      expect(text(e, 'Removed'), isNull);
+      expect(text(e, 'Empty'), isNull);
       expect(
-        e.getString(const KdbxKey('Recovery · Codes')),
-        isA<ProtectedValue>(),
-      );
-      expect(text(e, 'Recovery · Removed'), isNull);
-      expect(text(e, 'Recovery · Empty'), isNull);
-      expect(
-        text(e, 'Recovery · KPEX_PASSKEY_FAKE'),
+        text(e, '(imported) KPEX_PASSKEY_FAKE'),
         'not a passkey',
         reason: 'only the importer writes passkey fields',
       );
@@ -517,11 +517,8 @@ void main() {
       expect(text(e, 'Password'), 'demo-enpass-pw');
       expect(text(e, 'URL'), 'https://mail.example.com');
       expect(text(e, 'KP2A_URL_1'), 'https://webmail.example.com');
-      expect(text(e, 'Recovery · Hint'), 'demo hint');
-      expect(
-        e.getString(const KdbxKey('Recovery · Codes')),
-        isA<ProtectedValue>(),
-      );
+      expect(text(e, 'Hint'), 'demo hint');
+      expect(e.getString(const KdbxKey('Codes')), isA<ProtectedValue>());
       expect(text(e, 'E-mail'), 'demo@example.com');
       expect(
         TomSecretsTotp.fromEntry(e)!.toUri(),

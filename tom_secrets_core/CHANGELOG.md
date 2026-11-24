@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.28
+
+- The Enpass and 1Password imports keep each field's own label: a section
+  no longer prefixes it (`Weitere Details · PIN` is now `PIN`); a label
+  used twice in one item gets a number (`PIN (2)`). A field named like a
+  reserved or passkey field (`tsm.*`, `KPEX_PASSKEY_*`) is written as
+  `(imported) <name>`, so it never keeps the reserved prefix.
+
 ## 0.2.27
 
 - `tomSecretsRpIdValidFor`: whether a page may use a relying party's

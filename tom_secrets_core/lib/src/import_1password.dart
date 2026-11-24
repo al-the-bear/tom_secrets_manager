@@ -234,13 +234,14 @@ final class _OnePuxItem {
     }
 
     for (final section in _sections) {
-      final sectionTitle = '${section['title'] ?? ''}'.trim();
       for (final f in _fieldsOf(section)) {
         final id = '${f['id'] ?? ''}';
         final label = '${f['title'] ?? ''}'.trim().isEmpty
             ? id
             : '${f['title']}'.trim();
-        final name = sectionTitle.isEmpty ? label : '$sectionTitle · $label';
+        // A field keeps its own label, without its section's title (a label
+        // used twice gets a number when written).
+        final name = label;
         final value = f['value'];
         if (value is! Map || value.isEmpty) continue;
         final type = value.keys.first as String;
@@ -275,12 +276,7 @@ final class _OnePuxItem {
             final meta = key['metadata'];
             if (meta is Map && meta['publicKey'] != null) {
               fields.add(
-                TomSecretsImportField(
-                  sectionTitle.isEmpty
-                      ? 'public key'
-                      : '$sectionTitle · public key',
-                  '${meta['publicKey']}',
-                ),
+                TomSecretsImportField('public key', '${meta['publicKey']}'),
               );
             }
             continue;
