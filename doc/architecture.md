@@ -1061,6 +1061,10 @@ reach it or start their own engine.
 
 ## Cross-cutting concerns
 
+What these protect, and against whom, is the
+[security model](security.md): the keys, the approvals and grants, the
+hardening and the memory hygiene in depth.
+
 **Errors.** The protocol defines the error kinds once (`locked`,
 `denied`, `not_found`, `ambiguous`, `needs_unlock`, `unavailable`,
 `offline`, `token_expired`, `malformed`, `timeout`, `rate_limited`,

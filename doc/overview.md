@@ -670,8 +670,8 @@ flowchart LR
 -->
 
 A vault is a KDBX 4.1 file. Its key comes from the master password (and a
-key file, if the vault has one) through Argon2id, 64 MiB and 3 iterations
-by default, tuned so the slowest device unlocks in about a second. A vault
+key file, if the vault has one) through Argon2id with 64 MiB and 3
+iterations, so each guess at the password costs an attacker real work. A vault
 in a repository can also be wrapped in an **outer** encryption: one random
 file key, wrapped under each repository key in its own slot, so GitHub and
 anyone with access to the repository see only an encrypted blob.
@@ -723,6 +723,9 @@ secret. It cannot protect against:
 - a lost master password together with a lost emergency sheet: the vaults
   cannot be opened again;
 - what GitHub sees around the files: their names, sizes and commit times.
+
+The [security model](security.md) treats every layer, every key, the trust
+between programs and machines, and the threat model in depth.
 
 ## Sync without a server
 
@@ -805,6 +808,8 @@ the user's own passwords over from the commercial password managers.
 
 ## Where to go next
 
+- [The security model](security.md): the encryption layers, every key
+  and its lifecycle, trust, and the threat model.
 - [The architecture](architecture.md): the repositories, the packages
   and the main types inside each component, for a developer.
 - [The documentation index](README.md): every document about the whole
