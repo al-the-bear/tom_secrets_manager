@@ -9,10 +9,8 @@ explain each part in detail; these documents tie them together.
 
 | Document | What it explains |
 | --- | --- |
+| [Overview](overview.md) | What Tom Secrets Manager is, its components, and how it works, for a reader who has never seen the code |
 | [Diagram style](diagram_style.md) | How the diagrams look, and why |
-
-The overview, the architecture, the security model, the flows and the
-configuration reference join this list as they are written.
 
 Each part's own documentation:
 
@@ -56,7 +54,10 @@ the reader sees the SVG, which has the project's diagram style
 Mermaid source and export it again. Never edit the SVG or PNG by hand.
 
 The comment starts with `<!-- diagram <n>-<slug>`, where `<n>` numbers the
-diagrams of the document and `<slug>` names this one. The export writes
+diagrams of the document and `<slug>` names this one. GitHub ends an HTML
+comment at the first line that holds `-->`, so the source writes every `>`
+as `&gt;` (`a --&gt; b`); the tools read it back as `>`, and the check
+refuses a source that holds `-->`. The export writes
 `images/diagrams/<document>/<n>-<slug>.svg` and `.png` beside the document.
 The PNG is for places that show no SVG, such as an article on Medium.
 
@@ -69,19 +70,19 @@ check keeps them current.
 ```mermaid
 flowchart LR
   subgraph doc["A document"]
-    src["Mermaid source<br/>in an HTML comment"]:::file
+    src["Mermaid source<br/&gt;in an HTML comment"]:::file
     img["The image"]:::file
   end
   export("render_diagrams.mjs"):::program
-  check("check_docs.mjs<br/>ci.sh :docs"):::program
-  svg["SVG in the<br/>website style"]:::file
+  check("check_docs.mjs<br/&gt;ci.sh :docs"):::program
+  svg["SVG in the<br/&gt;website style"]:::file
   png["PNG for Medium"]:::file
-  src --> export
-  export --> svg
-  export --> png
-  img -- shows --> svg
-  src --> check
-  svg --> check
+  src --&gt; export
+  export --&gt; svg
+  export --&gt; png
+  img -- shows --&gt; svg
+  src --&gt; check
+  svg --&gt; check
   class doc zoneDevice
 ```
 -->
@@ -133,6 +134,22 @@ when the export falls short. Its comment then reads
 `<!-- diagram <n>-<slug> hand-drawn`, and the export writes only its PNG.
 The drawing's `data-tsm-source` attribute holds its source's hash (from
 `--hash`), so the check still notices a changed source.
+
+## The overview as an article
+
+The overview is written to become an article on Medium: it tells one
+story, each section reads on its own, and it names no repository internals
+outside its closing links. Medium shows neither SVG nor Mermaid, so the
+article is the overview with two changes:
+
+- each diagram's SVG image is replaced by its PNG (the same path with
+  `.png`), and the diagram's HTML comment is left out;
+- each relative link becomes an absolute GitHub address in the
+  `tom_secrets_manager` repository
+  (`https://github.com/al-the-bear/tom_secrets_manager/blob/main/doc/...`).
+
+The text in italics under the title is the article's subtitle. Run
+`render_diagrams.mjs` first, so the PNGs match their sources.
 
 ## Screenshots
 
