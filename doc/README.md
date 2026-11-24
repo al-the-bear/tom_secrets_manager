@@ -29,6 +29,8 @@ Each part's own documentation:
 | The desktop app | [app user guide](https://github.com/al-the-bear/tom_app_secrets_manager/blob/main/tom_secrets_app/doc/user_guide.md) |
 | The mobile app | [mobile user guide](https://github.com/al-the-bear/tom_app_secrets_manager/blob/main/tom_secrets_mobile/doc/user_guide.md) |
 | The browser extension | [browser user guide](https://github.com/al-the-bear/tom_app_secrets_manager/blob/main/tom_secrets_browser/doc/user_guide.md) |
+| Windows passkeys | [passkey plugin user guide](https://github.com/al-the-bear/tom_app_secrets_manager/blob/main/tom_secrets_passkey_plugin/doc/user_guide.md) |
+| Checking, building and releasing | [build and release guide](https://github.com/al-the-bear/tom_app_secrets_manager/blob/main/tom_secrets_build/doc/user_guide.md) |
 
 ## How these documents are written
 
