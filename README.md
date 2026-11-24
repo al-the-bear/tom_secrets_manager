@@ -66,6 +66,10 @@ Each package's suite runs with `testkit :test` from its folder.
 
 ## Documentation
 
+The product as a whole (how the parts fit together, how secrets are kept
+safe, the main flows) is explained in the documentation set,
+[`doc/`](doc/README.md). Each part's own documents:
+
 | Topic | Document |
 | --- | --- |
 | Stores, overlays, resolution, the GitHub cycle, outer encryption, importers | [`tom_secrets_core` README](tom_secrets_core/README.md) |
