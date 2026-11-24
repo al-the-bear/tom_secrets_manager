@@ -46,7 +46,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.25.3';
+const String tomSecretsServiceVersion = '0.25.4';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -75,6 +75,7 @@ final class TomSecretsServiceConfig {
     this.adminExecutables,
     this.browserHostExecutables,
     this.helperExecutables,
+    this.passkeyPluginExecutables,
     this.lastUsedInterval,
     this.approverLinkRetry = const Duration(seconds: 5),
     this.linkRelayFor,
@@ -171,6 +172,12 @@ final class TomSecretsServiceConfig {
   /// service in tests): any executable of that file name.
   final Set<String>? browserHostExecutables;
 
+  /// **[C]** The real paths of the Windows passkey plugin
+  /// (`tsm-passkey-plugin`), which the passkey requests answer as the
+  /// browser host's (protocol.md 5.8); null (an in-process service in
+  /// tests): any executable of that file name.
+  final Set<String>? passkeyPluginExecutables;
+
   /// The real paths of the developer-tool helpers (`tsm`, which
   /// `git-credential-tsm` and `docker-credential-tsm` resolve to, or copies
   /// of those names), which `match` answers too; null: by file name.
@@ -245,6 +252,10 @@ Set<String> tomSecretsAdminExecutables(
 /// The file name of the browser host (protocol.md 5.5), without `.exe`.
 const String tomSecretsBrowserHostName = 'tsm-browser-host';
 
+/// **[C]** The file name of the Windows passkey plugin (protocol.md 5.8),
+/// without `.exe`.
+const String tomSecretsPasskeyPluginName = 'tsm-passkey-plugin';
+
 /// The file names the developer-tool helpers run as (protocol.md 5.5),
 /// without `.exe`: `tsm` and its multi-call names.
 const List<String> tomSecretsHelperNames = [
@@ -253,11 +264,11 @@ const List<String> tomSecretsHelperNames = [
   'docker-credential-tsm',
 ];
 
-/// The browser host and the helpers of a service started from
-/// [serviceExecutable], as real paths beside it (protocol.md 5.5).
-({Set<String> browserHosts, Set<String> helpers}) tomSecretsLookupExecutables(
-  String serviceExecutable,
-) {
+/// The browser host, the helpers and the Windows passkey plugin of a
+/// service started from [serviceExecutable], as real paths beside it
+/// (protocol.md 5.5, 5.8).
+({Set<String> browserHosts, Set<String> helpers, Set<String> passkeyPlugins})
+tomSecretsLookupExecutables(String serviceExecutable) {
   final dir = File(serviceExecutable).parent.path;
   final ext = Platform.isWindows ? '.exe' : '';
   String at(String name) =>
@@ -265,6 +276,7 @@ const List<String> tomSecretsHelperNames = [
   return (
     browserHosts: {at(tomSecretsBrowserHostName)},
     helpers: {for (final name in tomSecretsHelperNames) at(name)},
+    passkeyPlugins: {at(tomSecretsPasskeyPluginName)},
   );
 }
 
@@ -2727,6 +2739,15 @@ final class _ClientSession {
         : allowed.contains(_identity?.exe);
   }
 
+  /// **[C]** Whether the client is the Windows passkey plugin (protocol.md
+  /// 5.8): it may send the passkey requests and nothing that reads a value.
+  bool get _isPasskeyPlugin {
+    final allowed = service.config.passkeyPluginExecutables;
+    return allowed == null
+        ? _exeName == tomSecretsPasskeyPluginName
+        : allowed.contains(_identity?.exe);
+  }
+
   /// Whether the client is a developer-tool helper (protocol.md 5.5).
   bool get _isHelper {
     final allowed = service.config.helperExecutables;
@@ -2899,6 +2920,14 @@ final class _ClientSession {
 
   Future<void> _request(int id, String op, Map<String, Object?> m) async {
     final List<Map<String, Object?>> items;
+    if (_isPasskeyPlugin) {
+      // The Windows passkey plugin asks for passkeys and nothing else.
+      service._rateLimits.refused(_admitted!, 1);
+      connection.sendError(id, 'denied', '$op is not for this client', {
+        'reason': 'not_allowed_op',
+      });
+      return;
+    }
     if (op == 'getFile') {
       final missing = [
         for (final f in const ['binary', 'getFile'])
@@ -3464,7 +3493,7 @@ final class _ClientSession {
   ) {
     final url = m['url'];
     final rpId = m['rpId'];
-    if (!_isBrowserHost) {
+    if (!_isBrowserHost && !_isPasskeyPlugin) {
       service._rateLimits.refused(_admitted!, 1);
       _auditLookup(
         '$op ${rpId is String ? rpId : ''}',

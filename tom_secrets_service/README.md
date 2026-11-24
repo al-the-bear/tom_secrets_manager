@@ -264,7 +264,9 @@ service is unlocked, or `locked` when the approval timeout passes.
   (`no_app`). A helper's credential the vaults hold already (git's `store`
   after a login it answered) is ignored: `accepted` with `known`.
 - **[C]** The passkeys (`passkey`, protocol.md 5.8, DP-120), for the
-  browser host only. The key never leaves the service.
+  browser host and the Windows passkey plugin (`tsm-passkey-plugin.exe`
+  beside the service, which may send nothing else). The key never leaves
+  the service.
   - `passkeys` lists a page's passkeys by name and credential id, from the
     personal and shared vaults only. They are covered as `match` candidates
     are; when no grant covers them, the browser prompt asks with `passkey`.

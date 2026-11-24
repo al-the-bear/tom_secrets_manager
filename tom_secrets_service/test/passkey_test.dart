@@ -103,6 +103,7 @@ void main() {
 
   Future<TomSecretsService> start({
     Set<String>? browserHosts,
+    Set<String> passkeyPlugins = const {},
     TomSecretsAccessPolicy? policy = const AllowAllPolicy(),
   }) async {
     final service = await demo.start(
@@ -110,6 +111,7 @@ void main() {
       policy: policy,
       browserHostExecutables: browserHosts ?? self,
       helperExecutables: const {},
+      passkeyPluginExecutables: passkeyPlugins,
     );
     admin = await TomSecretsAdminClient.connect(
       demo.runtime(transport),
@@ -435,5 +437,53 @@ void main() {
     final alone = await answer(raw, create(4));
     expect((alone['details']! as Map)['reason'], 'no_approver');
     expect(File(demo.teamPath).readAsBytesSync(), before);
+  });
+
+  test('the Windows passkey plugin is a passkey client: it lists and signs '
+      'as the browser host does, and reads no value', () async {
+    final service = await start(browserHosts: const {}, passkeyPlugins: self);
+    final raw = await host(service);
+    final listed = await answer(raw, {
+      'op': 'passkeys',
+      'id': 1,
+      'url': 'https://mail.example.com/',
+      'rpId': 'mail.example.com',
+    });
+    final entryId = ((listed['candidates']! as List).single as Map)['entryId'];
+    final signed = await answer(raw, {
+      'op': 'passkeyGet',
+      'id': 2,
+      'url': 'https://mail.example.com/',
+      'rpId': 'mail.example.com',
+      'entryId': entryId,
+      'clientDataHash': _b64(_hash('d2luZG93cw')),
+    });
+    expect(signed['op'], 'passkeyAssertion');
+    final read = await answer(raw, {
+      'op': 'get',
+      'id': 3,
+      'ref': '$entryId',
+      'field': 'UserName',
+    });
+    expect((read['details']! as Map)['reason'], 'not_allowed_op');
+    final matched = await answer(raw, {
+      'op': 'match',
+      'id': 4,
+      'url': 'https://mail.example.com/',
+    });
+    expect((matched['details']! as Map)['reason'], 'not_allowed_op');
+  });
+
+  test('the plugin is found beside the service by its file name', () {
+    final dir = Directory.systemTemp.createTempSync('tsm_lookup');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final ext = Platform.isWindows ? '.exe' : '';
+    for (final name in ['tom_secrets_service', tomSecretsPasskeyPluginName]) {
+      File('${dir.path}/$name$ext').writeAsStringSync('');
+    }
+    final lookup = tomSecretsLookupExecutables(
+      '${dir.path}/tom_secrets_service$ext',
+    );
+    expect(lookup.passkeyPlugins.single, endsWith('tsm-passkey-plugin$ext'));
   });
 }

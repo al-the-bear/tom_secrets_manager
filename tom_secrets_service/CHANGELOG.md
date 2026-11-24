@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.25.4
+
+- The Windows passkey plugin `tsm-passkey-plugin.exe` beside the service is
+  a passkey client (protocol.md 5.8, DP-120): told by its measured
+  executable, it may send `passkeys`, `passkeyGet` and `passkeyCreate`, as
+  the browser host does, and nothing else (`get`, `getMany`, `getFile`,
+  `match` and `propose` are `denied`, reason `not_allowed_op`).
+  `tomSecretsLookupExecutables` finds it (`passkeyPlugins`), and the
+  configuration takes it as `passkeyPluginExecutables`.
+
 ## 0.25.3
 
 - Passkeys for the browser host (protocol.md 5.8, feature `passkey`,

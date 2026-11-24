@@ -92,9 +92,11 @@ Future<void> main() async {
           Platform.resolvedExecutable,
           bootstrap,
         ),
-        // The browser host and the helpers beside it (protocol.md 5.5).
+        // The browser host, the helpers and the Windows passkey plugin
+        // beside it (protocol.md 5.5, 5.8).
         browserHostExecutables: lookup.browserHosts,
         helperExecutables: lookup.helpers,
+        passkeyPluginExecutables: lookup.passkeyPlugins,
       ),
     );
   } on TomSecretsAlreadyRunning {
