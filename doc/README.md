@@ -22,6 +22,7 @@ Each part's own documentation:
 | --- | --- |
 | The core library | [`tom_secrets_core` README](../tom_secrets_core/README.md) |
 | The secrets service | [`tom_secrets_service` README](../tom_secrets_service/README.md) |
+| Running and operating the service | [operator's guide](../tom_secrets_service/doc/user_guide.md) |
 | The protocol between the service and its clients | [protocol document](https://github.com/al-the-bear/tom_secrets_clients/blob/main/protocol/protocol.md) |
 | The command line `tsm` | [`tsm` user guide](https://github.com/al-the-bear/tom_secrets_clients/blob/main/clients/dart/tsm/doc/tsm_user_guide.md) |
 | The desktop app | [app user guide](https://github.com/al-the-bear/tom_app_secrets_manager/blob/main/tom_secrets_app/doc/user_guide.md) |
@@ -167,6 +168,7 @@ that shows them lives, as `<screen>-<state>-<theme>.png` (`light`, `dark`).
 | phone, tablet | the same in `tom_secrets_mobile` | `tom_secrets_mobile/doc/images/` |
 | browser extension | `npm run build && npm run screenshots` in `tom_secrets_browser/extension` | `tom_secrets_browser/doc/images/` |
 | `tsm` | `TSM_UPDATE_TRANSCRIPTS=1 dart test test/transcripts_test.dart` in `tsm` | the guide's transcript blocks |
+| the service | `TSM_UPDATE_TRANSCRIPTS=1 dart test test/guide_transcripts_test.dart` in `tom_secrets_service` | the operator's guide's transcript blocks |
 
 - **The Flutter screens** are pumped over the tests' fake service and demo
   vaults (the phone's over a fake GitHub), at 1440×900 for the desktop,

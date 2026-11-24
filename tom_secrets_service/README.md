@@ -24,6 +24,10 @@ signed grants in the primary vault, and for a request no grant answers, by
 an approver — the attached manager app, or a paired device reached over the
 approval link. Every resolved item is written to an encrypted audit log.
 
+Running and operating it — starting it, its folders, the lock modes, the
+vaults' states, the endpoints, approvals, the logs, upgrading and
+troubleshooting — is the [operator's guide](doc/user_guide.md).
+
 The wire format of both endpoints is the
 [protocol document](https://github.com/al-the-bear/tom_secrets_clients/blob/main/protocol/protocol.md);
 the section numbers below refer to it. The service reaches KDBX only through
@@ -55,7 +59,7 @@ tests and embedding.
 
 ```yaml
 dependencies:
-  tom_secrets_service: ^0.11.2
+  tom_secrets_service: ^0.25.6
 ```
 
 ```sh
@@ -503,7 +507,10 @@ index and the device settings; the admin key survives.
 
 The lock modes (`TomSecretsLockPolicy`; `status.lockMode` names them by the
 protocol's letter): (a) never relock, (b) relock after the user's input has
-been idle for a while; in either mode an optional hard maximum unlocked time.
+been idle for a while, (c) relock when idle or at the screen lock the
+attached app senses, unlocked again with the OS unlock through the app
+(without an app, and on Linux, as (b)); in every mode an optional hard
+maximum unlocked time.
 The idle time comes from CoreGraphics on macOS, `GetLastInputInfo` on Windows
 and logind's idle hint on Linux; where it cannot be measured (no desktop
 session) the service never locks itself, the maximum unlocked time included.
@@ -612,11 +619,12 @@ session) the service never locks itself, the maximum unlocked time included.
 | Vaults, stores, resolution, the GitHub cycle, pairing crypto | [`tom_secrets_core`](../tom_secrets_core/README.md) |
 | The Dart client and the admin library | [`tom_secrets_client`](https://github.com/al-the-bear/tom_secrets_clients/blob/main/clients/dart/tom_secrets_client/README.md) |
 | The command line: reading secrets, starting and administering the service | [`tsm`](https://github.com/al-the-bear/tom_secrets_clients/blob/main/clients/dart/tsm/README.md) |
+| Running and operating the service | [operator's guide](doc/user_guide.md) |
 | The repository: core and service | [repository README](../README.md) |
 
 ## Status
 
-Version 0.21.0. The suite runs with `testkit :test` from the package folder.
+Version 0.25.6. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real
