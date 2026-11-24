@@ -481,6 +481,9 @@ flowchart LR
   `TomSecretsRateLimitSettings` (`lib/src/rate_limits.dart`). Tests:
   `rate_limits_test.dart`.
 
+The order of the messages of a request, granted or approved, is drawn in
+the [flows](flows.md#a-clients-get).
+
 This diagram shows the service's parts that run beside the requests.
 
 ![The service's background parts](images/diagrams/architecture/9-service-background.svg)
@@ -971,6 +974,9 @@ are `tool/check_docs.mjs` and `tool/render_diagrams.mjs`.
 (`secretsScratchDir`).
 
 ## Runtime views
+
+How the processes talk to each other, message by message, is in the
+[flows](flows.md).
 
 ### A desktop
 

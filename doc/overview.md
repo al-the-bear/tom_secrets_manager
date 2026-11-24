@@ -444,6 +444,8 @@ With no approver within reach, the request shows an **approval code** that
 a trusted device can answer. A request that nobody answers ends with a
 refusal, never with a value.
 
+The [flows](flows.md#a-clients-get) show every variant step by step.
+
 ## How a person uses it
 
 This diagram shows the ways a person reaches the same vaults.
@@ -589,6 +591,9 @@ flowchart LR
 The relay carries the same exchange, frame by frame, and sees only
 encrypted bytes. The code's number names the slot on the relay; the relay
 itself is chosen on both sides, or read from the QR code.
+
+Each route is drawn step by step in the
+[flows](flows.md#pairing-a-new-device).
 
 ### The approval link
 
@@ -764,6 +769,9 @@ The **history compaction** keeps the repository from holding old keys' files
 forever; a history that was rewritten any other way is shown to the user, who
 decides which side wins.
 
+The [flows](flows.md#sync) show the refresh, a save, the offline cache,
+a conflict, the compaction and the force-push question step by step.
+
 ## Open source and licences
 
 Every package of the product is open source under the BSD 3-Clause
@@ -808,6 +816,8 @@ the user's own passwords over from the commercial password managers.
 
 ## Where to go next
 
+- [The flows](flows.md): every flow of the product step by step, with
+  its failures.
 - [The security model](security.md): the encryption layers, every key
   and its lifecycle, trust, and the threat model.
 - [The architecture](architecture.md): the repositories, the packages
