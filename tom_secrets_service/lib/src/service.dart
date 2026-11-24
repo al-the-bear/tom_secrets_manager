@@ -46,7 +46,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.25.5';
+const String tomSecretsServiceVersion = '0.25.6';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -4097,6 +4097,8 @@ final class _AdminSession {
       'serviceStart': service.startedAt,
       'protocol': 1,
       'service': {'version': tomSecretsServiceVersion},
+      // Chunked members (protocol.md 2.7), from the authentication on.
+      'features': const [tomSecretsChunkedFeature],
     });
   }
 
@@ -4234,6 +4236,7 @@ final class _AdminSession {
     }
     service._authFailures = 0;
     authenticated = true;
+    _agreeFeatures(m);
     _bundleKey = tomSecretsBundleKey(
       service._adminKey,
       _serviceNonce,
@@ -4252,6 +4255,17 @@ final class _AdminSession {
         ),
       ),
     });
+  }
+
+  /// The features the admin offered in `auth` or `claim` that this
+  /// service has: chunked members (protocol.md 2.7), only once
+  /// authenticated, so a peer that has not proved itself is never read past
+  /// the request limit.
+  void _agreeFeatures(Map<String, Object?> m) {
+    final features = m['features'];
+    if (features is List && features.contains(tomSecretsChunkedFeature)) {
+      connection.enableChunked();
+    }
   }
 
   Future<void> _claim(Map<String, Object?> m) async {
@@ -4278,6 +4292,7 @@ final class _AdminSession {
       }
     }
     authenticated = true;
+    _agreeFeatures(m);
     connection.send({
       'op': 'claimed',
       'adminKey': base64.encode(service._adminKey),
@@ -5143,8 +5158,10 @@ final class _AdminSession {
         }
         final bytes = base64.encode(file.stored);
         // An answer frame holds at most 1 MiB (protocol.md 2.3); a larger
-        // file waits for the binary chunks of phase B.
-        if (bytes.length + 1024 > tomSecretsMaxAnswerPayload) {
+        // file goes as chunks (2.7) to an admin that agreed on them, and is
+        // refused to one that did not.
+        if (!connection.chunked &&
+            bytes.length + 1024 > tomSecretsMaxAnswerPayload) {
           connection.sendError(
             id,
             'unsupported',

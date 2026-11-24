@@ -3,13 +3,18 @@
 
 /// One connection of an endpoint (protocol.md 2): frames read with the
 /// request limit checked before a payload is read, JSON payloads decoded
-/// strictly, answers sent within the answer limit.
+/// strictly, answers sent within the answer limit. An authenticated admin
+/// connection that agreed on chunked members (protocol.md 2.7) also reads
+/// requests whose large members follow as binary frames, and sends answers
+/// over the answer limit the same way.
 library;
 
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:tom_secrets_client/admin.dart'
+    show TomSecretsChunkAssembler, tomSecretsChunkedFrames;
 import 'package:tom_secrets_client/tom_secrets_client.dart';
 
 import 'secret_frame.dart';
@@ -43,6 +48,19 @@ final class TomSecretsConnection {
   final TomSecretsFrameReader _reader = TomSecretsFrameReader(
     maxPayload: tomSecretsMaxRequestPayload,
   );
+  final TomSecretsChunkAssembler _chunks = TomSecretsChunkAssembler();
+
+  /// Whether chunked members are agreed (protocol.md 2.7): set by the admin
+  /// session once the admin is authenticated and offered them; never on
+  /// the client endpoint.
+  bool get chunked => _chunked;
+  bool _chunked = false;
+
+  /// Agrees on chunked members from now on.
+  void enableChunked() {
+    _chunked = true;
+    _reader.binaryAllowed = true;
+  }
   late final StreamSubscription<List<int>> _subscription;
   bool _closed = false;
 
@@ -61,15 +79,27 @@ final class TomSecretsConnection {
     }
     for (final frame in frames) {
       if (_closed) return;
-      final Map<String, Object?> message;
+      Map<String, Object?>? message;
       try {
-        message = tomSecretsDecodePayload(frame.payload);
+        if (frame.type == tomSecretsFrameBinary) {
+          message = _chunks.add(frame.payload);
+        } else {
+          message = tomSecretsDecodePayload(frame.payload);
+          if (TomSecretsChunkAssembler.isChunked(message)) {
+            if (!_chunked) {
+              throw TomSecretsFrameException(
+                'chunked members were not agreed',
+              );
+            }
+            message = _chunks.begin(message);
+          }
+        }
       } on TomSecretsFrameException catch (e) {
         sendError(null, 'malformed', e.message, {'reason': 'frame'});
         unawaited(close());
         return;
       }
-      onMessage(message);
+      if (message != null) onMessage(message);
     }
   }
 
@@ -80,16 +110,33 @@ final class TomSecretsConnection {
   /// buffer until it is written, so it cannot be wiped earlier.
   void send(Map<String, Object?> message) {
     if (_closed) return;
-    final frame =
-        tomSecretsSecretFrame(message) ??
-        tomSecretsJsonFrame({
-          'op': 'error',
-          'id': ?message['id'],
-          'kind': 'internal',
-          'message': 'the answer is larger than a frame',
-          'details': {'code': 'answer_too_large'},
-        });
-    _tail = _tail.then((_) => _write(frame));
+    final frame = tomSecretsSecretFrame(message);
+    if (frame != null) {
+      _tail = _tail.then((_) => _write(frame));
+      return;
+    }
+    if (_chunked && message['id'] is int) {
+      // Over the answer limit: its large members follow as chunks.
+      try {
+        for (final f in tomSecretsChunkedFrames(
+          message,
+          limit: tomSecretsMaxAnswerPayload,
+        )) {
+          _tail = _tail.then((_) => _write(f));
+        }
+        return;
+      } on TomSecretsFrameException {
+        // Not even that fits: the error below.
+      }
+    }
+    final error = tomSecretsJsonFrame({
+      'op': 'error',
+      'id': ?message['id'],
+      'kind': 'internal',
+      'message': 'the answer is larger than a frame',
+      'details': {'code': 'answer_too_large'},
+    });
+    _tail = _tail.then((_) => _write(error));
   }
 
   /// Sends [chunk] as a binary frame of the request [id] (protocol.md 2.5):
@@ -140,6 +187,7 @@ final class TomSecretsConnection {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    _chunks.clear();
     await _subscription.cancel();
     // The queued frames are written (and wiped) first; a peer that stops
     // reading does not hold the close up for long.

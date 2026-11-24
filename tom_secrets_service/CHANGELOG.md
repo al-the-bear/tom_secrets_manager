@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.25.6
+
+- Chunked members on the admin endpoint (protocol.md 2.7): the challenge
+  offers the feature `chunked`; once an admin that announced it in `auth`
+  or `claim` has authenticated, a request whose large members follow as
+  binary frames is read (a `save` of any vault size), and an answer over
+  1 MiB is sent the same way (`vaultFileData` of a large vault). An admin
+  without the feature is still refused a large file (`too_large`), and a
+  chunked message on a connection that did not agree on them closes it.
+  Takes `tom_secrets_client` 0.2.19.
+
 ## 0.25.5
 
 - The client endpoint in the macOS app's App Group container (protocol.md

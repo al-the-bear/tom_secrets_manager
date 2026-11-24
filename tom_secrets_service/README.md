@@ -583,6 +583,9 @@ session) the service never locks itself, the maximum unlocked time included.
   network listener is the approval link, and only on the configured address.
 - Frames: a request's payload at most 64 KiB, an answer's at most 1 MiB; a
   reference at most 1 KiB of UTF-8; `getMany` takes 1 to 256 references.
+  On the admin endpoint a larger `save` or `vaultFileData` travels as
+  chunked members (protocol.md 2.7), up to 512 MiB, with an admin that
+  announced the feature `chunked` and only once it has authenticated.
 - Automatic locking needs a desktop session; on a headless machine only an
   explicit `lock` (or `shutdown`) locks the service.
 - Values are served only while unlocked; a locked service makes clients wait

@@ -580,10 +580,10 @@ packages:
     dependency: "direct main"
     description:
       name: tom_secrets_client
-      sha256: bd466f7b64da8c03795d6fe664e0472f4be17052dd3ef6a3bdbffdfb77c21493
+      sha256: c891bc3ee427a66ac70b2a09dd449cb11b29e52e641d5ea0c675254b101bd7e4
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.18"
+    version: "0.2.19"
   tom_secrets_core:
     dependency: "direct main"
     description:
