@@ -598,10 +598,20 @@ final class TomSecretsPairingReceived {
 
 /// What a pairing gave the giving side.
 final class TomSecretsPairingGiven {
-  TomSecretsPairingGiven._(this.receiver, this.receiverKeys, this.tokenKey);
+  TomSecretsPairingGiven._(
+    this.receiver,
+    this.receiverKeys,
+    this.tokenKey, {
+    this.receiverPlatform,
+  });
 
   /// The receiving device's name.
   final String receiver;
+
+  /// The receiving device's platform (`macos`, `linux`, `windows`, `ios`,
+  /// `android`), as its `done` answer names it; null when it named none
+  /// (an older device) or none that reads as a platform.
+  final String? receiverPlatform;
 
   /// The receiving device's public keys.
   final TomSecretsPairingPeerKeys receiverKeys;
@@ -609,6 +619,11 @@ final class TomSecretsPairingGiven {
   /// The approval-token key both sides derived (32 bytes, TD-3).
   final Uint8List tokenKey;
 }
+
+/// What a platform name in a pairing's `done` answer may be (Dart's
+/// `Platform.operatingSystem`: `macos`, `linux`, `windows`, `ios`,
+/// `android`, ...).
+final _platformName = RegExp(r'^[a-z][a-z0-9_]{0,31}$');
 
 /// The giving side of a pairing over [channel] (part-sharing): it showed
 /// [code]; [device] is its name. After the receiver proved the code and the
@@ -718,10 +733,14 @@ Future<TomSecretsPairingGiven> tomSecretsGivePairing(
     final receiverKeys = TomSecretsPairingPeerKeys.fromJson(
       (done['keys']! as Map).cast(),
     );
+    final platform = done['platform'];
     return TomSecretsPairingGiven._(
       receiver,
       receiverKeys,
       _derive(session, 'tsm-pair-token-key-v1'),
+      receiverPlatform: platform is String && _platformName.hasMatch(platform)
+          ? platform
+          : null,
     );
   } on TomSecretsPairingException {
     rethrow;
@@ -741,11 +760,14 @@ Future<TomSecretsPairingGiven> tomSecretsGivePairing(
 /// session key stands, the giving side's bundle arrives; [keysFor] answers
 /// with this device's public keys (made by then, e.g. a fresh trust
 /// material's). Nothing of the bundle is to be stored before this returns.
+/// Its `done` answer names this device's [platform] (default: the one it
+/// runs on), which the giving side records in its device record.
 /// Throws [TomSecretsPairingException].
 Future<TomSecretsPairingReceived> tomSecretsReceivePairing(
   TomSecretsApprovalChannel channel, {
   required TomSecretsPairingCode code,
   required String device,
+  String? platform,
   required Future<TomSecretsPairingPeerKeys> Function(
     String giver,
     TomSecretsPairingBundle bundle,
@@ -844,7 +866,11 @@ Future<TomSecretsPairingReceived> tomSecretsReceivePairing(
           e.reason,
         );
       }
-      await io.seal(session, 'A', {'op': 'done', 'keys': mine.toJson()});
+      await io.seal(session, 'A', {
+        'op': 'done',
+        'keys': mine.toJson(),
+        'platform': platform ?? Platform.operatingSystem,
+      });
       return TomSecretsPairingReceived._(
         giver,
         bundle,

@@ -213,6 +213,38 @@ void main() {
       );
       expect(given.receiverKeys.approverKey!.keyId, mine.approverKey!.keyId);
       expect(given.receiverKeys.linkAddress, '10.8.0.1:47731');
+      expect(
+        given.receiverPlatform,
+        Platform.operatingSystem,
+        reason: 'the receiver names its platform in its done answer',
+      );
+    });
+
+    test('the receiver\'s platform in done: named, or left out when it is '
+        'no platform name', () async {
+      Future<String?> pairAs(String platform) async {
+        final (a, b) = _Pipe.pair();
+        final bundle = await _bundle();
+        final mine = await receiverKeys();
+        final giving = tomSecretsGivePairing(
+          b,
+          code: code,
+          device: 'mbp',
+          bundleFor: (receiver) async => bundle,
+        );
+        await tomSecretsReceivePairing(
+          a,
+          code: TomSecretsPairingCode.parse('7 GUITAR orbit'),
+          device: 'phone',
+          platform: platform,
+          keysFor: (giver, bundle) async => mine,
+        );
+        return (await giving).receiverPlatform;
+      }
+
+      expect(await pairAs('android'), 'android');
+      expect(await pairAs('ios'), 'ios');
+      expect(await pairAs('Not A Platform!'), isNull);
     });
 
     test('a wrong code fails at the key confirmation on both sides', () async {

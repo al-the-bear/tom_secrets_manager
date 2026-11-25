@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.33
+
+- Pairing: the receiving side names its platform in its `done` answer
+  (`tomSecretsReceivePairing`'s `platform`, default the one it runs on),
+  and the giving side has it as `TomSecretsPairingGiven.receiverPlatform`
+  (null for an older device, or a value that is no lower-case name), so
+  the device record of a paired device says what it is.
+
 ## 0.2.32
 
 - `TomSecretsTotp.fromEntry` reads KeePass 2.47's other secret fields:
