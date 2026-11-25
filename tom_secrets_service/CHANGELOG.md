@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26.1
+
+- `pair.list` is answered to `tsm` too: the device records hold no secret,
+  and `tsm` reads the other devices' service identity keys from them
+  (protocol.md 6.1). `pair.identity`, `pair.record` and `pair.revoke` stay
+  the manager app's.
+
 ## 0.26.0
 
 - The service has an identity key (protocol.md 6.1), made at its first

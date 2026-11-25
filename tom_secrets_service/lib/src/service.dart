@@ -47,7 +47,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.26.0';
+const String tomSecretsServiceVersion = '0.26.1';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -6039,7 +6039,10 @@ final class _AdminSession {
         }
         await _relayTokens(id, op, m);
       case 'pair.identity' || 'pair.record' || 'pair.revoke' || 'pair.list':
-        if (!isApp) {
+        // The device records hold no secret, and tsm reads them for the
+        // other devices' service keys (protocol.md 6.1); everything that
+        // changes a pairing is the app's.
+        if (op != 'pair.list' && !isApp) {
           connection.sendError(id, 'denied', 'only the manager app', {
             'reason': 'wrong_executable',
           });

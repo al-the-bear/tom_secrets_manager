@@ -555,6 +555,14 @@ void main() {
       }),
       refused('not_allowed_op'),
     );
+    // The device records it may read (the other devices' service keys);
+    // a pairing is the app's.
+    expect((await a.request('pair.list'))['devices'], isA<List>());
+    await expectLater(a.request('pair.identity'), refused('wrong_executable'));
+    await expectLater(
+      a.request('pair.revoke', {'device': 'x'}),
+      refused('wrong_executable'),
+    );
     await expectLater(
       a.request('approvers.cliSwitch', {'on': true}),
       refused('wrong_executable'),
