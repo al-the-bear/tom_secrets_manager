@@ -813,10 +813,10 @@ packages:
     dependency: "direct dev"
     description:
       name: tom_secrets_core
-      sha256: "3298f22ebaa9c1a85394a113ec59e1fc28b308bdd45534a30be80146b95c5857"
+      sha256: "0cb0aaaa367129a6eb2c117dfd2fb4c6e4f6c879a284085f06567e919386431d"
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.30"
+    version: "0.2.31"
   typed_data:
     dependency: transitive
     description:
