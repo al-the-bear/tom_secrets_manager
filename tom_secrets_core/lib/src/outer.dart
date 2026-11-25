@@ -203,7 +203,13 @@ Future<Uint8List> tomSecretsOuterEncrypt(
       nonce: contentNonce,
       aad: [...head, ...pathBytes],
     );
-    return Uint8List.fromList([...head, ...box.cipherText, ...box.mac.bytes]);
+    // Joined into one typed buffer: spreading a large vault into a list
+    // costs a second per 40 MB.
+    return (BytesBuilder(copy: false)
+          ..add(head)
+          ..add(box.cipherText)
+          ..add(box.mac.bytes))
+        .takeBytes();
   } finally {
     fileKey.fillRange(0, fileKey.length, 0);
   }

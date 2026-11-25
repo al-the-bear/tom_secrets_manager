@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.25.9
+
+- The sockets (`client.sock`, `admin.sock`, `agent.sock`, the App Group's
+  client socket) are made the user's alone (mode 0600) when they are bound,
+  whatever the umask (`tomSecretsOwnerOnly`): an admin checks the admin
+  socket's owner and mode before it sends anything (protocol.md 6.0,
+  `tom_secrets_client` 0.2.22).
+- The runtime directory is judged itself at the start, never what a link
+  there points to: a directory or link another user left in `/tmp` is
+  refused, never used or changed (`tom_secrets_client` 0.2.22's
+  `TomSecretsRuntime.check`).
+
 ## 0.25.8
 
 - The vaults are kept in memory only by default (`offlineCache` off): the

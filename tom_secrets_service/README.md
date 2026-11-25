@@ -59,7 +59,7 @@ tests and embedding.
 
 ```yaml
 dependencies:
-  tom_secrets_service: ^0.25.8
+  tom_secrets_service: ^0.25.9
 ```
 
 ```sh
@@ -163,7 +163,12 @@ the code. In short:
 
 The runtime directory (`TomSecretsRuntime`) is made the user's alone (mode
 0700; on Windows the inheritance cut and only the user and SYSTEM granted)
-and checked for owner and mode at every start. `service.lock` is the
+and checked for owner and mode at every start: the directory itself, never
+what a link there points to, so a directory or link another user left in
+`/tmp` is refused and never used. The sockets are made mode 0600 when they
+are bound. An admin (the app, `tsm`) checks both, and that the process
+answering is this user's service, before it sends its key proof or a
+master password (protocol.md 6.0). `service.lock` is the
 single-instance lock, released by the OS when the process dies;
 `service.json` names the PID, the start, the protocol and the endpoints.
 
@@ -638,7 +643,7 @@ session) the service never locks itself, the maximum unlocked time included.
 
 ## Status
 
-Version 0.25.8. The suite runs with `testkit :test` from the package folder.
+Version 0.25.9. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real

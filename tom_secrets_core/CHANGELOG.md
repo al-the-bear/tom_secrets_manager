@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.36
+
+- `tomSecretsOuterEncrypt` joins the `.tsmx` file in one typed buffer
+  instead of spreading the content into a list (a vault with large
+  attachments).
+
 ## 0.2.35
 
 - The vaults are kept in memory only by default:

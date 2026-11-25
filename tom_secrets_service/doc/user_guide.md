@@ -132,9 +132,9 @@ it for the service and every client alike.
 <!-- transcript runtime-directory -->
 ```text
 $ ls -l /run/user/1000/tsm
-srwx------  admin.sock
-srwx------  agent.sock
-srwx------  client.sock
+srw-------  admin.sock
+srw-------  agent.sock
+srw-------  client.sock
 -rw-------  service.json
 -rw-------  service.lock
 ```

@@ -32,6 +32,7 @@ import 'bootstrap.dart';
 import 'connection.dart';
 import 'github_app.dart';
 import 'github_opener.dart';
+import 'hardening.dart';
 import 'identity.dart';
 import 'key_expiry.dart';
 import 'link_client.dart';
@@ -46,7 +47,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.25.8';
+const String tomSecretsServiceVersion = '0.25.9';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -571,6 +572,10 @@ final class TomSecretsService
           InternetAddress(runtime.adminSocket, type: InternetAddressType.unix),
           0,
         );
+        // The user's alone whatever the umask is: an admin checks the
+        // socket's owner and mode before it sends anything (protocol.md
+        // 6.0).
+        tomSecretsOwnerOnly([runtime.clientSocket, runtime.adminSocket]);
       case TomSecretsTransport.tcp:
         _clientServer = await ServerSocket.bind(
           InternetAddress.loopbackIPv4,
@@ -630,10 +635,12 @@ final class TomSecretsService
         FileSystemEntityType.notFound) {
       await File(path).delete();
     }
-    return ServerSocket.bind(
+    final server = await ServerSocket.bind(
       InternetAddress(path, type: InternetAddressType.unix),
       0,
     );
+    tomSecretsOwnerOnly([path]);
+    return server;
   }
 
   Future<void> _closeServers() async {

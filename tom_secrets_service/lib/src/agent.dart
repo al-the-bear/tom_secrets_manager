@@ -33,6 +33,7 @@ import 'access.dart';
 import 'agent_pipe.dart';
 import 'approvals.dart';
 import 'audit.dart';
+import 'hardening.dart';
 import 'identity.dart';
 import 'log.dart';
 import 'peer_identity.dart';
@@ -134,6 +135,7 @@ final class TomSecretsSshAgent {
       InternetAddress(path, type: InternetAddressType.unix),
       0,
     );
+    tomSecretsOwnerOnly([path]);
     _socket = server;
     endpoint = {'socket': path};
     server.listen(

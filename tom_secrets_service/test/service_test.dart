@@ -301,6 +301,9 @@ void main() {
         0,
       );
       addTearDown(server.close);
+      // It passes the check of who answers (this user's socket, this very
+      // process): what it lacks is the key.
+      tomSecretsOwnerOnly([runtime.adminSocket]);
       server.listen((s) {
         s.add(
           tomSecretsJsonFrame({
@@ -703,7 +706,13 @@ void main() {
       expect((denied['details']! as Map)['reason'], 'bad_token');
       await raw.closed.future;
 
-      final admin = await TomSecretsAdminClient.connect(runtime, demo.adminKey);
+      final admin = await TomSecretsAdminClient.connect(
+        runtime,
+        demo.adminKey,
+        trust: Platform.isWindows
+            ? const TomSecretsServiceTrust()
+            : tcpAnywhereTrust,
+      );
       await admin.unlock(primaryPassword);
       raw = await Raw.connect(runtime);
       raw.send(hello({'token': token}));

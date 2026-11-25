@@ -63,7 +63,36 @@ void main() {
     expect(servicePid, isNot(pid));
     addTearDown(() => Process.killPid(servicePid));
 
-    final admin = await TomSecretsAdminClient.connect(runtime, key);
+    // The admin here is the test, not tsm beside the service: the service
+    // built above is named as the one expected (what TSM_SERVICE does).
+    final trust = TomSecretsServiceTrust(
+      executables: {tomSecretsRealExecutable(exe)},
+    );
+    // Without it the admin sends nothing: this service is not the one a
+    // program in the Dart SDK's folder expects.
+    await expectLater(
+      TomSecretsAdminClient.connect(runtime, key),
+      throwsA(
+        isA<TomSecretsAdminException>()
+            .having((e) => e.kind, 'kind', tomSecretsServiceUntrusted)
+            .having((e) => e.details['reason'], 'reason', 'peer_executable'),
+      ),
+    );
+    await expectLater(
+      TomSecretsAdminClient.claim(runtime, password: primaryPassword),
+      throwsA(
+        isA<TomSecretsAdminException>().having(
+          (e) => e.kind,
+          'kind',
+          tomSecretsServiceUntrusted,
+        ),
+      ),
+    );
+    final admin = await TomSecretsAdminClient.connect(
+      runtime,
+      key,
+      trust: trust,
+    );
     await admin.unlock(primaryPassword);
     final status = await admin.request('status');
     expect(status['locked'], isFalse);
@@ -124,7 +153,13 @@ void main() {
       }
     });
     await expectLater(
-      TomSecretsAdminClient.connect(runtime, key),
+      TomSecretsAdminClient.connect(
+        runtime,
+        key,
+        trust: TomSecretsServiceTrust(
+          executables: {tomSecretsRealExecutable(exe)},
+        ),
+      ),
       throwsA(
         isA<TomSecretsAdminException>().having(
           (e) => e.details['reason'],

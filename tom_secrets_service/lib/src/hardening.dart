@@ -265,3 +265,17 @@ bool _windowsDacl() {
     return false;
   }
 }
+
+/// Makes the socket files [paths] the user's alone (mode 0600), whatever
+/// the umask they were bound under. Linux and macOS.
+void tomSecretsOwnerOnly(List<String> paths) {
+  // Why synchronous: `chmod` returns at once, and nothing is accepted
+  // before it has.
+  final result = Process.runSync('chmod', ['600', ...paths]);
+  if (result.exitCode != 0) {
+    throw FileSystemException(
+      'chmod 600 failed: ${result.stderr}',
+      paths.first,
+    );
+  }
+}

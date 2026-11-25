@@ -88,6 +88,31 @@ KdbxEntry _add(KdbxFile file, List<String> path, String title, String pw) {
 /// A demo installation in a temporary directory (the system's temp: a Unix
 /// socket path is limited to 104 bytes on macOS, which the workspace path
 /// exceeds).
+/// The check of who answers (protocol.md 6.0) for a test that runs
+/// Windows' TCP transport on another OS, where the owner of a TCP
+/// connection cannot be measured: handed facts that pass. The check itself
+/// is tested in `tom_secrets_client` and, with the built service, in
+/// process_test.dart.
+const tcpAnywhereTrust = TomSecretsServiceTrust(inspector: _PassingFacts());
+
+final class _PassingFacts implements TomSecretsEndpointInspector {
+  const _PassingFacts();
+
+  @override
+  TomSecretsEndpointFacts files(TomSecretsRuntime runtime) =>
+      TomSecretsEndpointFacts(
+        operatingSystem: 'linux',
+        ownUser: 1000,
+        ownPid: pid,
+        directory: (owner: 1000, mode: 448, type: 'directory'),
+        socket: (owner: 1000, mode: 384, type: 'socket'),
+        peer: TomSecretsServicePeer(pid: pid, user: 1000, executable: null),
+      );
+
+  @override
+  TomSecretsEndpointFacts withPeer(TomSecretsEndpointFacts f, Socket s) => f;
+}
+
 final class Demo {
   Demo._(this.dir);
 
