@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.26.2
+
+- The service writes its identity key into this device's record before it
+  announces the unlock, so an app that reads the primary on `unlocked`
+  holds the copy that write made and its next save is not merged.
+
 ## 0.26.1
 
 - `pair.list` is answered to `tsm` too: the device records hold no secret,

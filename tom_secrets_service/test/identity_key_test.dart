@@ -42,6 +42,23 @@ Matcher refused(String kind, [String? reason]) => throwsA(
       .having((e) => e.details['reason'], 'reason', reason ?? anything),
 );
 
+/// The transport of this OS: Unix sockets, on Windows localhost ports.
+final transport = Platform.isWindows
+    ? TomSecretsTransport.tcp
+    : TomSecretsTransport.unix;
+
+/// A connection to the admin endpoint of [runtime].
+Future<Socket> connectAdmin(TomSecretsRuntime runtime) =>
+    runtime.transport == TomSecretsTransport.unix
+    ? Socket.connect(
+        InternetAddress(runtime.adminSocket, type: InternetAddressType.unix),
+        0,
+      )
+    : Socket.connect(
+        InternetAddress.loopbackIPv4,
+        readTomSecretsPortFile(File(runtime.adminPortFile).readAsStringSync())!,
+      );
+
 /// Frames spoken by hand on the admin endpoint.
 final class RawAdmin {
   RawAdmin._(this.socket) {
@@ -58,10 +75,7 @@ final class RawAdmin {
   }
 
   static Future<RawAdmin> open(TomSecretsRuntime runtime) async {
-    final socket = await Socket.connect(
-      InternetAddress(runtime.adminSocket, type: InternetAddressType.unix),
-      0,
-    );
+    final socket = await connectAdmin(runtime);
     addTearDown(socket.destroy);
     return RawAdmin._(socket);
   }
@@ -87,7 +101,7 @@ void main() {
     'the user alone, and the same after a restart; status names it',
     () async {
       final demo = await Demo.create();
-      final first = await demo.start();
+      final first = await demo.start(transport: transport);
       final key = Uint8List.fromList(first.identityKey);
       expect(key, hasLength(tomSecretsIdentityKeyLength));
       final file = File(
@@ -98,10 +112,10 @@ void main() {
         expect(file.statSync().mode & 0x1ff, 0x180, reason: '0600');
       }
       final identity = first.statusReport()['identity']! as Map;
-        expect(identity['words'], tomSecretsIdentityWords(key));
+      expect(identity['words'], tomSecretsIdentityWords(key));
       expect(identity['fingerprint'], tomSecretsIdentityFingerprint(key));
       await first.stop();
-      final second = await demo.start();
+      final second = await demo.start(transport: transport);
       expect(second.identityKey, key);
     },
   );
@@ -112,15 +126,18 @@ void main() {
     File('${demo.bootstrap.dataDirectory}/$tomSecretsServiceIdentityFile')
       ..createSync(recursive: true)
       ..writeAsStringSync('{"secretKey": "no key"}');
-    await expectLater(demo.start(), throwsA(isA<FileSystemException>()));
+    await expectLater(
+      demo.start(transport: transport),
+      throwsA(isA<FileSystemException>()),
+    );
   });
 
-  group('the pins', skip: Platform.isWindows ? 'Unix sockets' : null, () {
+  group('the pins', () {
     test('a service that is not pinned gets neither an auth nor a claim: '
         '`unpinned`, with its words to compare', () async {
       final demo = await Demo.create();
-      final service = await demo.start();
-      final runtime = demo.runtime();
+      final service = await demo.start(transport: transport);
+      final runtime = demo.runtime(transport);
       final trust = strict(TomSecretsMemoryPins());
       for (final attempt in [
         () =>
@@ -154,8 +171,8 @@ void main() {
     test('pinned (as the starter pins what the started process said), it is '
         'authenticated and claimed', () async {
       final demo = await Demo.create();
-      final service = await demo.start();
-      final runtime = demo.runtime();
+      final service = await demo.start(transport: transport);
+      final runtime = demo.runtime(transport);
       final pins = TomSecretsMemoryPins();
       await pins.pin(
         'demo-host',
@@ -182,7 +199,7 @@ void main() {
     test('a host-level pin (a device record of the primary, a pairing) '
         'holds for the service wherever it answers', () async {
       final demo = await Demo.create();
-      final service = await demo.start();
+      final service = await demo.start(transport: transport);
       final pins = TomSecretsMemoryPins();
       await pins.pin(
         'demo-host',
@@ -191,7 +208,7 @@ void main() {
         TomSecretsPinSource.pairing,
       );
       final admin = await TomSecretsAdminClient.connect(
-        demo.runtime(),
+        demo.runtime(transport),
         demo.adminKey,
         trust: strict(pins),
       );
@@ -201,8 +218,8 @@ void main() {
     test('a service with another key than the pinned one is refused before '
         'anything is sent: `service_key_changed`, no way around it', () async {
       final demo = await Demo.create();
-      await demo.start();
-      final runtime = demo.runtime();
+      await demo.start(transport: transport);
+      final runtime = demo.runtime(transport);
       final other = await TomSecretsServiceIdentityKey.generate();
       addTearDown(other.dispose);
       final pins = TomSecretsMemoryPins();
@@ -247,12 +264,12 @@ void main() {
     });
   });
 
-  group('the claim', skip: Platform.isWindows ? 'Unix sockets' : null, () {
+  group('the claim', () {
     test('a claim in the clear is refused', () async {
       final demo = await Demo.create();
-      await demo.start();
+      await demo.start(transport: transport);
       for (final identify in [false, true]) {
-        final raw = await RawAdmin.open(demo.runtime());
+        final raw = await RawAdmin.open(demo.runtime(transport));
         expect((await raw.next())['features'], contains('identity'));
         if (identify) {
           raw.send({
@@ -269,7 +286,7 @@ void main() {
       }
       // Nothing was claimed.
       final admin = await TomSecretsAdminClient.connect(
-        demo.runtime(),
+        demo.runtime(transport),
         demo.adminKey,
       );
       await admin.close();
@@ -278,8 +295,8 @@ void main() {
     test('a claim sealed to another key than this connection\'s one-time '
         'key does not open', () async {
       final demo = await Demo.create();
-      await demo.start();
-      final raw = await RawAdmin.open(demo.runtime());
+      await demo.start(transport: transport);
+      final raw = await RawAdmin.open(demo.runtime(transport));
       await raw.next();
       final nonce = tomSecretsRandomBytes();
       raw.send({'op': 'identify', 'clientNonce': base64.encode(nonce)});
@@ -307,28 +324,31 @@ void main() {
         'what stands between the admin and the service passes the claim on '
         'and reads nothing of it', () async {
       final demo = await Demo.create();
-      final service = await demo.start();
-      final real = demo.runtime();
+      final service = await demo.start(transport: transport);
+      final real = demo.runtime(transport);
       // A relay on a socket of its own: every byte both ways is kept.
       final relayDir = Directory('${demo.dir}/relay')..createSync();
       final relayRuntime = TomSecretsRuntime(
         relayDir.path,
-        transport: TomSecretsTransport.unix,
+        transport: transport,
       );
       final seen = BytesBuilder();
-      final relay = await ServerSocket.bind(
-        InternetAddress(
-          relayRuntime.adminSocket,
-          type: InternetAddressType.unix,
-        ),
-        0,
-      );
-      addTearDown(relay.close);
-      relay.listen((client) async {
-        final upstream = await Socket.connect(
-          InternetAddress(real.adminSocket, type: InternetAddressType.unix),
+      final ServerSocket relay;
+      if (transport == TomSecretsTransport.unix) {
+        relay = await ServerSocket.bind(
+          InternetAddress(
+            relayRuntime.adminSocket,
+            type: InternetAddressType.unix,
+          ),
           0,
         );
+      } else {
+        relay = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        await relayRuntime.writePort(relayRuntime.adminPortFile, relay.port);
+      }
+      addTearDown(relay.close);
+      relay.listen((client) async {
+        final upstream = await connectAdmin(real);
         unawaited(client.done.catchError((Object _) => client));
         unawaited(upstream.done.catchError((Object _) => upstream));
         client.listen(
@@ -395,9 +415,9 @@ void main() {
       'unlock; pair.identity carries it, pair.record keeps a peer\'s',
       () async {
         final demo = await Demo.create();
-        final service = await demo.start();
+        final service = await demo.start(transport: transport);
         final admin = await TomSecretsAdminClient.connect(
-          demo.runtime(),
+          demo.runtime(transport),
           demo.adminKey,
         );
         addTearDown(admin.close);
@@ -434,8 +454,8 @@ void main() {
         'that pinned the old key follows the statement and pins the new '
         'one; one that pinned another key is still refused', () async {
       final demo = await Demo.create();
-      final service = await demo.start();
-      final runtime = demo.runtime();
+      final service = await demo.start(transport: transport);
+      final runtime = demo.runtime(transport);
       final old = Uint8List.fromList(service.identityKey);
       final pins = TomSecretsMemoryPins();
       await pins.pin(
@@ -499,8 +519,8 @@ void main() {
 
       // The rotated key is the one a restart finds.
       await service.stop();
-      expect((await demo.start()).identityKey, rotated);
-    }, skip: Platform.isWindows ? 'Unix sockets' : null);
+      expect((await demo.start(transport: transport)).identityKey, rotated);
+    });
   });
 }
 

@@ -3,7 +3,7 @@ description: >-
   The secrets service of the Tom Secrets Manager: a background process that
   holds one user's unlocked vaults and answers local clients, the manager
   app and tsm.
-version: 0.26.1
+version: 0.26.2
 homepage: https://enterprise-flutter.dev
 repository: https://github.com/al-the-bear/tom_secrets_manager
 

@@ -47,7 +47,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.26.1';
+const String tomSecretsServiceVersion = '0.26.2';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -977,6 +977,18 @@ final class TomSecretsService
       'needsUnlock': states.where((s) => s == 'needs_unlock').length,
       'unavailable': states.where((s) => s == 'unavailable').length,
     });
+    // This device's record names its service's identity key (protocol.md
+    // 6.1). Written before the unlock is announced: an app that reads the
+    // primary on `unlocked` then holds the copy this write made, and its
+    // next save is no merge.
+    try {
+      final primary = _vaults.primary;
+      if (primary != null && _recordServiceKey(primary.file)) {
+        await savePrimary();
+      }
+    } on Object catch (e) {
+      log.error('device_record_failed', e);
+    }
     _emit({'op': 'unlocked'});
     await _takeNextKeys();
     await _readTokenExpiries();
@@ -1011,16 +1023,15 @@ final class TomSecretsService
       final status = _vaults.statusOf(_vaults.primaryName ?? '');
       if (status != null) _emitState(status);
     }
-    final taken = tomSecretsTakeNextKeys(
+    if (tomSecretsTakeNextKeys(
       primary.file,
       device: trust.device,
       now: now,
       primaryKeyIds: ids,
-    );
-    if (taken) log.info('next_keys_taken', {'device': trust.device});
-    // With it, what the other devices show as this service's words.
-    final keyed = _recordServiceKey(primary.file);
-    if (taken || keyed) await savePrimary();
+    )) {
+      log.info('next_keys_taken', {'device': trust.device});
+      await savePrimary();
+    }
   }
 
   /// Keeps the primary's next keys in the keychain beside its keys; answers
