@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.34
+
+- The First run makes the data directory the user's alone on a desktop
+  (`tom_secrets_client` 0.2.20's `tomSecretsPrepareDataDirectory`): before
+  anything is written (a looser folder tightened) and again once the
+  bootstrap is written, so every file it wrote is 0600 (Windows: the
+  user-only ACL). A data directory that is no folder or another user's is
+  refused with the new problem `TomSecretsFirstRunProblem.dataDirectory`,
+  before anything is written.
+
 ## 0.2.33
 
 - Pairing: the receiving side names its platform in its `done` answer

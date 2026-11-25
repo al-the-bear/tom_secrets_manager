@@ -228,6 +228,59 @@ void main() {
       );
     });
 
+    test('the data directory is the user\'s alone: a looser one tightened '
+        'before anything is written, every file written 0600', () async {
+      final dir = _scratch();
+      final data = Directory('${dir.path}/data')..createSync();
+      Process.runSync('chmod', ['755', data.path]);
+      final run = _firstRun(dir, keychain: TomInMemorySecretStore());
+      await run.run(
+        TomSecretsFirstRunSetup(
+          primary: TomSecretsVaultLocator.parse(
+            'file:${dir.path}/primary.kdbx',
+          ),
+          create: true,
+          masterPassword: _password,
+          host: 'demo-host',
+        ),
+      );
+      expect(data.statSync().mode & 0x1FF, 0x1C0, reason: 'the folder 0700');
+      final files = data.listSync(recursive: true).whereType<File>().toList();
+      expect(
+        files.map((f) => f.path.split('/').last),
+        containsAll(['bootstrap.yaml', 'device-settings.kdbx']),
+      );
+      for (final f in files) {
+        expect(f.statSync().mode & 0x1FF, 0x180, reason: '${f.path} 0600');
+      }
+    }, testOn: 'mac-os || linux');
+
+    test('a data directory of another kind is refused before anything is '
+        'written', () async {
+      final dir = _scratch();
+      File('${dir.path}/data').writeAsStringSync('not a folder');
+      final run = _firstRun(dir, keychain: TomInMemorySecretStore());
+      await expectLater(
+        run.run(
+          TomSecretsFirstRunSetup(
+            primary: TomSecretsVaultLocator.parse(
+              'file:${dir.path}/primary.kdbx',
+            ),
+            create: true,
+            masterPassword: _password,
+          ),
+        ),
+        throwsA(
+          isA<TomSecretsFirstRunException>().having(
+            (e) => e.problem,
+            'problem',
+            TomSecretsFirstRunProblem.dataDirectory,
+          ),
+        ),
+      );
+      expect(File('${dir.path}/primary.kdbx').existsSync(), isFalse);
+    });
+
     test(
       'an existing primary opened: a wrong password refused and nothing '
       'written; the vault mode keeps the container key in the primary',

@@ -76,6 +76,7 @@ Why the first run cannot go on.
 | `inconsistent` | The locator, the protection layers and the file name do not agree (a `.tsmx` name without a repository key, or the other way round). |
 | `keychainNeeded` | Keys are to be kept and there is no keychain. |
 | `alreadySetUp` | The machine is set up already: `bootstrap.yaml` is there. |
+| `dataDirectory` | The data directory is no folder, another user's, or cannot be made this user's alone. |
 
 ---
 

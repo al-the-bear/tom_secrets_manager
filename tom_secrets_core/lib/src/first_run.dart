@@ -36,6 +36,8 @@ import 'package:tom_core_storage/settings.dart';
 import 'package:tom_core_storage/tom_core_storage.dart';
 import 'package:tom_github_api/tom_github_api.dart';
 import 'package:tom_kdbx_store/tom_kdbx_store.dart';
+import 'package:tom_secrets_client/admin.dart'
+    show TomSecretsDataDirectoryException, tomSecretsPrepareDataDirectory;
 
 import 'device_settings.dart';
 import 'github_token.dart';
@@ -118,6 +120,10 @@ enum TomSecretsFirstRunProblem {
 
   /// The machine is set up already: `bootstrap.yaml` is there.
   alreadySetUp,
+
+  /// The data directory is no folder, another user's, or cannot be made
+  /// this user's alone.
+  dataDirectory,
 }
 
 /// The first run cannot go on, for [problem].
@@ -424,6 +430,9 @@ final class TomSecretsFirstRun {
         'This machine is set up already: $bootstrapPath is there.',
       );
     }
+    // Why first: the device settings container and the bootstrap go into
+    // it; no other user may read them, not even while they are written.
+    await _privateDataDirectory();
     final locator = setup.primary;
     final outer = locator.fileName.endsWith(tomSecretsOuterSuffix);
     if (outer && setup.repositoryKey == null) {
@@ -603,6 +612,23 @@ final class TomSecretsFirstRun {
     final temp = File('$bootstrapPath.tmp');
     await temp.writeAsString(text.toString(), flush: true);
     await temp.rename(file.path);
+    // What this process wrote got its umask's mode (often 0644): 0600 now.
+    await _privateDataDirectory();
+  }
+
+  /// Makes [dataDirectory] the user's alone (0700, files 0600; Windows the
+  /// user-only ACL) on a desktop; a phone keeps it in the app's own
+  /// sandbox.
+  Future<void> _privateDataDirectory() async {
+    if (!(Platform.isMacOS || Platform.isLinux || Platform.isWindows)) return;
+    try {
+      await tomSecretsPrepareDataDirectory(dataDirectory);
+    } on TomSecretsDataDirectoryException catch (e) {
+      throw TomSecretsFirstRunException(
+        TomSecretsFirstRunProblem.dataDirectory,
+        e.message,
+      );
+    }
   }
 }
 
