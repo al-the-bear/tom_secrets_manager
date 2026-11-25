@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.25.10
+
+- Large vaults: a `save` answers `ok` with the `revision` the file has now
+  and `merged` when the app's copy was merged, so the app reads nothing
+  back after a save written as it was sent (protocol.md 6.4). A held file's
+  revision is hashed once, and a `file:` vault's save compares the file
+  there with its base as bytes instead of hashing both. With
+  `tom_secrets_client` 0.2.24's frame reader a 40 MB vault's `save` and
+  `vaultFile` take about 5 s and 2 s on the test VM (before: 6 to 7 s and
+  5.5 s, plus the read-back after every save).
+
 ## 0.25.9
 
 - The sockets (`client.sock`, `admin.sock`, `agent.sock`, the App Group's

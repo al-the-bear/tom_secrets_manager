@@ -542,6 +542,16 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
     return tomSecretsEncodeStored(locator, file, outerKey: outerKey);
   }
 
+  /// Whether [a] and [b] are the same file: compared as they are, which
+  /// costs a fraction of hashing both.
+  static bool _sameBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   /// Replaces the file at [locator] with [stored] at once.
   Future<void> _write(String locator, Uint8List stored) =>
       _writeFile(_path(locator), stored);
@@ -630,7 +640,7 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
     final current = await read(locator);
     var merged = false;
     var conflicts = 0;
-    if (tomSecretsBlobId(current) != tomSecretsBlobId(base)) {
+    if (!_sameBytes(current, base)) {
       final result = tomSecretsMergeVaults(
         base: await decode(locator, base, credentials, outerKey: outerKey),
         ours: file,
@@ -671,7 +681,7 @@ final class TomSecretsFileOpener implements TomSecretsVaultOpener {
     Map<String, Uint8List> beside = const {},
   }) async {
     final current = await read(locator);
-    if (tomSecretsBlobId(current) != tomSecretsBlobId(base)) {
+    if (!_sameBytes(current, base)) {
       throw TomSecretsSaveException(
         'denied',
         'the file has moved since the copy that was re-keyed',
@@ -2800,7 +2810,12 @@ final class TomSecretsVaultSet {
   }
 
   static String _revisionOf(TomSecretsOpenedVault v) =>
-      v.revision ?? tomSecretsBlobId(v.stored);
+      v.revision ?? (_blobIds[v.stored] ??= tomSecretsBlobId(v.stored));
+
+  // The blob id of a held file, computed once: hashing a vault with large
+  // attachments costs most of a second, and a save and its read-back asked
+  // for it several times. Held files are never changed in place.
+  static final Expando<String> _blobIds = Expando<String>('blobId');
 
   /// Fetches the stores that are due ([force]: every store, the `reload`)
   /// and reopens those whose file moved, with the keys held (part-service,

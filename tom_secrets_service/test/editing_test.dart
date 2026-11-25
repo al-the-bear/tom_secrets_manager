@@ -331,11 +331,16 @@ void main() {
       );
       final before = File(demo.teamPath).readAsBytesSync();
       final edited = await _edited(before, (f) => _setToken(f, 'token-2'));
-      await admin.request('save', {
+      final answer = await admin.request('save', {
         'store': 'team',
         'bytes': base64.encode(edited),
         'baseRevision': tomSecretsBlobId(before),
       });
+      // Written as it was sent: the answer names the file's revision and
+      // no merge, so the app keeps its copy and reads nothing back.
+      expect(answer['revision'], tomSecretsBlobId(edited));
+      expect(answer.containsKey('merged'), isFalse);
+      expect(answer.containsKey('pending'), isFalse);
       expect(File(demo.teamPath).readAsBytesSync(), edited);
       final event = await changed;
       expect(event['store'], 'team');
@@ -365,11 +370,19 @@ void main() {
         await _edited(held, (f) => _addNote(f, 'Written meanwhile')),
       );
       final edited = await _edited(held, (f) => _setToken(f, 'token-4'));
-      await admin.request('save', {
+      final answer = await admin.request('save', {
         'store': 'team',
         'bytes': base64.encode(edited),
         'baseRevision': tomSecretsBlobId(held),
       });
+      // Merged: the answer says so, and names what is there now (the app
+      // reads it again).
+      expect(answer['merged'], isTrue);
+      expect(
+        answer['revision'],
+        tomSecretsBlobId(File(demo.teamPath).readAsBytesSync()),
+      );
+      expect(answer['revision'], isNot(tomSecretsBlobId(edited)));
       final merged = await KdbxFormat().read(
         File(demo.teamPath).readAsBytesSync(),
         _team(),

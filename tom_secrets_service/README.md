@@ -59,7 +59,7 @@ tests and embedding.
 
 ```yaml
 dependencies:
-  tom_secrets_service: ^0.25.9
+  tom_secrets_service: ^0.25.10
 ```
 
 ```sh
@@ -431,6 +431,9 @@ The manager app edits vaults through the service (protocol.md 6.4).
 `outerKey`) and their locations; `save` takes the edited file, which must
 open with the store's keys.
 
+- The answer names the `revision` the file has now, and `merged` when the
+  app's copy was merged: an app whose file was written as sent keeps its
+  copy and reads nothing back.
 - A file still at `baseRevision` is written as it is. A file that moved
   meanwhile is merged three-way when the app edited the service's copy, and
   refused (`stale_base`) otherwise.
@@ -643,7 +646,7 @@ session) the service never locks itself, the maximum unlocked time included.
 
 ## Status
 
-Version 0.25.9. The suite runs with `testkit :test` from the package folder.
+Version 0.25.10. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real

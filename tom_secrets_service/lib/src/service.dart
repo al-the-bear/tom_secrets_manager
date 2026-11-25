@@ -47,7 +47,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.25.9';
+const String tomSecretsServiceVersion = '0.25.10';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -5389,9 +5389,14 @@ final class _AdminSession {
             newKeys: newKeys,
             recipients: recipients,
           );
+          // The revision the file has now, and whether it was merged: an
+          // app whose file was written as it sent it keeps that file and
+          // reads nothing back (a vault with large attachments).
           connection.send({
             'op': 'ok',
             'id': id,
+            'revision': result.revision,
+            if (result.merged) 'merged': true,
             if (result.pending) 'pending': true,
           });
         } on TomSecretsSaveException catch (e) {

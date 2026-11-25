@@ -557,10 +557,10 @@ packages:
     dependency: transitive
     description:
       name: tom_kpasslib
-      sha256: "63d384e312bcfa9a6968168a2ff4847b21fa998f2dbcdfd922ebaf70afdeac31"
+      sha256: dfd344599dd217c8e3e8e31aa70881f0efd6af618008263dc51b87670d7a08ab
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.2+tom.4"
+    version: "1.1.2+tom.5"
   tom_pqc:
     dependency: transitive
     description:
@@ -580,10 +580,10 @@ packages:
     dependency: "direct main"
     description:
       name: tom_secrets_client
-      sha256: "14328d955ce3465b04d3548864fde296f3a63b988b221893d0d262192e3d9601"
+      sha256: a310f743eb4e7144b28da1758f9286c4cf2e3b22cfaae0dd70d95aeb1b39c891
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.22"
+    version: "0.2.24"
   tom_secrets_core:
     dependency: "direct main"
     description:
