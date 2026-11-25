@@ -364,7 +364,7 @@ sequenceDiagram
   G-&gt;&gt;N: confirm (session)
   Note over G: the user confirms the new device's name
   G-&gt;&gt;N: bundle
-  N-&gt;&gt;G: done (its keys), or refused
+  N-&gt;&gt;G: done (its keys, its platform), or refused
 ```
 -->
 
@@ -554,7 +554,9 @@ file, repository key), the shared configuration, the GitHub tokens with
 their expiry, and the giver's public keys with its link address and, when
 agreed, the relay and link id of the approval link. Never a private key,
 the master password, the allow list or the audit log. The new device
-answers `done` with its own public keys.
+answers `done` with its own public keys and its platform (`macos`,
+`windows`, `linux`, `ios`, `android`), which the giver keeps in the new
+device's record.
 
 This diagram shows what the giving side records.
 
