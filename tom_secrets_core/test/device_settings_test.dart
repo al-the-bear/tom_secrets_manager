@@ -66,4 +66,15 @@ void main() {
       isFalse,
     );
   });
+
+  test('settings written with the retired startAtLogin key still read; '
+      'the key is not written again', () {
+    final old = TomSecretsDeviceSettings.fromJson({
+      ...const TomSecretsDeviceSettings().toJson(),
+      'startAtLogin': true,
+      'refreshMinutes': 7,
+    });
+    expect(old.refreshMinutes, 7);
+    expect(old.toJson().containsKey('startAtLogin'), isFalse);
+  });
 }

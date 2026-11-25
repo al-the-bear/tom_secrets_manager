@@ -308,7 +308,7 @@ What the device settings hold. The keys of later parts (approver and approval-li
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsDeviceSettings({serviceLock, appLock, defaultEnvironment, servedStores, refreshMinutes, offlineCache, keyExpiryWarningDays, approvalTimeout, codeTimeout, startAtLogin, approvalLink, otherKeyWarningDays, keyPairAgeMonths, primaryKeyAgeMonths, vaultKeyAgeMonths, memberKeyAgeMonths})` | const | Settings with the defaults for every value not given. |
+| `TomSecretsDeviceSettings({serviceLock, appLock, defaultEnvironment, servedStores, refreshMinutes, offlineCache, keyExpiryWarningDays, approvalTimeout, codeTimeout, approvalLink, otherKeyWarningDays, keyPairAgeMonths, primaryKeyAgeMonths, vaultKeyAgeMonths, memberKeyAgeMonths})` | const | Settings with the defaults for every value not given. |
 | `TomSecretsDeviceSettings.fromJson(json)` | factory | From the stored JSON; a value missing takes its default. |
 
 #### Properties
@@ -325,7 +325,6 @@ What the device settings hold. The keys of later parts (approver and approval-li
 | `approvalTimeout` | `Duration` | How long a request waits for an unlock or an approval. |
 | `codeTimeout` | `Duration` | How long an approval code is valid. |
 | `approvalLink` | `String?` | Where this host's approval link listens (`address:port`, its VPN or LAN address, never all interfaces); null: no link. |
-| `startAtLogin` | `bool` | Whether the app starts at login (phase B). |
 | `otherKeyWarningDays` | `int` | How many days before its due date the reminders of a key other than the GitHub token start (Reminders, default 30). |
 | `keyPairAgeMonths` | `int` | The rotation age of the approver and approval-link key pairs, in months (default 24). |
 | `primaryKeyAgeMonths` | `int` | The rotation age a new key file or repository key of the primary vault gets, in months (default 24; rotating them means pairing again). |

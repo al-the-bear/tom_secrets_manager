@@ -158,7 +158,6 @@ final class TomSecretsDeviceSettings {
     this.keyExpiryWarningDays = 14,
     this.approvalTimeout = const Duration(seconds: 60),
     this.codeTimeout = const Duration(minutes: 5),
-    this.startAtLogin = false,
     this.approvalLink,
     this.otherKeyWarningDays = 30,
     this.keyPairAgeMonths = 24,
@@ -167,7 +166,9 @@ final class TomSecretsDeviceSettings {
     this.memberKeyAgeMonths = 24,
   });
 
-  /// From the stored JSON; a value missing takes its default.
+  /// From the stored JSON; a value missing takes its default, and a key
+  /// this version does not know (such as the retired `startAtLogin`) is
+  /// ignored.
   factory TomSecretsDeviceSettings.fromJson(Map<String, Object?> json) {
     const d = TomSecretsDeviceSettings();
     int intOf(String key, int fallback) =>
@@ -199,7 +200,6 @@ final class TomSecretsDeviceSettings {
       codeTimeout: Duration(
         seconds: intOf('codeTimeoutSeconds', d.codeTimeout.inSeconds),
       ),
-      startAtLogin: json['startAtLogin'] == true,
       approvalLink: json['approvalLink'] as String?,
       otherKeyWarningDays: intOf('otherKeyWarningDays', d.otherKeyWarningDays),
       keyPairAgeMonths: intOf('keyPairAgeMonths', d.keyPairAgeMonths),
@@ -240,9 +240,6 @@ final class TomSecretsDeviceSettings {
   /// LAN address, never all interfaces); null: no link (protocol.md 9.7).
   final String? approvalLink;
 
-  /// Whether the app starts at login [B].
-  final bool startAtLogin;
-
   /// How many days before its due date the reminders of a key other than
   /// the GitHub token start (part-key-rotation, Reminders; DP-85: 30).
   final int otherKeyWarningDays;
@@ -275,7 +272,6 @@ final class TomSecretsDeviceSettings {
     'approvalTimeoutSeconds': approvalTimeout.inSeconds,
     'codeTimeoutSeconds': codeTimeout.inSeconds,
     'approvalLink': ?approvalLink,
-    'startAtLogin': startAtLogin,
     'otherKeyWarningDays': otherKeyWarningDays,
     'keyPairAgeMonths': keyPairAgeMonths,
     'primaryKeyAgeMonths': primaryKeyAgeMonths,

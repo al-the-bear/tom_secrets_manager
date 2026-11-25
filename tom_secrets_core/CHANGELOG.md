@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.30
+
+- `TomSecretsDeviceSettings.startAtLogin` is gone: nothing read it (the
+  app's "Start the app at login" switch is the OS's own login item, Run key
+  or autostart entry). Settings written with the key still read; it is
+  ignored and not written again.
+
 ## 0.2.29
 
 - An Enpass JSON import no longer fails on one passkey it cannot read (a

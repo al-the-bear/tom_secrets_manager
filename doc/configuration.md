@@ -164,7 +164,6 @@ next unlock. Read by `TomSecretsDeviceSettings` (`tom_secrets_core`).
 | `approvalTimeoutSeconds` | int | 60 | how long a request waits for an unlock or an approval |
 | `codeTimeoutSeconds` | int | 300 | how long an approval code is valid |
 | `approvalLink` | `address:port` | no link | where this host's approval link listens (a VPN or LAN address, never all interfaces) |
-| `startAtLogin` | bool | `false` | not read: the app's "Start the app at login" switch is the OS's own login item, Run key or autostart entry |
 | `otherKeyWarningDays` | int | 30 | days before its due date the reminders of every other key start |
 | `keyPairAgeMonths` | int | 24 | rotation age of the approver and approval-link key pairs |
 | `primaryKeyAgeMonths` | int | 24 | rotation age a new key file or repository key of the primary gets |
