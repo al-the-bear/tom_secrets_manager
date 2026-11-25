@@ -48,6 +48,14 @@ every key and token.
 `tomSecretsDataDirectory` (`tom_secrets_client`'s admin library), used by the
 app and `tsm`.
 
+It is the user's alone: the First run, `tsm pair`, the app and every start
+of the service make it mode 0700 (on Windows, the inheritance cut and only
+the user and SYSTEM), the service's files are written 0600 (umask 077), and
+a start tightens a looser folder and everything in it (logged as
+`data_directory_tightened`). A data directory another user owns stops the
+start (exit code 8). A cache directory set outside it is treated the same
+way.
+
 | File | Holds | Written by |
 | --- | --- | --- |
 | `bootstrap.yaml` | the service's start configuration (below) | the First run, `tsm pair`, the service |

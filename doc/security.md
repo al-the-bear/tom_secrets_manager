@@ -683,6 +683,16 @@ before, and daily once due. (`core/device_settings.dart`,
   dumpable on Linux; on Windows it sets the error mode and a process DACL
   that refuses memory read and write to all but SYSTEM. The macOS app is
   built with the hardened runtime. (`service/hardening.dart`.)
+- **The data directory is the user's alone.** It holds the offline cache,
+  the device settings container, the audit log, the operational log and
+  the agent's public keys. It is made mode 0700 (on Windows: the
+  inheritance cut, only the user and SYSTEM) by the First run, `tsm pair`,
+  the app and every start of the service; at each start the service
+  tightens a looser one (group and others lose every bit on the folder and
+  everything in it) and logs `data_directory_tightened`, and refuses one
+  another user owns (exit code 8). On Linux and macOS it also sets its
+  umask to 077, so every file it writes is 0600. (`client/admin/
+  data_directory.dart`, `service/hardening.dart`, `core/first_run.dart`.)
 - **Logs without values.** The operational log never holds a value,
   password, key or token; an exception is logged by its type and code,
   never its message; references and identities appear only at the debug

@@ -46,7 +46,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.25.6';
+const String tomSecretsServiceVersion = '0.25.7';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -304,7 +304,10 @@ final class TomSecretsService
     implements TomSecretsApprovalHost, TomSecretsAgentHost {
   TomSecretsService._(this.config) : _adminKey = config.adminKey;
 
-  /// Starts the service: prepares and locks the runtime directory, checks
+  /// Starts the service: makes the data directory (and a cache directory
+  /// outside it) the user's alone, tightening a looser one
+  /// (`tomSecretsPrepareDataDirectory`; another user's refuses the start),
+  /// prepares and locks the runtime directory, checks
   /// the device key's mode (a `keychain` mode without a keychain refuses the
   /// start), removes a dead instance's endpoint files, opens both endpoints
   /// and writes `service.json`. It starts locked. Throws
@@ -314,6 +317,9 @@ final class TomSecretsService
   ) async {
     final service = TomSecretsService._(config);
     service._hardening = config.harden?.call() ?? const {};
+    // Why first: everything the service writes (its log, the cache, the
+    // audit log, the agent's keys) goes below it.
+    final tightened = await _prepareDataDirectories(config.bootstrap);
     final runtime = config.runtime;
     await runtime.prepare();
     await runtime.acquire();
@@ -341,7 +347,32 @@ final class TomSecretsService
       'host': config.host,
       for (final e in service._hardening.entries) e.key: e.value,
     });
+    if (tightened > 0) {
+      config.log.info('data_directory_tightened', {
+        'directory': config.bootstrap.dataDirectory,
+        'entries': tightened,
+      });
+    }
     return service;
+  }
+
+  /// Makes the data directory, and the cache directory when it lies
+  /// elsewhere, the user's alone; answers how many entries others could
+  /// reach before.
+  static Future<int> _prepareDataDirectories(
+    TomSecretsBootstrap bootstrap,
+  ) async {
+    final data = Directory(bootstrap.dataDirectory).absolute.path;
+    var tightened = (await tomSecretsPrepareDataDirectory(
+      bootstrap.dataDirectory,
+    )).tightened;
+    final cache = Directory(bootstrap.cacheDirectory).absolute.path;
+    if (!cache.startsWith('$data${Platform.pathSeparator}') && cache != data) {
+      tightened += (await tomSecretsPrepareDataDirectory(
+        bootstrap.cacheDirectory,
+      )).tightened;
+    }
+    return tightened;
   }
 
   Map<String, bool> _hardening = const {};

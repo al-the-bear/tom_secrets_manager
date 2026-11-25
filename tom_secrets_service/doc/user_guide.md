@@ -132,11 +132,11 @@ it for the service and every client alike.
 <!-- transcript runtime-directory -->
 ```text
 $ ls -l /run/user/1000/tsm
-srwxr-xr-x  admin.sock
-srwxr-xr-x  agent.sock
-srwxr-xr-x  client.sock
--rw-r--r--  service.json
--rw-r--r--  service.lock
+srwx------  admin.sock
+srwx------  agent.sock
+srwx------  client.sock
+-rw-------  service.json
+-rw-------  service.lock
 ```
 
 - `service.lock` keeps a second service from starting; the OS releases it
@@ -174,14 +174,17 @@ place: `~/Library/Application Support/TomSecretsManager` on macOS,
 `~/.local/share/tom-secrets-manager`) on Linux,
 `%LOCALAPPDATA%\TomSecretsManager` on Windows; `TSM_DATA_DIR` moves it for
 the app and `tsm`. The service takes the folder of the `bootstrap.yaml` it
-starts with.
+starts with. It is the user's alone, like the runtime directory: mode 0700,
+its files 0600 (on Windows only the user and SYSTEM). Every start makes it
+so, tightening a looser folder (the log says `data_directory_tightened`),
+and refuses to start in one another user owns.
 
 <!-- transcript data-directory -->
 ```text
 $ ls -l /home/demo/.local/share/tom-secrets-manager
--rw-r--r--  device-settings.kdbx
+-rw-------  device-settings.kdbx
 -rw-------  device-settings.kdbx.key
--rw-r--r--  service.log
+-rw-------  service.log
 ```
 
 After a while it also holds `bootstrap.yaml`, `cache/` (the offline copies
@@ -502,6 +505,7 @@ old one revoke it in the app (Pairing › Revoke) once it is retired.
 | --- | --- | --- |
 | `tsm status` prints `not running` (exit 3) | no service answers in the runtime directory | start it (`tsm start`, or open the app); check that the program and the service see the same `TSM_RUNTIME_DIR` |
 | the service exits with code 4 | the runtime directory belongs to another user or is readable by others | remove the directory (it holds nothing that lasts) or fix its owner and mode 0700 |
+| the service exits with code 8 | the data directory belongs to another user, is no folder, or cannot be made the user's alone | fix its owner (`chown -R <user>`), or point `TSM_DATA_DIR` at a folder of the service's user |
 | `denied` with `other_user` or `unidentifiable` | the asking process runs as another user, or the OS would not say who it is | run the program as the service's user |
 | `denied` with `wrong_executable` | an admin command from a program the service does not admit | use the `tsm` or app beside the service |
 | `rate_limited` | the program asked too often, or was refused too often | wait the time given; fix the program's loop |

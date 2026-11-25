@@ -10,6 +10,12 @@
 /// - `notDumpable` (Linux): `prctl(PR_SET_DUMPABLE, 0)`, read back with
 ///   `PR_GET_DUMPABLE`; other users' and same-user debuggers cannot attach,
 ///   and `/proc/<pid>/` belongs to root;
+/// - `privateFiles` (Linux and macOS): `umask(077)`, read back by setting it
+///   again, so every file the service creates (its log, the offline cache,
+///   the audit log, the agent's keys) is 0600 and every folder 0700: only
+///   the user reads them, also where the data directory's own mode would
+///   not stop it (a file moved elsewhere). On Windows the data directory's
+///   ACL, inherited by what is inside, does this;
 /// - `memoryAccessDenied` (Windows): the process DACL grants SYSTEM all
 ///   access and the owner only to wait for, query and end the process, so
 ///   nobody else reads or writes its memory (`PROCESS_VM_READ` /
@@ -27,9 +33,15 @@ import 'package:ffi/ffi.dart';
 /// it achieved, by measure. Never throws: a measure that fails is `false`.
 Map<String, bool> tomSecretsHardenProcess() {
   if (Platform.isLinux) {
-    return {'noCoreDumps': _noCoreDumps(), 'notDumpable': _notDumpable()};
+    return {
+      'noCoreDumps': _noCoreDumps(),
+      'notDumpable': _notDumpable(),
+      'privateFiles': _privateFiles(),
+    };
   }
-  if (Platform.isMacOS) return {'noCoreDumps': _noCoreDumps()};
+  if (Platform.isMacOS) {
+    return {'noCoreDumps': _noCoreDumps(), 'privateFiles': _privateFiles()};
+  }
   if (Platform.isWindows) {
     return {
       'noCoreDumps': _windowsErrorMode(),
@@ -43,6 +55,23 @@ Map<String, bool> tomSecretsHardenProcess() {
 
 /// `RLIMIT_CORE` on Linux and macOS.
 const int _rlimitCore = 4;
+
+/// The file-creation mask that leaves group and others no bit.
+const int _privateUmask = 0x3F; // 077
+
+bool _privateFiles() {
+  try {
+    final umask = DynamicLibrary.process()
+        .lookupFunction<Uint32 Function(Uint32), int Function(int)>('umask');
+    umask(_privateUmask);
+    // umask answers the mask it replaces: setting it again reads it back.
+    // Why the mask on the answer: mode_t is 16 bits on macOS, and the
+    // upper bits of a narrower return value are not defined.
+    return umask(_privateUmask) & 0x1FF == _privateUmask;
+  } on Object {
+    return false;
+  }
+}
 
 final class _RLimit extends Struct {
   @Uint64()

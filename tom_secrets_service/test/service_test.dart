@@ -147,6 +147,45 @@ void main() {
     });
   });
 
+  group('the data directory', () {
+    test('a looser one is made the user\'s alone at the start: the folder '
+        '0700, its files 0600; the start logs how many it tightened', () async {
+      final demo = await Demo.create();
+      final data = demo.bootstrap.dataDirectory;
+      Directory('$data/cache').createSync(recursive: true);
+      File('$data/agent_keys.json').writeAsStringSync('{}');
+      for (final (path, mode) in [
+        (data, '755'),
+        ('$data/cache', '755'),
+        ('$data/agent_keys.json', '644'),
+      ]) {
+        Process.runSync('chmod', [mode, path]);
+      }
+      final service = await demo.start();
+      expect(FileStat.statSync(data).mode & 0x1FF, 0x1C0, reason: '0700');
+      expect(FileStat.statSync('$data/cache').mode & 0x1FF, 0x1C0);
+      expect(
+        FileStat.statSync('$data/agent_keys.json').mode & 0x1FF,
+        0x180,
+        reason: '0600',
+      );
+      await service.stop();
+      final log = File(demo.bootstrap.logFile).readAsStringSync();
+      expect(log, contains('data_directory_tightened'));
+      expect(log, contains('entries=3'));
+    });
+
+    test('a fresh one is created 0700', () async {
+      final demo = await Demo.create();
+      final data = demo.bootstrap.dataDirectory;
+      if (Directory(data).existsSync()) {
+        Directory(data).deleteSync(recursive: true);
+      }
+      await demo.start();
+      expect(FileStat.statSync(data).mode & 0x1FF, 0x1C0);
+    });
+  }, testOn: 'mac-os || linux');
+
   test('the admins: tsm and the app beside the service, the app of the '
       'distribution around it, the bootstrap\'s admin_executables', () {
     final root = Directory.systemTemp.createTempSync('tsmdist');

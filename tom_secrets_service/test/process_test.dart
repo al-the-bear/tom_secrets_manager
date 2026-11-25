@@ -70,8 +70,8 @@ void main() {
     expect(
       status['hardening'],
       Platform.isLinux
-          ? {'noCoreDumps': true, 'notDumpable': true}
-          : {'noCoreDumps': true},
+          ? {'noCoreDumps': true, 'notDumpable': true, 'privateFiles': true}
+          : {'noCoreDumps': true, 'privateFiles': true},
       reason: 'hardened at start, before the handover was read',
     );
     final log = File('${demo.dir}/data/service.log').readAsStringSync();

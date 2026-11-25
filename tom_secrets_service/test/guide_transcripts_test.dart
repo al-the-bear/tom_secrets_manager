@@ -91,6 +91,10 @@ String _kind(FileSystemEntity e) =>
 
 void main() {
   test('the guide shows what the service leaves for its operator', () async {
+    // The binary hardens its process before it starts (umask 077 among it,
+    // so its files are 0600); this test process does the same, so the
+    // listings show the modes an operator sees.
+    tomSecretsHardenProcess();
     final demo = await Demo.create();
     final service = await demo.start();
     final admin = await TomSecretsAdminClient.connect(

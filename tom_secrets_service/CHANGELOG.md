@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.25.7
+
+- The data directory is the user's alone at every start: made 0700
+  (Windows: the inheritance cut, the user and SYSTEM only), a looser one and
+  everything in it tightened and logged (`data_directory_tightened`), one
+  another user owns refused (exit code 8, `data_directory`); a cache
+  directory outside it the same.
+- The process hardening sets the umask to 077 on Linux and macOS
+  (`status.hardening.privateFiles`), so every file the service writes is
+  0600.
+
 ## 0.25.6
 
 - Chunked members on the admin endpoint (protocol.md 2.7): the challenge

@@ -118,6 +118,12 @@ Future<void> main() async {
       'code': 'device_key',
       'message': e.message,
     }, 5);
+  } on TomSecretsDataDirectoryException catch (e) {
+    await answer({
+      'status': 'error',
+      'code': 'data_directory',
+      'message': e.message,
+    }, 8);
   }
 
   stdout.writeln(jsonEncode({'status': 'ready'}));

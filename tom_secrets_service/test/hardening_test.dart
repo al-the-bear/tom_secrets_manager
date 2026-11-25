@@ -3,7 +3,8 @@
 
 /// The process hardening (part-service, Memory hygiene), checked from
 /// outside a hardened child process: Linux no core file and not dumpable
-/// (`/proc/<pid>/` then belongs to root); macOS no core file; Windows the
+/// (`/proc/<pid>/` then belongs to root); Linux and macOS files written
+/// 0600 (umask 077); macOS no core file; Windows the
 /// process DACL refusing `PROCESS_VM_READ` to the same user, and the error
 /// mode set.
 @TestOn('vm')
@@ -20,8 +21,12 @@ import 'package:test/test.dart';
 void main() {
   test('a hardened process is what status.hardening says, seen from '
       'outside', () async {
+    final scratch = Directory('.dart_tool/hardening_test')
+      ..createSync(recursive: true);
+    final written = '${scratch.createTempSync('run').path}/written.txt';
     final child = await Process.start(Platform.resolvedExecutable, [
       'test/support/harden_child.dart',
+      written,
     ]);
     addTearDown(() async {
       await child.stdin.close();
@@ -36,8 +41,19 @@ void main() {
     // The hardened process: on Windows dart.exe runs the script in a child.
     final hardened = report['pid'] as int;
 
+    if (!Platform.isWindows) {
+      expect(
+        report['fileMode'],
+        0x180,
+        reason: 'a file the service writes is 0600 (umask 077)',
+      );
+    }
     if (Platform.isLinux) {
-      expect(achieved, {'noCoreDumps': true, 'notDumpable': true});
+      expect(achieved, {
+        'noCoreDumps': true,
+        'notDumpable': true,
+        'privateFiles': true,
+      });
       final limits = File('/proc/$hardened/limits').readAsStringSync();
       expect(
         limits,
@@ -51,7 +67,7 @@ void main() {
       ]);
       expect((owner.stdout as String).trim(), '0');
     } else if (Platform.isMacOS) {
-      expect(achieved, {'noCoreDumps': true});
+      expect(achieved, {'noCoreDumps': true, 'privateFiles': true});
     } else if (Platform.isWindows) {
       expect(achieved, {'noCoreDumps': true, 'memoryAccessDenied': true});
       final kernel32 = DynamicLibrary.open('kernel32.dll');

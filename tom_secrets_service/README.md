@@ -59,7 +59,7 @@ tests and embedding.
 
 ```yaml
 dependencies:
-  tom_secrets_service: ^0.25.6
+  tom_secrets_service: ^0.25.7
 ```
 
 ```sh
@@ -93,6 +93,7 @@ tsm status
 | 3 | already running |
 | 4 | the runtime directory is refused (wrong owner or mode) |
 | 5 | the keychain holding the device key is not available |
+| 8 | the data directory is refused (no folder, another user's, or it cannot be made the user's alone) |
 
 ### The pairing mode
 
@@ -625,7 +626,7 @@ session) the service never locks itself, the maximum unlocked time included.
 
 ## Status
 
-Version 0.25.6. The suite runs with `testkit :test` from the package folder.
+Version 0.25.7. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real
