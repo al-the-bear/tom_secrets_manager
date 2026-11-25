@@ -34,6 +34,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:tom_core_storage/tom_core_storage.dart'
     show TomKeyRequiredException;
 
+import 'poly1305.dart';
 import 'vault_sync.dart';
 
 /// The suffix of an outer-encrypted vault file.
@@ -197,18 +198,16 @@ Future<Uint8List> tomSecretsOuterEncrypt(
     final contentNonce = _randomBytes(cipher.nonceLength, r);
     header.add(contentNonce);
     final head = header.toBytes();
-    final box = await algorithm.encrypt(
-      content,
-      secretKey: SecretKey(fileKey),
-      nonce: contentNonce,
-      aad: [...head, ...pathBytes],
-    );
+    final aad = Uint8List.fromList([...head, ...pathBytes]);
+    final sealed = cipher == TomSecretsOuterCipher.xchacha20Poly1305
+        ? await tomSecretsXchachaSeal(content, fileKey, contentNonce, aad)
+        : await _sealWith(algorithm, content, fileKey, contentNonce, aad);
     // Joined into one typed buffer: spreading a large vault into a list
     // costs a second per 40 MB.
     return (BytesBuilder(copy: false)
           ..add(head)
-          ..add(box.cipherText)
-          ..add(box.mac.bytes))
+          ..add(sealed.cipherText)
+          ..add(sealed.tag))
         .takeBytes();
   } finally {
     fileKey.fillRange(0, fileKey.length, 0);
@@ -245,17 +244,29 @@ Future<Uint8List> tomSecretsOuterDecrypt(
       );
     }
     try {
-      return Uint8List.fromList(
-        await algorithm.decrypt(
-          SecretBox(
-            parsed.ciphertext,
-            nonce: parsed.contentNonce,
-            mac: Mac(parsed.tag),
-          ),
-          secretKey: SecretKey(fileKey),
-          aad: [...file.sublist(0, parsed.headerLength), ...pathBytes],
+      final aad = Uint8List.fromList([
+        ...file.sublist(0, parsed.headerLength),
+        ...pathBytes,
+      ]);
+      if (parsed.cipher == TomSecretsOuterCipher.xchacha20Poly1305) {
+        return await tomSecretsXchachaOpen(
+          parsed.ciphertext,
+          parsed.tag,
+          fileKey,
+          parsed.contentNonce,
+          aad,
+        );
+      }
+      final opened = await algorithm.decrypt(
+        SecretBox(
+          parsed.ciphertext,
+          nonce: parsed.contentNonce,
+          mac: Mac(parsed.tag),
         ),
+        secretKey: SecretKey(fileKey),
+        aad: aad,
       );
+      return opened is Uint8List ? opened : Uint8List.fromList(opened);
     } on SecretBoxAuthenticationError {
       throw TomSecretsOuterException('the content does not open for $path');
     } finally {
@@ -265,6 +276,27 @@ Future<Uint8List> tomSecretsOuterDecrypt(
   throw TomKeyRequiredException(
     path,
     'no repository key held opens it (slots ${parsed.slots.map((s) => s.keyIdHex).join(', ')})',
+  );
+}
+
+/// [content] sealed by [algorithm] (the general path: AES-256-GCM).
+Future<({Uint8List cipherText, List<int> tag})> _sealWith(
+  Cipher algorithm,
+  Uint8List content,
+  List<int> key,
+  List<int> nonce,
+  Uint8List aad,
+) async {
+  final box = await algorithm.encrypt(
+    content,
+    secretKey: SecretKey(key),
+    nonce: nonce,
+    aad: aad,
+  );
+  final text = box.cipherText;
+  return (
+    cipherText: text is Uint8List ? text : Uint8List.fromList(text),
+    tag: box.mac.bytes,
   );
 }
 

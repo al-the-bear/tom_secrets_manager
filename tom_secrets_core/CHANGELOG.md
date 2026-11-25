@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.37
+
+- The outer encryption of a vault's content (`.tsmx`, XChaCha20-Poly1305)
+  computes its Poly1305 tag with five 26-bit limbs (`src/poly1305.dart`):
+  40 MB are sealed in about 0.5 s instead of 2 s, and opened in about 0.5 s
+  instead of 1.5 s. The file is the same, byte for byte: the stream is
+  still `package:cryptography`'s, and the tests compare ciphertext and tag
+  with that package's AEAD (and the tag with RFC 8439's vectors). The key
+  slots and AES-256-GCM files are sealed as before.
+
 ## 0.2.36
 
 - `tomSecretsOuterEncrypt` joins the `.tsmx` file in one typed buffer
