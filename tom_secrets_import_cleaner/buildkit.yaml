@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../../../../../../.tom/json-schema/buildkit/buildkit.schema.json
 # Tom Build Configuration for tom_secrets_import_cleaner: tsm_import_cleaner
 # is compiled into the binaries folder of each platform, so it is on PATH on
 # every machine after the next binaries build.
