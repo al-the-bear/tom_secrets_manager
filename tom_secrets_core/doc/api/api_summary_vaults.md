@@ -1777,7 +1777,7 @@ An entry auto-type may type into a window, and why.
 | `tomSecretsSharingGroup` | `String` | The group of the primary vault holding the member key and the directory of members (part-sharing); never a place references resolve into, never exported. |
 | `tomSecretsOverlayPrefix` | `String` | The first character of an overlay group's name. |
 | `tomSecretsFavoriteTag` | `String` | The tag that marks a favourite. |
-| `tomSecretsDefaultArgon2` | `KdbxArgon2` | The key derivation of a new vault: Argon2id over 64 MiB, 3 iterations, 1 lane. The app tunes it at creation so unlocking takes about one second on the slowest of the user's devices, and passes the result as `argon2` to `tomSecretsNewVault`. |
+| `tomSecretsDefaultArgon2` | `KdbxArgon2` | The key derivation of a new vault: Argon2id over 64 MiB, 4 iterations, 1 lane, the same on every device (about a second to unlock on a phone, a third of one on a desktop); a vault keeps the parameters it was made with. |
 | `tomSecretsAmbiguousCharacters` | `String` | The characters `TomSecretsPasswordPolicy.excludeAmbiguous` leaves out, because they are easily confused when read or typed. |
 | `tomSecretsProductGroup` | `String` | The root group holding the product's own groups (never resolved into). |
 | `tomSecretsVaultsGroup` | `String` | The subgroup holding the further vaults. |

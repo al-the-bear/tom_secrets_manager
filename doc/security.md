@@ -37,7 +37,9 @@ flowchart LR
 **KDBX 4.1.** Every vault is a KDBX 4.1 file, the format of KeePass, so
 KeePass and KeePassXC open it. A new vault's data cipher is AES-256, its
 inner stream (for protected fields) ChaCha20, and its key derivation
-Argon2id with 64 MiB of memory, 3 iterations and 1 lane; a vault keyed by
+Argon2id with 64 MiB of memory, 4 iterations and 1 lane, the same on
+every device (about a second to unlock on a phone, a third of one on a
+desktop); a vault keeps the parameters it was made with, and one keyed by
 anything but Argon2id is refused at creation. The key is the KeePass
 composite key: SHA-256 over the password's hash and the key file's hash.
 (`core/new_vault.dart`; the defaults of `tom_kdbx_store` and its KDBX

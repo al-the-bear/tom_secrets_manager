@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 /// New vaults (KeePass compatibility, BP-36): KDBX 4.1 keyed through
-/// Argon2id with the design's parameters (64 MiB, 3 iterations), the primary
+/// Argon2id with the design's parameters (64 MiB, 4 iterations), the primary
 /// and a further vault alike, read back after the GitHub cycle and, with
 /// `keepassxc-cli` on the machine, by KeePassXC. Demo data under demo keys.
 @TestOn('vm')
@@ -48,14 +48,14 @@ void main() {
     ProtectedValue.fromString('primary-demo-pw'),
   );
 
-  test('NV-1: a new vault is keyed by Argon2id over 64 MiB, 3 iterations, '
+  test('NV-1: a new vault is keyed by Argon2id over 64 MiB, 4 iterations, '
       '1 lane', () {
     expect(
       tomSecretsDefaultArgon2,
       const KdbxArgon2(
         type: KdbxArgon2Type.argon2id,
         memory: 64 * 1024 * 1024,
-        iterations: 3,
+        iterations: 4,
       ),
     );
     final vault = tomSecretsNewVault(primaryCredentials, 'primary');
@@ -132,7 +132,7 @@ void main() {
   });
 
   test(
-    'NV-3: KeePassXC opens a new vault and reports Argon2id, 3 rounds, '
+    'NV-3: KeePassXC opens a new vault and reports Argon2id, 4 rounds, '
     '64 MiB',
     () async {
       final cli = findKeePassXc()!;
@@ -148,7 +148,7 @@ void main() {
         final out = await process.stdout.transform(utf8.decoder).join();
         final error = await process.stderr.transform(utf8.decoder).join();
         expect(await process.exitCode, 0, reason: error);
-        expect(out, contains('KDF: Argon2id (3 rounds, 65536 KB)'));
+        expect(out, contains('KDF: Argon2id (4 rounds, 65536 KB)'));
       } finally {
         dir.deleteSync(recursive: true);
       }

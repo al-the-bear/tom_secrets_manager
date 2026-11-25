@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.31
+
+- New vaults are keyed by Argon2id over 64 MiB with 4 iterations (was 3),
+  the same on every device: about a third of a second to unlock on the
+  fleet's desktops, about a second on a phone. Existing vaults keep the
+  parameters they were made with. The doc comment of
+  `tomSecretsDefaultArgon2` no longer says the app tunes it per device.
+
 ## 0.2.30
 
 - `TomSecretsDeviceSettings.startAtLogin` is gone: nothing read it (the

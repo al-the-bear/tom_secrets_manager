@@ -192,7 +192,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsSharingGroup` | `String` | The group of the primary vault holding the member key and the directory of members (part-sharing); never a place references resolve into, never exported. | [→](api_summary_vaults.md#constants) |
 | `tomSecretsOverlayPrefix` | `String` | The first character of an overlay group's name. | [→](api_summary_vaults.md#constants) |
 | `tomSecretsFavoriteTag` | `String` | The tag that marks a favourite. | [→](api_summary_vaults.md#constants) |
-| `tomSecretsDefaultArgon2` | `KdbxArgon2` | The key derivation of a new vault: Argon2id over 64 MiB, 3 iterations, 1 lane. | [→](api_summary_vaults.md#constants) |
+| `tomSecretsDefaultArgon2` | `KdbxArgon2` | The key derivation of a new vault: Argon2id over 64 MiB, 4 iterations, 1 lane. | [→](api_summary_vaults.md#constants) |
 | `tomSecretsAmbiguousCharacters` | `String` | The characters `TomSecretsPasswordPolicy.excludeAmbiguous` leaves out, because they are easily confused when read or typed. | [→](api_summary_vaults.md#constants) |
 | `tomSecretsProductGroup` | `String` | The root group holding the product's own groups (never resolved into). | [→](api_summary_vaults.md#constants) |
 | `tomSecretsVaultsGroup` | `String` | The subgroup holding the further vaults. | [→](api_summary_vaults.md#constants) |

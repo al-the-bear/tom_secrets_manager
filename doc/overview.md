@@ -674,7 +674,7 @@ flowchart LR
 -->
 
 A vault is a KDBX 4.1 file. Its key comes from the master password (and a
-key file, if the vault has one) through Argon2id with 64 MiB and 3
+key file, if the vault has one) through Argon2id with 64 MiB and 4
 iterations, so each guess at the password costs an attacker real work. A vault
 in a repository can also be wrapped in an **outer** encryption: one random
 file key, wrapped under each repository key in its own slot, so GitHub and

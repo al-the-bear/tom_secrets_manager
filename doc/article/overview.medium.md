@@ -215,7 +215,7 @@ This diagram shows the layers around a vault as it lies on GitHub.
 
 ![The layers of a stored vault](https://raw.githubusercontent.com/al-the-bear/tom_secrets_manager/main/doc/article/images/21-layers.png)
 
-A vault is a KDBX 4.1 file. Its key comes from the master password (and a key file, if the vault has one) through Argon2id with 64 MiB and 3 iterations, so each guess at the password costs an attacker real work. A vault in a repository can also be wrapped in an **outer** encryption: one random file key, wrapped under each repository key in its own slot, so GitHub and anyone with access to the repository see only an encrypted blob.
+A vault is a KDBX 4.1 file. Its key comes from the master password (and a key file, if the vault has one) through Argon2id with 64 MiB and 4 iterations, so each guess at the password costs an attacker real work. A vault in a repository can also be wrapped in an **outer** encryption: one random file key, wrapped under each repository key in its own slot, so GitHub and anyone with access to the repository see only an encrypted blob.
 
 This diagram shows who holds which key.
 

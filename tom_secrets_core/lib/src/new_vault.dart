@@ -11,13 +11,18 @@ import 'package:tom_kdbx_store/tom_kdbx_store.dart';
 import 'vault_merge.dart';
 
 /// The key derivation of a new vault (part-stores): Argon2id over 64 MiB,
-/// 3 iterations, 1 lane. The app tunes it at creation so unlocking takes
-/// about one second on the slowest of the user's devices, and passes the
-/// result as `argon2` to [tomSecretsNewVault].
+/// 4 iterations, 1 lane, the same on every device; nothing tunes it per
+/// device, so a vault made on a fast desktop opens as quickly on a phone.
+///
+/// Why 4: measured with this library's Argon2 (release builds, 2026-11),
+/// unlocking takes 0.24–0.34 s on the fleet's desktops (mbp, bigbeast,
+/// legiondary01) and about 0.4 s on an arm64 Android emulator, which runs
+/// at the Mac's speed; a real phone is several times slower, about a
+/// second. A vault keeps the parameters it was made with.
 const KdbxArgon2 tomSecretsDefaultArgon2 = KdbxArgon2(
   type: KdbxArgon2Type.argon2id,
   memory: 64 << 20,
-  iterations: 3,
+  iterations: 4,
 );
 
 /// A new, empty vault named [name], opened with [credentials] (a password,
