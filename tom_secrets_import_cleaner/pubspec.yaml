@@ -24,6 +24,6 @@ dependencies:
 dev_dependencies:
   # The tests check that the core's importers still read a cleaned export
   # with the same items, fields and attachment sizes.
-  tom_secrets_core: ^0.2.27
+  tom_secrets_core: ^0.2.29
   lints: ^6.0.0
   test: ^1.25.6
