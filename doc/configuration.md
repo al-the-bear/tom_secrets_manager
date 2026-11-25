@@ -358,6 +358,24 @@ users:
       interactiveMode: Never
 ```
 
+## A Tom server's `secrets.local`
+
+A Tom server that registers `tom_secrets_provider`'s
+`TomLocalSecretsProvider.fromConfiguration()` reads its configuration
+values written as `secret:local:<reference>#<field>` from the secrets
+service, and takes its settings from the `secrets.local` key of the
+server's configuration; every one is optional:
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| `clientName` | the name shown in the approval prompt (shown, never trusted) | the executable's name |
+| `dimensions` | dimension values sent with every request, for example `{env: prod}` | none |
+| `timeoutSeconds` | how long a request may wait for an unlock or an approval; the service caps it | the service's |
+| `waitForUnlock` | `false`: a locked service is answered at once (kind `locked`) | `true` |
+
+The service is found as every client finds it (`TSM_RUNTIME_DIR`, else the
+OS's runtime directory).
+
 ## The relay server's `relay.yaml`
 
 Read by `TomSecretsRelayConfig` (`tom_secrets_relay`) from `config=<path>`,

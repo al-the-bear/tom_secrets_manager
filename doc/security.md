@@ -444,6 +444,12 @@ plugin may use passkeys, and the passkey plugin nothing else. A system vault's
 value never reaches the browser host. (`service/service.dart`, `protocol.md`
 5.5, 5.8.)
 
+**Tom servers** read their configuration's `secret:local:` references through
+`tom_secrets_provider`, a client like any other: the service measures the
+server's process and answers by its grants, and the first request of a new
+server goes to approval. The provider holds no key; it asks for one field
+per request. (`tom_secrets_provider`, `protocol.md` 5.)
+
 **The App Group socket.** Safari's extension and its host run sandboxed.
 When the service runs from the team-signed macOS app, it also offers its
 client endpoint at `~/Library/Group Containers/<group>/tsm/client.sock`,

@@ -47,6 +47,7 @@ The product lives in three public repositories, each BSD-3:
 | `tom_secrets_age` | library | Dart | pub.dev `tom_secrets_age` |
 | `tom_secrets_service` | service | Dart | pub.dev `tom_secrets_service` |
 | `tom_secrets_client` | library | Dart | pub.dev `tom_secrets_client` |
+| `tom_secrets_provider` | library | Dart | pub.dev `tom_secrets_provider` |
 | `tsm` | tool | Dart | pub.dev `tom_secrets_tsm` |
 | `clients/typescript` | library | TypeScript | npm `@al-the-bear/tom-secrets-client` |
 | `clients/python` | library | Python | PyPI `tom-secrets-client` |
@@ -85,6 +86,7 @@ flowchart BT
   core["tom_secrets_core"]:::library
   service("tom_secrets_service"):::program
   tsm("tsm"):::program
+  provider["tom_secrets_provider"]:::library
   ui["tom_secrets_ui"]:::library
   desktop["tom_secrets_desktop"]:::library
   app("tom_secrets_app"):::program
@@ -97,6 +99,7 @@ flowchart BT
   core --&gt; pqc
   service --&gt; core
   tsm --&gt; client
+  provider --&gt; client
   ui --&gt; core
   desktop --&gt; ui
   app --&gt; desktop
@@ -115,6 +118,11 @@ out:
   program) links neither the core nor KDBX.
 - `tsm` takes the core and the service only as test dependencies; its
   pairing runs in the service's executable.
+- `tom_secrets_provider` is the secrets provider for Tom servers
+  (`secret:local:`): it implements `tom_core_server`'s contract over the
+  client. The product depends on tom_core, never the reverse: no tom_core
+  package depends on a package of the product, and a Tom server takes the
+  client only when it adds this package and registers the provider.
 - The mobile app links the service's library, because a phone runs the
   service's vault code inside the app.
 
@@ -122,7 +130,8 @@ Beside these, the packages build on the Tom framework: `tom_kdbx_store`
 (KDBX, only in the core), `tom_core_storage` (the storage port and the
 GitHub backend), `tom_core_sync`, `tom_git`, `tom_github_api`,
 `tom_crypto`, `tom_basics`, the Tom UI modules for the apps,
-`tom_core_server` for the relay and `tom_build_base` for the tools.
+`tom_core_server` for the relay and `tom_secrets_provider`, and
+`tom_build_base` for the tools.
 
 This diagram shows the other languages' clients and the native parts, and
 what each talks to.
