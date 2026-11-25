@@ -63,6 +63,9 @@ final class _Network extends http.BaseClient {
   final Set<String> blindTokens = {};
   final Set<String> readOnlyTokens = {};
 
+  /// Paths (a part of them) that cannot be reached while the rest can.
+  final Set<String> downPaths = {};
+
   http.StreamedResponse _status(int code, String message) =>
       http.StreamedResponse(
         Stream.value(utf8.encode('{"message": "$message"}')),
@@ -83,6 +86,9 @@ final class _Network extends http.BaseClient {
     requests.add((request.url.path, request.headers['Authorization']));
     final auth = request.headers['Authorization'] ?? '';
     bool carries(Set<String> tokens) => tokens.any(auth.endsWith);
+    if (downPaths.any(request.url.path.contains)) {
+      throw const SocketException('demo: this file cannot be reached');
+    }
     if (net == _Net.online) {
       if (carries(refusedTokens)) return _status(401, 'Bad credentials');
       if (carries(blindTokens)) return _status(404, 'Not Found');
@@ -635,6 +641,35 @@ void main() {
     status = stores(service);
     expect(status['primary']!['state'], 'current');
     expect(status['team']!['state'], 'current');
+    expect(cachedFiles(), isEmpty, reason: 'nothing on the disk');
+  });
+
+  test('a further vault GitHub cannot serve at the unlock, without a copy: '
+      'unavailable, waiting for GitHub (reason offline); the refresh tries '
+      'again and opens it', () async {
+    final service = await start();
+    await admin.request('lock');
+    // The other repository cannot be reached; the primary's can.
+    network.downPaths.add('/repos/$_otherRepo/');
+    await admin.unlock(primaryPassword);
+    var status = stores(service);
+    expect(status['primary']!['state'], 'current');
+    expect(status['other']!['state'], 'unavailable');
+    expect(status['other']!['reason'], 'offline');
+    final report = await admin.request('status') as Map;
+    final other = (report['stores'] as List).cast<Map>().firstWhere(
+      (s) => s['name'] == 'other',
+    );
+    expect(other['reason'], 'offline');
+    expect(report['keepsUnwritten'], isTrue);
+
+    network.downPaths.clear();
+    now = now.add(const Duration(minutes: 2));
+    await service.refresh();
+    status = stores(service);
+    expect(status['other']!['state'], 'current');
+    expect(status['other']!.containsKey('reason'), isFalse);
+    expect(await get('other/Web/Key'), 'key-1');
     expect(cachedFiles(), isEmpty, reason: 'nothing on the disk');
   });
 
