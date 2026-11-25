@@ -37,6 +37,7 @@
   - [TomSecretsTotpFields](#tomsecretstotpfields)
   - [TomSecretsTotpAlgorithm](#tomsecretstotpalgorithm)
   - [TomSecretsTotp](#tomsecretstotp)
+  - [TomSecretsTotpMigration](#tomsecretstotpmigration)
   - [TomSecretsUrlMatchRule](#tomsecretsurlmatchrule)
   - [TomSecretsUrlMatchLevel](#tomsecretsurlmatchlevel)
   - [TomSecretsSiteUrl](#tomsecretssiteurl)
@@ -134,6 +135,7 @@ Object
 ├── TomSecretsTotpFields
 ├── TomSecretsTotpAlgorithm (enum)
 ├── TomSecretsTotp
+├── TomSecretsTotpMigration
 ├── TomSecretsCharacterClass (enum)
 ├── TomSecretsPasswordPolicy
 ├── TomSecretsPasswordGenerator
@@ -871,9 +873,13 @@ The TOTP field names.
 | `otp` | `KdbxKey` | KeePassXC's `otpauth://` URI. |
 | `otpAuth` | `KdbxKey` | AuthPass's `otpauth://` URI. |
 | `secretBase32` | `KdbxKey` | KeePass's base32 secret. |
+| `secretText` | `KdbxKey` | KeePass's secret as UTF-8 text (`TimeOtp-Secret`). |
+| `secretHex` | `KdbxKey` | KeePass's hex secret (`TimeOtp-Secret-Hex`). |
+| `secretBase64` | `KdbxKey` | KeePass's base64 secret (`TimeOtp-Secret-Base64`). |
 | `length` | `KdbxKey` | KeePass's code length. |
 | `period` | `KdbxKey` | KeePass's period in seconds. |
 | `algorithm` | `KdbxKey` | KeePass's algorithm: `HMAC-SHA-1`, `HMAC-SHA-256`, `HMAC-SHA-512`. |
+| `all` | `List<KdbxKey>` | Every TOTP field: what `TomSecretsTotp.writeTo` replaces and an editor leaves to the TOTP section. |
 
 ---
 
@@ -916,7 +922,8 @@ A TOTP secret with its parameters.
 
 | Method | Return Type | Description |
 | --- | --- | --- |
-| `fromEntry(entry)` | `TomSecretsTotp?` | The TOTP of `entry`, read in the order `otp`, `OTPAuth`, `TimeOtp-*`; null when it has none that reads. |
+| `fromEntry(entry)` | `TomSecretsTotp?` | The TOTP of `entry`, read in the order `otp`, `OTPAuth`, `TimeOtp-*`; null when it has none that reads. KeePass's secret is read as KeePass 2.47 reads it: the first of `TimeOtp-Secret` (UTF-8), `-Hex`, `-Base32` and `-Base64` the entry holds. |
+| `parse(text)` | `TomSecretsTotp?` | The TOTP a user set up from `text`: an `otpauth://totp/` URI, an `otpauth-migration://` export holding one TOTP account, a secret marked `hex:`, a base32 secret, or a hex secret. Null for empty text; a text both base32 and hex is base32. Throws a `FormatException` saying what the text is otherwise. |
 | `tryParseUri(text)` | `TomSecretsTotp?` | The TOTP of an `otpauth://totp/...` URI, or null. |
 
 #### Properties
@@ -936,7 +943,29 @@ A TOTP secret with its parameters.
 | --- | --- | --- |
 | `code(time)` | `String` | The code at `time` (RFC 6238). |
 | `toUri()` | `String` | The `otpauth://` URI of this TOTP. |
-| `writeTo(entry)` | `void` | Writes the three conventions together, so KeePassXC, KeePass, AuthPass and the product show the same code. The secret is protected. |
+| `writeTo(entry)` | `void` | Writes the three conventions together, so KeePassXC, KeePass, AuthPass and the product show the same code. The secret is protected. KeePass's other secret fields (UTF-8, hex, base64) are removed. |
+
+---
+
+### TomSecretsTotpMigration
+
+Google Authenticator's export (`otpauth-migration://offline?data=…`): a protobuf `MigrationPayload` of accounts. Only its TOTP accounts are read; counter-based (HOTP) ones and MD5 are counted in `skipped`.
+
+**Kind:** `final class`
+
+#### Static Methods
+
+| Method | Return Type | Description |
+| --- | --- | --- |
+| `tryParse(text)` | `TomSecretsTotpMigration?` | The export `text` reads as, or null when it is no `otpauth-migration://` URI with a readable payload. |
+
+#### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `totps` | `List<TomSecretsTotp>` | The TOTP accounts, in the export's order. |
+| `skipped` | `int` | The accounts it holds that are not read (HOTP, MD5, unreadable). |
+| `single` | `TomSecretsTotp` | The one TOTP account of the export, which an editor takes; a `FormatException` names what it holds otherwise. |
 
 ---
 
@@ -1814,6 +1843,7 @@ An entry auto-type may type into a window, and why.
 | `tomSecretsOverlayBinding` | `(String, String)? tomSecretsOverlayBinding(String name)` | The binding an overlay group's `name` stands for (`@host:build-01`), or null when the name is not one. |
 | `tomSecretsBase32Encode` | `String tomSecretsBase32Encode(List<int> bytes)` | RFC 4648 base32 without padding. |
 | `tomSecretsBase32Decode` | `Uint8List? tomSecretsBase32Decode(String text)` | RFC 4648 base32, any case, spaces, dashes and padding ignored; null when it is not base32. |
+| `tomSecretsHexDecode` | `Uint8List? tomSecretsHexDecode(String text)` | The bytes of a hex secret: 0-9 and a-f in either case, an even number of them, spaces ignored; null when it is not hex. |
 | `tomSecretsGenerateSshKey` | `Future<TomSecretsGeneratedSshKey> tomSecretsGenerateSshKey({TomSecretsSshKeyAlgorithm algorithm = TomSecretsSshKeyAlgorithm.ed25519, String comment = '', int rsaBits = 4096, Random? random})` | A new SSH key (DP-179): Ed25519, or RSA 4096; the private key in OpenSSH's format without a passphrase. |
 | `tomSecretsGenerateCertificate` | `TomSecretsGeneratedCertificate tomSecretsGenerateCertificate({required String commonName, List<String> subjectAlternativeNames = const [], int days = 365, TomSecretsCertificateAlgorithm algorithm = TomSecretsCertificateAlgorithm.ecdsaP384, int rsaBits = 4096, DateTime? now})` | A new certificate (DP-179): its key on ECDSA P-384, or RSA 4096; self-signed with SHA-384 (SHA-256 for RSA), with a CSR beside it. |
 | `tomSecretsWriteCertificate` | `TomSecretsCertificateInfo? tomSecretsWriteCertificate(KdbxEntry entry, {String? certificatePem, String? privateKeyPem, Uint8List? pkcs12, String? passphrase})` | Makes `entry` a `certificate` entry: the PEM certificate and private key, or a PKCS#12 bundle, as attachments, the passphrase in `Password`, Expires from `notAfter` (a bundle's by hand). Answers what the certificate says, or null for a bundle. |

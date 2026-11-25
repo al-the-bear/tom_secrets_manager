@@ -70,6 +70,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsTotpFields` | abstract final class | The TOTP field names. | [→](api_summary_vaults.md#tomsecretstotpfields) |
 | `TomSecretsTotpAlgorithm` | enum | The hash a TOTP code is made with. | [→](api_summary_vaults.md#tomsecretstotpalgorithm) |
 | `TomSecretsTotp` | final class | A TOTP secret with its parameters. | [→](api_summary_vaults.md#tomsecretstotp) |
+| `TomSecretsTotpMigration` | final class | Google Authenticator's export (`otpauth-migration://`): its TOTP accounts. | [→](api_summary_vaults.md#tomsecretstotpmigration) |
 | `TomSecretsUrlMatchRule` | enum | How an entry's URLs match a page (`tsm.urlMatch`). | [→](api_summary_vaults.md#tomsecretsurlmatchrule) |
 | `TomSecretsUrlMatchLevel` | enum | How closely an entry matches: exact host, domain. | [→](api_summary_vaults.md#tomsecretsurlmatchlevel) |
 | `TomSecretsSiteUrl` | final class | A web URL normalised for matching. | [→](api_summary_vaults.md#tomsecretssiteurl) |
@@ -165,6 +166,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsRegistrableDomain` | The registrable domain after the Public Suffix List. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsAsciiHost` | A host lower-case with punycode labels. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32Decode` | RFC 4648 base32, any case, spaces, dashes and padding ignored; null when it is not base32. | [→](api_summary_vaults.md#functions) |
+| `tomSecretsHexDecode` | The bytes of a hex secret: 0-9 and a-f, an even number of them; null when it is not hex. | [→](api_summary_vaults.md#functions) |
 | `tomSecretsPasswordStrength` | The strength of `password` (zxcvbn, its first 100 characters); `userInputs` are words it should not be built from (the entry's title, user name, site). | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBreachCheckExcluded` | Whether an entry is kept out of the breach check (`tsm.breachCheck` `off`). | [→](api_summary_vaults.md#functions) |
 | `tomSecretsSetBreachCheckExcluded` | Keeps an entry out of the breach check, or lets it in again; its old state in its history. | [→](api_summary_vaults.md#functions) |
@@ -860,6 +862,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsSystemLinkRandom` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretssystemlinkrandom) |
 | `TomSecretsTokenMatch` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretstokenmatch) |
 | `TomSecretsTotp` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotp) |
+| `TomSecretsTotpMigration` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotpmigration) |
 | `TomSecretsTotpAlgorithm` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotpalgorithm) |
 | `TomSecretsTotpFields` | Vaults and Resolution | [→](api_summary_vaults.md#tomsecretstotpfields) |
 | `TomSecretsTrust` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#tomsecretstrust) |
@@ -897,6 +900,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `tomSecretsAutoTypeWindowMatches` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32` | Trust, Approvals and Pairing | [→](api_summary_sharing.md#functions) |
 | `tomSecretsBase32Decode` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
+| `tomSecretsHexDecode` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase32Encode` | Vaults and Resolution | [→](api_summary_vaults.md#functions) |
 | `tomSecretsBase64Url` | Import and Export | [→](api_summary_import_export.md#functions) |
 | `tomSecretsBitwardenDecrypt` | Import and Export | [→](api_summary_import_export.md#functions) |

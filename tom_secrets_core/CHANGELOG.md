@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.32
+
+- `TomSecretsTotp.fromEntry` reads KeePass 2.47's other secret fields:
+  `TimeOtp-Secret` (UTF-8), `TimeOtp-Secret-Hex` and
+  `TimeOtp-Secret-Base64`, in KeePass's order (UTF-8 first). `writeTo`
+  removes them, so a stale one never wins in KeePass.
+- `TomSecretsTotp.parse`: what a user types or a QR code holds, in one
+  place: an `otpauth://` URI, Google Authenticator's
+  `otpauth-migration://` export of one TOTP account
+  (`TomSecretsTotpMigration`; several accounts or a HOTP one are named,
+  not read), a base32 secret, or a hex secret (`hex:` optional; a text
+  both base32 and hex is base32). `tomSecretsHexDecode`.
+- `TomSecretsTotpFields.all`: every TOTP field.
+
 ## 0.2.31
 
 - New vaults are keyed by Argon2id over 64 MiB with 4 iterations (was 3),

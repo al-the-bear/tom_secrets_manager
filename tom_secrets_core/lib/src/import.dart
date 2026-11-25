@@ -732,14 +732,7 @@ final class _Writer {
       totp?.writeTo(entry);
       final keep = {
         ...strings.keys,
-        if (totp != null) ...[
-          TomSecretsTotpFields.otp.key,
-          TomSecretsTotpFields.otpAuth.key,
-          TomSecretsTotpFields.secretBase32.key,
-          TomSecretsTotpFields.length.key,
-          TomSecretsTotpFields.period.key,
-          TomSecretsTotpFields.algorithm.key,
-        ],
+        if (totp != null) ...[for (final f in TomSecretsTotpFields.all) f.key],
       };
       for (final MapEntry(:key) in entry.stringEntries.toList()) {
         if (!keep.contains(key.key)) entry.removeString(key);
