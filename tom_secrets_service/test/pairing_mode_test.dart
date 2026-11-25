@@ -102,6 +102,10 @@ void main() {
     expect(report.config, isTrue);
     final given = await w.result;
     expect(given.receiver, 'bigbeast');
+    // The new machine named the identity key of the service it will run
+    // (protocol.md 6.1); nothing is stored before the machine is set up.
+    final namedKey = given.receiverKeys.serviceKey!;
+    expect(base64.decode(namedKey), hasLength(tomSecretsIdentityKeyLength));
     expect(Directory('${demo.dir}/paired').existsSync(), isFalse);
 
     input.add(jsonEncode({'password': 'wrong'}));
@@ -129,6 +133,9 @@ void main() {
     await admin.unlock(primaryPassword);
     final trust = service.trust;
     expect(trust.device, 'bigbeast');
+    // The service runs with the key the pairing named: what the giving
+    // machine recorded with the device is what the admins here pin.
+    expect(base64.encode(service.identityKey), namedKey);
     expect(
       (await trust.approverKey()).publicKey.keyId,
       given.receiverKeys.approverKey!.keyId,
