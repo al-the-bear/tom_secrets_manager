@@ -3,7 +3,7 @@ description: >-
   The core of the Tom Secrets Manager: secret stores over KDBX files,
   overlays, dimensions and the resolution of secret references, the GitHub
   vault cycle and the outer encryption.
-version: 0.2.28
+version: 0.2.29
 homepage: https://enterprise-flutter.dev
 repository: https://github.com/al-the-bear/tom_secrets_manager
 

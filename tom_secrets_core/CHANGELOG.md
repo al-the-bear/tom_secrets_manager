@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.29
+
+- An Enpass JSON import no longer fails on one passkey it cannot read (a
+  private key that is not base64, a JWK without `d`, a PEM or DER that is
+  not a key, a credential id that is not base64, a passkey value that is
+  not JSON): the item is imported without it, and `notImported` names it
+  as a "passkey that could not be read" with the reason, never quoting the
+  key. 1PUX and Bitwarden exports were never affected: they convert no
+  passkey keys, and the tests now say so.
+
 ## 0.2.28
 
 - The Enpass and 1Password imports keep each field's own label: a section

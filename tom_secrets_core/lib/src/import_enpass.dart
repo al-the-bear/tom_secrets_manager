@@ -225,8 +225,23 @@ TomSecretsImportSource tomSecretsReadEnpassJson(
   TomSecretsPasskey? passkey;
   TomSecretsImportNotice? notice;
   if (passkeyRaw != null) {
-    passkey = _passkeyOf(passkeyRaw, userName: userName, urls: urls);
-    if (passkey == null) {
+    // Why: one passkey this reader cannot convert must not abort the
+    // import of every other item; the item comes without it, named.
+    String? unreadable;
+    try {
+      passkey = _passkeyOf(passkeyRaw, userName: userName, urls: urls);
+    } on TomSecretsPasskeyException catch (e) {
+      unreadable = e.message;
+    } on FormatException {
+      // Its message can quote the input, which is key material.
+      unreadable = 'not valid JSON or base64';
+    }
+    if (unreadable != null) {
+      notice = TomSecretsImportNotice(
+        'passkey that could not be read ($unreadable)',
+        title: title,
+      );
+    } else if (passkey == null) {
       notice = TomSecretsImportNotice(
         'passkey without its private key (register a new one in phase C)',
         title: title,
@@ -268,7 +283,8 @@ TomSecretsImportSource tomSecretsReadEnpassJson(
 }
 
 /// The passkey of an Enpass passkey value (a map or its JSON text), or null
-/// when it carries no private key. Field names are read in the spellings
+/// when it carries no private key. Throws [TomSecretsPasskeyException] or
+/// [FormatException] when a value it holds cannot be read. Field names are read in the spellings
 /// seen in exports (`rpId`/`relyingParty`, `credentialId`, `userHandle`,
 /// `userName`, `privateKey` as PEM, base64 DER or a JWK).
 TomSecretsPasskey? _passkeyOf(
