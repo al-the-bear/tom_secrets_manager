@@ -928,7 +928,7 @@ A device's public keys for the approvals: its approver key pair (null when it is
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsPairingPeerKeys({linkKey, approverKey, linkAddress, linkRelay, linkId})` | const | The keys. |
+| `TomSecretsPairingPeerKeys({linkKey, approverKey, linkAddress, linkRelay, linkId, serviceKey})` | const | The keys. |
 | `TomSecretsPairingPeerKeys.fromJson(json)` | factory | From `toJson`. |
 
 #### Properties
@@ -938,6 +938,7 @@ A device's public keys for the approvals: its approver key pair (null when it is
 | `linkKey` | `TomSecretsLinkPublicKey` | The approval-link public key. |
 | `approverKey` | `TomSecretsApproverPublicKey?` | The approver public key, or null for a device that approves nothing. |
 | `linkAddress` | `String?` | Where its approval link listens (`address:port`), or null. |
+| `serviceKey` | `String?` | The public identity key of the device's secrets service (base64, protocol.md 6.1), or null for a device that runs none or names none. |
 | `linkRelay` | `String?` | **[C]** The relay server its approval link may also go through (`tsm:<url>`), or null; `fromJson` drops a relay or link id that cannot be used (an older peer names none). |
 | `linkId` | `String?` | **[C]** The random link id (128 bits, base64url) of that relay link. |
 
@@ -1379,6 +1380,30 @@ A WebSocket upgrade the relay answered with `status` instead of 101, with the re
 
 ---
 
+### TomSecretsServiceIdentityKey
+
+The identity key pair of a secrets service (protocol.md 6.1): ML-DSA-65 with Ed25519 as one composite signature, with the statements of the keys it replaced.
+
+**Kind:** `final class`
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `TomSecretsServiceIdentityKey.generate({now})` | static | A new key pair, kept nowhere. |
+| `TomSecretsServiceIdentityKey.loadOrCreate(dataDirectory, {now, write = true})` | static | The key of the service whose data directory this is: read from `service-identity.json` (`tomSecretsServiceIdentityFile`), made and written when there is none (`write` false: written by `store()`); a file that cannot be read throws `FileSystemException`. |
+| `publicKey` | `Uint8List` | The public key. |
+| `words` | `String` | The public key's words. |
+| `created` | `DateTime` | When this key was made. |
+| `changes` | `List<TomSecretsIdentityChange>` | The statements of earlier keys, oldest first (at most `tomSecretsIdentityChangesKept`). |
+| `sign(message, context)` | `Future<Uint8List>` | The composite signature. |
+| `present({clientNonce, serviceNonce, serviceStart, oneTimeKey})` | `Future<Map<String, Object?>>` | What the service answers an `identify` with. |
+| `rotate({now})` | `Future<TomSecretsServiceIdentityKey>` | A new key in this one's place: this key signs it, the file is rewritten, this key's secret is gone. |
+| `store()` | `void` | Writes a key made without `write`. |
+| `dispose()` | `void` | Wipes the secret key. |
+
+`TomSecretsOneTimeKey` is the one-time key of one admin connection (ML-KEM-768 with X25519): `generate()`, `publicKey`, `decapsulate(ciphertext)`, `dispose()`. `TomSecretsPqcIdentityCrypto` runs an admin's two identity primitives in this process; `tomSecretsIdentityHelperAnswer(request)` answers one request of the service executable's identity helper mode.
+
+---
+
 ### TomSecretsDeviceRecord
 
 One paired device.
@@ -1389,7 +1414,7 @@ One paired device.
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsDeviceRecord({device, paired, platform, pairedBy, keyIds, approverKeyId, approverKeySince, linkKeySince, revoked, githubAuth, githubTokenExpires})` | const | A record of `device`. |
+| `TomSecretsDeviceRecord({device, paired, platform, pairedBy, keyIds, approverKeyId, approverKeySince, linkKeySince, revoked, githubAuth, githubTokenExpires, serviceKey})` | const | A record of `device`. |
 
 #### Properties
 
@@ -1407,6 +1432,7 @@ One paired device.
 | `isRevoked` | `bool` | Whether it was revoked. |
 | `githubAuth` | `TomSecretsGitHubAuth?` | How it reaches GitHub: `app` (signed in with the GitHub App) or `token` (a pasted fine-grained token), when it said so. |
 | `githubTokenExpires` | `DateTime?` | When its GitHub token expires (a signed-in device: its refresh token). |
+| `serviceKey` | `String?` | The public identity key of its secrets service (base64), when it runs one and said so: what the other devices show as words. |
 
 #### Methods
 
@@ -1439,10 +1465,11 @@ The device records of the primary vault `file`.
 
 | Method | Return Type | Description |
 | --- | --- | --- |
-| `list()` | `List<TomSecretsDeviceRecord>` | Every record, in file order. |
+| `list()` | `List<TomSecretsDeviceRecord>` | Every record, in file order, one per device: entries two devices each made for one device are read as one. |
 | `byDevice(device)` | `TomSecretsDeviceRecord?` | The record of `device`, or null. |
 | `put(record)` | `void` | Writes `record`, replacing the record of the same device (a device paired again is updated, never duplicated). |
 | `setGitHub(device, auth, expires)` | `bool` | Records how `device` reaches GitHub; whether it had a record and it changed. |
+| `setServiceKey(device, key, {required now})` | `bool` | Records the public identity key of `device`'s secrets service; a device without a record gets one, paired at `now`. Whether the record changed. |
 | `takeKeyIds(device, ids, {required now})` | `bool` | **[C]** Records that `device` holds the keys `ids` (a guided rotation's next keys it took); a device without a record gets one, paired at `now`. Whether the record changed. |
 | `missingKey(keyId)` | `List<TomSecretsDeviceRecord>` | **[C]** The devices not revoked that do not hold the key `keyId`: those a guided rotation still waits for. |
 | `revoke(device, at)` | `bool` | Marks `device` revoked at `at`; whether it had a record. |

@@ -100,6 +100,22 @@ Future<int> tomSecretsRunPairingMode(
   final linkRelay = relayId?.kind == TomSecretsRelayKind.server
       ? relayId!.text
       : null;
+  // The identity key of the service this machine will run (protocol.md
+  // 6.1), made before the pairing: the giving machine records it with the
+  // device, and tsm pins it from the `setUp` line.
+  // Written only once the machine is set up: a pairing that fails stores
+  // nothing.
+  final TomSecretsServiceIdentityKey identityKey;
+  try {
+    identityKey = await TomSecretsServiceIdentityKey.loadOrCreate(
+      firstRun.dataDirectory,
+      write: false,
+    );
+  } on FileSystemException catch (e) {
+    error('setup', e.message);
+    return 7;
+  }
+  final serviceKey = base64.encode(identityKey.publicKey);
   TomSecretsPairingReceipt? receipt;
   try {
     if (handover.address != null && handover.port != null) {
@@ -111,6 +127,7 @@ Future<int> tomSecretsRunPairingMode(
           device: handover.device,
           linkAddress: handover.approvalLink,
           linkRelay: linkRelay,
+          serviceKey: serviceKey,
         );
       } on TomSecretsPairingException catch (e) {
         // Not reachable there: the relay next, when the handover names one
@@ -139,6 +156,7 @@ Future<int> tomSecretsRunPairingMode(
         device: handover.device,
         linkAddress: handover.approvalLink,
         linkRelay: linkRelay,
+        serviceKey: serviceKey,
       );
     }
   } on TomSecretsRelayException catch (e) {
@@ -200,7 +218,12 @@ Future<int> tomSecretsRunPairingMode(
           instanceToken,
         );
       }
-      answer({'status': 'setUp', 'bootstrap': result.bootstrapPath});
+      identityKey.store();
+      answer({
+        'status': 'setUp',
+        'bootstrap': result.bootstrapPath,
+        'identity': serviceKey,
+      });
       return 0;
     } on TomSecretsFirstRunException catch (e) {
       if (e.problem == TomSecretsFirstRunProblem.wrongPassword) {

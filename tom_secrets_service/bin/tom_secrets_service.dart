@@ -21,6 +21,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:tom_core_storage/io.dart' show TomDesktopSecretStore;
+import 'package:tom_secrets_core/tom_secrets_core.dart'
+    show tomSecretsIdentityHelperAnswer;
 import 'package:tom_secrets_service/tom_secrets_service.dart';
 
 Future<void> main() async {
@@ -42,8 +44,27 @@ Future<void> main() async {
   try {
     if (!await lines.moveNext()) throw const FormatException('no handover');
     final line = lines.current;
+    // An admin's identity helper (`tsm`, which links no post-quantum code):
+    // the two primitives, one JSON line in and one out, until the input
+    // ends. No secret of a vault passes it.
+    final first = jsonDecode(line);
+    if (first is Map && first[tomSecretsIdentityHelperHandover] != null) {
+      while (await lines.moveNext()) {
+        Object? request;
+        try {
+          request = jsonDecode(lines.current);
+        } on FormatException {
+          request = null;
+        }
+        stdout.writeln(
+          jsonEncode(await tomSecretsIdentityHelperAnswer(request)),
+        );
+        await stdout.flush();
+      }
+      exit(0);
+    }
     // `tsm pair`: the pairing mode sets the machine up and ends.
-    final pairing = TomSecretsPairingHandover.fromJson(jsonDecode(line));
+    final pairing = TomSecretsPairingHandover.fromJson(first);
     if (pairing != null) {
       final store = TomDesktopSecretStore(service: tomSecretsKeychainService);
       final code = await tomSecretsRunPairingMode(
@@ -124,9 +145,24 @@ Future<void> main() async {
       'code': 'data_directory',
       'message': e.message,
     }, 8);
+  } on FileSystemException catch (e) {
+    // The identity key in the data directory cannot be read: it is never
+    // replaced silently (protocol.md 6.1).
+    await answer({
+      'status': 'error',
+      'code': 'identity',
+      'message': e.message,
+    }, 9);
   }
 
-  stdout.writeln(jsonEncode({'status': 'ready'}));
+  // The starter pins the identity key this line names: it comes through
+  // the pipe of the process it started, which nothing else writes to.
+  stdout.writeln(
+    jsonEncode({
+      'status': 'ready',
+      'identity': base64.encode(service.identityKey),
+    }),
+  );
   await stdout.flush();
 
   final signals = <StreamSubscription<ProcessSignal>>[

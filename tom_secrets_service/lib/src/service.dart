@@ -47,7 +47,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.25.10';
+const String tomSecretsServiceVersion = '0.26.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -326,6 +326,12 @@ final class TomSecretsService
     await runtime.acquire();
     try {
       await service._deviceKeys.effectiveMode();
+      // Its identity key (protocol.md 6.1): made at the first start, the
+      // same from then on; one that cannot be read stops the start, since
+      // every admin has pinned it.
+      service._identityKey = await TomSecretsServiceIdentityKey.loadOrCreate(
+        config.bootstrap.dataDirectory,
+      );
       try {
         await service._githubApp.load();
       } on Object catch (e) {
@@ -387,6 +393,39 @@ final class TomSecretsService
 
   /// The start time, milliseconds since the epoch.
   final int startedAt = DateTime.now().millisecondsSinceEpoch;
+
+  late TomSecretsServiceIdentityKey _identityKey;
+
+  /// The public identity key (protocol.md 6.1): what the starter's `ready`
+  /// line names and the admins pin.
+  Uint8List get identityKey => _identityKey.publicKey;
+
+  /// Rotates the identity key (`keys.rotate {identity}`): the old key signs
+  /// the new one, the admins that pinned the old one follow that statement,
+  /// and this device's record in the primary names the new key. Answers
+  /// the new public key.
+  Future<Uint8List> rotateIdentityKey() async {
+    _identityKey = await _identityKey.rotate(now: now);
+    log.info('identity_rotated');
+    final primary = _vaults.primary;
+    if (primary != null) {
+      try {
+        if (_recordServiceKey(primary.file)) await savePrimary();
+      } on Object catch (e) {
+        log.error('device_record_failed', e);
+      }
+    }
+    return identityKey;
+  }
+
+  /// This device's record names its service's identity key; whether the
+  /// record changed.
+  bool _recordServiceKey(KdbxFile primary) =>
+      TomSecretsDeviceRecords(primary).setServiceKey(
+        _trust?.device ?? config.host,
+        base64.encode(identityKey),
+        now: now,
+      );
 
   Uint8List _adminKey;
 
@@ -972,15 +1011,16 @@ final class TomSecretsService
       final status = _vaults.statusOf(_vaults.primaryName ?? '');
       if (status != null) _emitState(status);
     }
-    if (tomSecretsTakeNextKeys(
+    final taken = tomSecretsTakeNextKeys(
       primary.file,
       device: trust.device,
       now: now,
       primaryKeyIds: ids,
-    )) {
-      log.info('next_keys_taken', {'device': trust.device});
-      await savePrimary();
-    }
+    );
+    if (taken) log.info('next_keys_taken', {'device': trust.device});
+    // With it, what the other devices show as this service's words.
+    final keyed = _recordServiceKey(primary.file);
+    if (taken || keyed) await savePrimary();
   }
 
   /// Keeps the primary's next keys in the keychain beside its keys; answers
@@ -1655,6 +1695,12 @@ final class TomSecretsService
     },
     'protocol': 1,
     'service': {'version': tomSecretsServiceVersion, 'start': startedAt},
+    // The identity key the admins pinned (protocol.md 6.1).
+    'identity': {
+      'fingerprint': tomSecretsIdentityFingerprint(identityKey),
+      'words': tomSecretsIdentityWords(identityKey),
+      'since': _identityKey.created.toIso8601String(),
+    },
     'stores': [for (final s in _vaults.status) s.toJson()],
     'expiring': [for (final k in expiring) k.toJson()],
     // [C] The approval links and their state (part-relay).
@@ -2398,6 +2444,7 @@ final class TomSecretsService
       linkAddress: _linkServer?.address,
       linkRelay: relay == null ? null : TomSecretsRelayId.parse(relay).text,
       linkId: relay == null ? null : tomSecretsNewLinkId(),
+      serviceKey: base64.encode(identityKey),
     );
   }
 
@@ -2416,6 +2463,7 @@ final class TomSecretsService
     String? hostAddress,
     ({String relay, String linkId})? link,
     ({String? platform, List<String> keyIds})? record,
+    String? serviceKey,
   }) async {
     final trust = _trust;
     final primary = _vaults.primary;
@@ -2445,6 +2493,8 @@ final class TomSecretsService
           linkKeySince: hostLinkKey == null && approverLinkKey == null
               ? null
               : at,
+          // The identity key of the service that device runs.
+          serviceKey: serviceKey,
         ),
       );
       await savePrimary();
@@ -4229,6 +4279,8 @@ final class _AdminSession {
       onClosed: () {
         service._admins.remove(this);
         _bundleKey?.fillRange(0, _bundleKey!.length, 0);
+        _oneTime?.dispose();
+        _oneTime = null;
       },
     );
     service._admins.add(this);
@@ -4238,10 +4290,16 @@ final class _AdminSession {
       'serviceStart': service.startedAt,
       'protocol': 1,
       'service': {'version': tomSecretsServiceVersion},
-      // Chunked members (protocol.md 2.7), from the authentication on.
-      'features': const [tomSecretsChunkedFeature],
+      // Chunked members (protocol.md 2.7), from the authentication on;
+      // the identity exchange (6.1) before it.
+      'features': const [tomSecretsChunkedFeature, tomSecretsIdentityFeature],
     });
   }
+
+  // The one-time key of this connection's identity exchange and the bytes
+  // signed with it: a claim is sealed to it.
+  TomSecretsOneTimeKey? _oneTime;
+  Uint8List? _transcript;
 
   final TomSecretsService service;
   late final TomSecretsConnection connection;
@@ -4302,6 +4360,14 @@ final class _AdminSession {
     final op = m['op'] as String;
     if (!authenticated) {
       if (_authenticating) return;
+      if (op == 'identify' && _oneTime == null) {
+        _authenticating = true;
+        // Only a program that may administer is answered at all.
+        if (!await _checkExecutable()) return;
+        await _identify(m);
+        _authenticating = false;
+        return;
+      }
       if (op != 'auth' && op != 'claim') {
         connection.sendError(null, 'malformed', 'authenticate first', {
           'reason': 'frame',
@@ -4351,6 +4417,41 @@ final class _AdminSession {
     });
     connection.sendError(null, 'denied', message, {'reason': reason});
     await connection.close();
+  }
+
+  /// `identify` (protocol.md 6.1): the service proves which service it
+  /// is. It signs the admin's nonce, its own nonce and start, and a
+  /// one-time key made for this connection, with its identity key.
+  Future<void> _identify(Map<String, Object?> m) async {
+    final Uint8List clientNonce;
+    try {
+      clientNonce = base64.decode(m['clientNonce'] as String);
+      if (clientNonce.length != tomSecretsIdentityNonceLength) {
+        throw const FormatException('length');
+      }
+    } on Object {
+      connection.sendError(null, 'malformed', 'identify carries a nonce', {
+        'reason': 'frame',
+      });
+      await connection.close();
+      return;
+    }
+    final oneTime = _oneTime = await TomSecretsOneTimeKey.generate();
+    _transcript = tomSecretsIdentityMessage(
+      clientNonce: clientNonce,
+      serviceNonce: _serviceNonce,
+      serviceStart: service.startedAt,
+      oneTimeKey: oneTime.publicKey,
+    );
+    connection.send({
+      'op': 'identity',
+      ...await service._identityKey.present(
+        clientNonce: clientNonce,
+        serviceNonce: _serviceNonce,
+        serviceStart: service.startedAt,
+        oneTimeKey: oneTime,
+      ),
+    });
   }
 
   Future<void> _auth(Map<String, Object?> m) async {
@@ -4410,7 +4511,45 @@ final class _AdminSession {
   }
 
   Future<void> _claim(Map<String, Object?> m) async {
-    final keys = _keysOf(m);
+    // The master password comes sealed to the one-time key of this
+    // connection's identity exchange (protocol.md 6.2), never in the clear.
+    final sealed = m['sealed'];
+    final oneTime = _oneTime;
+    final transcript = _transcript;
+    if (sealed is! Map || oneTime == null || transcript == null) {
+      connection.sendError(
+        null,
+        'malformed',
+        'a claim is sealed to the one-time key of the identity exchange',
+        {'reason': 'unsealed'},
+      );
+      await connection.close();
+      return;
+    }
+    final Map<String, Object?> opened;
+    try {
+      final secret = await oneTime.decapsulate(
+        base64.decode(sealed['kem'] as String),
+      );
+      try {
+        final claim = await tomSecretsOpenClaim(
+          sharedSecret: secret,
+          transcript: transcript,
+          sealed: sealed.cast(),
+        );
+        opened = {
+          'password': claim.password,
+          'keyFile': ?(claim.keyFile == null
+              ? null
+              : base64.encode(claim.keyFile!)),
+        };
+      } finally {
+        secret.fillRange(0, secret.length, 0);
+      }
+    } on Object {
+      return _fail('bad_seal', 'the sealed claim does not open');
+    }
+    final keys = _keysOf(opened);
     final bool ok;
     try {
       ok =
@@ -5013,6 +5152,7 @@ final class _AdminSession {
                       for (final k in (r['keyIds'] as List? ?? const [])) '$k',
                     ],
                   ),
+            serviceKey: r?['serviceKey'] as String?,
           );
           connection.send({'op': 'ok', 'id': id});
         case 'pair.revoke':
@@ -5913,11 +6053,15 @@ final class _AdminSession {
       case 'keys.rotate':
         final approver = m['approver'] ?? true;
         final link = m['link'] ?? true;
-        if (approver is! bool || link is! bool || (!approver && !link)) {
+        final identity = m['identity'] ?? false;
+        if (approver is! bool ||
+            link is! bool ||
+            identity is! bool ||
+            (!approver && !link && !identity)) {
           connection.sendError(
             id,
             'malformed',
-            'keys.rotate takes approver and link, at least one true',
+            'keys.rotate takes approver, link and identity, at least one true',
             {'reason': 'keys'},
           );
           return;
@@ -5932,17 +6076,26 @@ final class _AdminSession {
           connection.sendError(id, 'locked', 'unlock the service first');
           return;
         }
-        final rotated = await service.rotateKeyPairs(
-          approver: approver,
-          link: link,
-        );
+        final rotated = approver || link
+            ? await service.rotateKeyPairs(approver: approver, link: link)
+            : null;
+        // The service's own identity key: the old one signs the new one,
+        // and this admin follows that statement at its next connection.
+        final newIdentity = identity ? await service.rotateIdentityKey() : null;
         connection.send({
           'op': 'keysRotated',
           'id': id,
-          'approverKeyId': ?rotated.approverKeyId,
-          'resigned': rotated.resigned,
-          'delivered': rotated.delivered,
-          'pending': rotated.pending,
+          'approverKeyId': ?rotated?.approverKeyId,
+          'resigned': rotated?.resigned ?? 0,
+          'delivered': rotated?.delivered ?? const <String>[],
+          'pending': rotated?.pending ?? const <String>[],
+          'identity': ?(newIdentity == null
+              ? null
+              : {
+                  'key': base64.encode(newIdentity),
+                  'fingerprint': tomSecretsIdentityFingerprint(newIdentity),
+                  'words': tomSecretsIdentityWords(newIdentity),
+                }),
         });
       case 'token.set':
         final repository = m['repository'];

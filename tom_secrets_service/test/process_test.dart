@@ -107,14 +107,65 @@ void main() {
     final files = const TomSecretsSystemEndpointInspector().files(runtime);
     expect(tomSecretsJudgeEndpointFiles(files), isNull);
     expect(files.socket!.mode, 384, reason: '0600');
+    // First contact: the starter read the service's identity key from the
+    // pipe of the process it started, and pins it. From then on the admin
+    // checks it, with the primitives of the service executable's helper
+    // mode (what tsm does, which links no post-quantum code).
+    final identity = started.identity!;
+    expect(identity, hasLength(tomSecretsIdentityKeyLength));
+    final pins = TomSecretsMemoryPins();
+    final helper = TomSecretsIdentityHelper(exe);
+    addTearDown(helper.close);
+    TomSecretsServiceTrust pinned(TomSecretsServicePins pins) =>
+        TomSecretsServiceTrust(
+          executables: trust.executables,
+          identity: TomSecretsIdentityTrust(
+            pins: pins,
+            crypto: helper,
+            host: 'demo-host',
+          ),
+        );
+    await expectLater(
+      TomSecretsAdminClient.connect(runtime, key, trust: pinned(pins)),
+      throwsA(
+        isA<TomSecretsAdminException>()
+            .having((e) => e.details['reason'], 'reason', 'unpinned')
+            .having(
+              (e) => e.details['words'],
+              'words',
+              tomSecretsIdentityWords(identity),
+            ),
+      ),
+    );
+    await pins.pin(
+      'demo-host',
+      runtime.directory,
+      identity,
+      TomSecretsPinSource.start,
+    );
     final admin = await TomSecretsAdminClient.connect(
       runtime,
       key,
-      trust: trust,
+      trust: pinned(pins),
     );
+    expect(admin.identity!.publicKey, identity);
     await admin.unlock(primaryPassword);
     final status = await admin.request('status');
     expect(status['locked'], isFalse);
+    expect(
+      (status['identity']! as Map)['words'],
+      tomSecretsIdentityWords(identity),
+    );
+    // The helper answers nothing but its two operations.
+    expect(
+      await helper.verify(
+        publicKey: identity,
+        message: identity,
+        signature: identity,
+        context: identity,
+      ),
+      isFalse,
+    );
     expect(
       status['hardening'],
       Platform.isLinux

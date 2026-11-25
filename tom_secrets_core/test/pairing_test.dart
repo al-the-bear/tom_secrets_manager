@@ -578,6 +578,73 @@ void main() {
       expect(r.toJson()['githubAuth'], 'app');
     });
 
+    test('two devices each wrote a record of one device before their copies '
+        'met: read as one, the later entry deciding, the key ids joined; the '
+        'next write leaves one entry', () async {
+      final credentials = Credentials(ProtectedValue.fromString('demo-master'));
+      final original = tomSecretsNewVault(
+        credentials,
+        'primary',
+        argon2: testArgon2,
+      );
+      // The first device's own record is there already.
+      TomSecretsDeviceRecords(original).put(
+        TomSecretsDeviceRecord(device: 'mbp', paired: DateTime.utc(2026, 10)),
+      );
+      final bytes = await original.save();
+      Future<KdbxFile> copy() => KdbxFormat().read(bytes, credentials);
+      final base = await copy();
+      final giver = await copy();
+      final receiver = await copy();
+      final paired = DateTime.utc(2026, 11, 1, 10);
+      // The giving machine at the pairing, the new machine's service at
+      // its first unlock.
+      TomSecretsDeviceRecords(giver).put(
+        TomSecretsDeviceRecord(
+          device: 'bigbeast',
+          platform: 'linux',
+          paired: paired,
+          pairedBy: 'mbp',
+          keyIds: const ['aaaa'],
+        ),
+      );
+      TomSecretsDeviceRecords(receiver).setServiceKey(
+        'bigbeast',
+        'demo-service-key',
+        now: paired.add(const Duration(minutes: 5)),
+      );
+      TomSecretsDeviceRecords(
+        receiver,
+      ).takeKeyIds('bigbeast', const ['bbbb'], now: paired);
+      tomSecretsMergeVaults(base: base, ours: giver, theirs: receiver);
+      final records = TomSecretsDeviceRecords(giver);
+      expect([for (final r in records.list()) r.device], ['mbp', 'bigbeast']);
+      final r = records.byDevice('bigbeast')!;
+      expect(r.platform, 'linux');
+      expect(r.pairedBy, 'mbp');
+      expect(r.paired, paired);
+      expect(r.serviceKey, 'demo-service-key');
+      expect(r.keyIds, unorderedEquals(['aaaa', 'bbbb']));
+
+      expect(
+        records.setServiceKey('bigbeast', 'demo-key-2', now: paired),
+        isTrue,
+      );
+      final again = TomSecretsDeviceRecords(
+        await KdbxFormat().read(await giver.save(), credentials),
+      );
+      final kept = again.byDevice('bigbeast')!;
+      expect(kept.serviceKey, 'demo-key-2');
+      expect(kept.platform, 'linux');
+      expect(kept.keyIds, unorderedEquals(['aaaa', 'bbbb']));
+      expect(
+        again.file.body.rootGroup.getAllEntries().where(
+          (e) => e.label == 'bigbeast',
+        ),
+        hasLength(1),
+      );
+    });
+
     test("the GitHub App's client id in the primary's metadata", () {
       final file = tomSecretsNewVault(
         Credentials(ProtectedValue.fromString('demo-master')),

@@ -61,11 +61,36 @@ way.
 | `bootstrap.yaml` | the service's start configuration (below) | the First run, `tsm pair`, the service |
 | `device-settings.kdbx` | the device settings and trust material (KDBX) | the service |
 | `device-settings.kdbx.key` | the container's key in key-file mode (mode 0600) | the service |
+| `service-identity.json` | the service's identity key (mode 0600): the secret key, the public key, when it was made, and the statements of the keys it replaced | the service, at its first start; the First run and `tsm pair` when the machine is set up by pairing |
 | `cache/` | the offline cache, while `offlineCache` is on: `<owner>/<repository>/<path>` and `<path>.tsm-cache.json` beside each file (locator, head, blob id, fetch time) | the service |
 | `audit/<yyyy-mm-dd>.log` | the audit log, one encrypted record per line, kept 90 days | the service |
 | `service.log`, `service.log.1` to `.3` | the operational log, rotated at 1 MiB | the service |
 | `agent_keys.json` | the public keys the ssh-agent lists while locked | the service |
 | `app-preferences.json` | the desktop app's preferences (below) | the app |
+
+`service-identity.json` is what the app and `tsm` know the service by
+(protocol.md 6.1). Keep it with the data directory when you move or restore
+one; a service that starts without it makes a new key, and every program
+that pinned the old one then refuses it (`service_key_changed`).
+
+### The pins
+
+The app and `tsm` keep the identity keys of the services they know in one
+file, `services`, in the product's configuration directory:
+
+| OS | Path |
+| --- | --- |
+| Linux, macOS | `$XDG_CONFIG_HOME/tsm/services`, else `~/.config/tsm/services` |
+| Windows | `%APPDATA%\tsm\services` |
+
+`TSM_CONFIG_DIR` overrides the directory. The file is JSON, the user's
+alone (mode 0600 in a 0700 directory): `{"version": 1, "services":
+[{"host", "runtime"?, "key", "source", "at"}]}`. `host` is the machine's
+name, `runtime` the runtime directory the service answers in (none: that
+host's service wherever it answers, a pin from a device record), `key` the
+public key in base64, `source` how the pin came to be (`start`, `pairing`,
+`trust`, `rotation`). `tsm trust --list` shows it; `tsm trust --remove`
+removes this machine's pin.
 
 ### The runtime directory
 
@@ -274,7 +299,7 @@ Every vault has a metadata entry, `.tom-secrets`, in its root group.
 | An imported entry | `tsm.import.<source>.id` (also `.updated`, `.imported`, `.category`) | matching on a later import |
 | `.tom-secrets/vaults` (primary) | `tsm.locator`, `tsm.outer-key`, `tsm.github-token`, `tsm.github-token-expires`, `tsm.next-password`, `tsm.next-outer-key`, `tsm.previous-outer-key`; attachments `keyfile`, `next-keyfile` | every further vault and its keys, with a rotation's next and previous keys |
 | `.tom-secrets/next-keys` (primary) | the primary's own next keys | a guided rotation of the primary |
-| `.tom-secrets/devices` (primary) | `tsm.platform`, `tsm.paired`, `tsm.paired-by`, `tsm.key-ids`, `tsm.approver-key-id`, `tsm.link-key-since`, `tsm.approver-key-since`, `tsm.revoked`, `tsm.github-auth` (`app`, `token`), `tsm.github-token-expires` | the device records |
+| `.tom-secrets/devices` (primary) | `tsm.platform`, `tsm.paired`, `tsm.paired-by`, `tsm.key-ids`, `tsm.approver-key-id`, `tsm.link-key-since`, `tsm.approver-key-since`, `tsm.revoked`, `tsm.github-auth` (`app`, `token`), `tsm.github-token-expires`, `tsm.service-key` (the public identity key of the device's secrets service, base64) | the device records |
 | `.tom-secrets/rotations` | `tsm.rotation.kind`, `tsm.rotation.target`, `tsm.rotation.old-key-id`, `tsm.rotation.new-key-id`, `tsm.rotation.started`, `tsm.rotation.switched`, `tsm.rotation.ends`, `tsm.rotation.by`, `tsm.rotation.pending` | the rotation records (kinds `member-key`, `shared-vault`, `vault-keys`, `repository-key`) |
 | `tsm.grants/<host>` (primary) | `tsm.kind`, the signatures, `lastUsed` | the grants of each host |
 | `tsm.sharing` (primary) | the `member-key` entry; `member` entries with `tsm.recipient`, `tsm.fingerprint`, `tsm.checked` | the member key and the members |
@@ -290,6 +315,7 @@ A share is a JSON document of the format `tsm.share`, version 1.
 | --- | --- | --- | --- |
 | `TSM_RUNTIME_DIR` | the service, every client, the app | the runtime directory | the OS's (above) |
 | `TSM_DATA_DIR` | the app, `tsm` | the data directory | the OS's (above) |
+| `TSM_CONFIG_DIR` | the app, `tsm` | the directory of the pin file | the OS's (above) |
 | `TSM_SERVICE` | `tsm`, the app | the service executable to start, and one an admin expects to answer on the admin endpoint (protocol.md 6.0) | `tom_secrets_service` beside `tsm` or in the app's `tsm/bin` |
 | `TSM_LOGIN_ITEM` | the desktop app | `off`: a development run; no login item is registered, an old one is removed | on |
 | `TSM_RELAY_CONFIG` | the relay server | its configuration file | `config=` argument, else `./relay.yaml` |

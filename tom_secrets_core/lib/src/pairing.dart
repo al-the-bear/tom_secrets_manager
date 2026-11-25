@@ -26,6 +26,7 @@ import 'package:cryptography/cryptography.dart' as aead;
 import 'package:pointycastle/ecc/api.dart';
 import 'package:pointycastle/ecc/curves/secp256r1.dart';
 import 'package:tom_pqc/tom_pqc.dart';
+import 'package:tom_secrets_client/admin.dart' show tomSecretsIdentityKeyLength;
 import 'package:tom_secrets_age/tom_secrets_age.dart' show tomSecretsHkdf;
 
 import 'approval_link.dart';
@@ -413,6 +414,7 @@ final class TomSecretsPairingPeerKeys {
     this.linkAddress,
     this.linkRelay,
     this.linkId,
+    this.serviceKey,
   });
 
   /// From [toJson].
@@ -431,7 +433,21 @@ final class TomSecretsPairingPeerKeys {
         linkId: _linkRelay(json['linkRelay'], json['linkId']) == null
             ? null
             : json['linkId'] as String,
+        serviceKey: _serviceKey(json['serviceKey']),
       );
+
+  /// A peer's service key when it is one that can be read (base64 of the
+  /// right length); anything else is none (an older peer, or a phone).
+  static String? _serviceKey(Object? key) {
+    if (key is! String) return null;
+    try {
+      return base64.decode(key).length == tomSecretsIdentityKeyLength
+          ? key
+          : null;
+    } on FormatException {
+      return null;
+    }
+  }
 
   /// The relay of a peer's link when it names a relay server and a link id
   /// that can be used; anything else is no relay link (an older peer).
@@ -465,9 +481,16 @@ final class TomSecretsPairingPeerKeys {
   /// with [linkRelay].
   final String? linkId;
 
+  /// The public identity key of the device's secrets service (base64,
+  /// protocol.md 6.1), or null for a device that runs none (a phone) or
+  /// names none: each side records the other's with the device, so every
+  /// paired device knows every other service's key.
+  final String? serviceKey;
+
   /// The JSON.
   Map<String, Object?> toJson() => {
     'linkKey': linkKey.toJson(),
+    'serviceKey': ?serviceKey,
     if (approverKey != null) 'approverKey': approverKey!.toJson(),
     'linkAddress': ?linkAddress,
     'linkRelay': ?linkRelay,

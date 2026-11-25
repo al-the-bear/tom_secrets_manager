@@ -62,6 +62,15 @@ String normalize(String text, Map<String, String> paths) {
       )
       .replaceAll(RegExp(r'"start": \d+'), '"start": 1795510800000')
       .replaceAll(RegExp(r'"pid": \d+'), '"pid": 4242')
+      // The identity key is made anew for every demo installation.
+      .replaceAll(
+        RegExp(r'"fingerprint": "[0-9a-f]{64}"'),
+        '"fingerprint": "${'5c1e' * 16}"',
+      )
+      .replaceAll(
+        RegExp(r'"words": "[a-z-]+"'),
+        '"words": "harbor-violet-cedar-lantern-maple-orbit-pebble-quill"',
+      )
       .replaceAll(RegExp(r'"version": "[0-9.]+"'), '"version": "<version>"')
       .replaceAll(RegExp(r'\bversion=[0-9.]+'), 'version=<version>')
       .replaceAll(RegExp(r'\bpid=\d+'), 'pid=4242')

@@ -291,8 +291,10 @@ void main() {
       await raw.closed.future;
     });
 
-    test('a service that does not hold the key is caught by mac2', () async {
-      // A fake "service" answering authed with a made-up mac2.
+    test('an endpoint that proves no identity key gets no auth: the admin '
+        'key\'s proof is never sent to it', () async {
+      // A fake "service" that would answer authed with a made-up mac2 (the
+      // mac2 check itself is tested in tom_secrets_client).
       final demo = await Demo.create();
       final runtime = demo.runtime();
       await runtime.prepare();
@@ -304,6 +306,7 @@ void main() {
       // It passes the check of who answers (this user's socket, this very
       // process): what it lacks is the key.
       tomSecretsOwnerOnly([runtime.adminSocket]);
+      final got = <List<int>>[];
       server.listen((s) {
         s.add(
           tomSecretsJsonFrame({
@@ -314,25 +317,27 @@ void main() {
             'service': {'version': 'impostor'},
           }),
         );
-        s.listen(
-          (_) => s.add(
+        s.listen((bytes) {
+          got.add(bytes);
+          s.add(
             tomSecretsJsonFrame({
               'op': 'authed',
               'mac2': base64.encode(tomSecretsRandomBytes()),
             }),
-          ),
-        );
+          );
+        });
       });
       await expectLater(
         TomSecretsAdminClient.connect(runtime, demo.adminKey),
         throwsA(
           isA<TomSecretsAdminException>().having(
-            (e) => e.kind,
-            'kind',
-            'service_impostor',
+            (e) => e.details['reason'],
+            'reason',
+            'no_identity',
           ),
         ),
       );
+      expect(got, isEmpty);
     });
 
     test('claim: a wrong password is denied; the right one, locked or '

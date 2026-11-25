@@ -29,6 +29,7 @@ const _approverKeySince = KdbxKey('tsm.approver-key-since');
 const _revoked = KdbxKey('tsm.revoked');
 const _githubAuth = KdbxKey('tsm.github-auth');
 const _githubTokenExpires = KdbxKey('tsm.github-token-expires');
+const _serviceKey = KdbxKey('tsm.service-key');
 
 /// How a device reaches the vault repositories on GitHub (part-key-rotation
 /// §3, DP-83): signed in through the user's GitHub App (`app`), or with a
@@ -62,6 +63,7 @@ final class TomSecretsDeviceRecord {
     this.revoked,
     this.githubAuth,
     this.githubTokenExpires,
+    this.serviceKey,
   });
 
   /// The device's name.
@@ -99,6 +101,27 @@ final class TomSecretsDeviceRecord {
   /// device's refresh token's (its sign-in lasts that long unused).
   final DateTime? githubTokenExpires;
 
+  /// The public identity key of its secrets service (base64, protocol.md
+  /// 6.1), when it runs one and said so: what the other devices show as
+  /// words, to compare with what that machine's `tsm status` shows.
+  final String? serviceKey;
+
+  /// This record with [serviceKey] replaced.
+  TomSecretsDeviceRecord withServiceKey(String? key) => TomSecretsDeviceRecord(
+    device: device,
+    platform: platform,
+    paired: paired,
+    pairedBy: pairedBy,
+    keyIds: keyIds,
+    approverKeyId: approverKeyId,
+    approverKeySince: approverKeySince,
+    linkKeySince: linkKeySince,
+    revoked: revoked,
+    githubAuth: githubAuth,
+    githubTokenExpires: githubTokenExpires,
+    serviceKey: key,
+  );
+
   /// This record with [githubAuth] and [githubTokenExpires] replaced.
   TomSecretsDeviceRecord withGitHub(
     TomSecretsGitHubAuth? auth,
@@ -115,6 +138,7 @@ final class TomSecretsDeviceRecord {
     revoked: revoked,
     githubAuth: auth,
     githubTokenExpires: expires,
+    serviceKey: serviceKey,
   );
 
   /// Whether it was revoked.
@@ -128,6 +152,7 @@ final class TomSecretsDeviceRecord {
     'pairedBy': ?pairedBy,
     'keyIds': keyIds,
     'approverKeyId': ?approverKeyId,
+    'serviceKey': ?serviceKey,
     if (approverKeySince != null)
       'approverKeySince': approverKeySince!.toUtc().toIso8601String(),
     if (linkKeySince != null)
@@ -163,10 +188,53 @@ final class TomSecretsDeviceRecords {
     return file.createGroup(parent: product, name: tomSecretsDevicesGroup);
   }
 
-  /// Every record, in file order.
-  List<TomSecretsDeviceRecord> list() => [
-    for (final e in _group()?.entries ?? const <KdbxEntry>[]) ?_read(e),
-  ];
+  /// Every record, in file order, one per device. Two devices may each
+  /// write a record of the same device before their copies of the primary
+  /// meet (the giving machine at the pairing, the new machine's service at
+  /// its first unlock), and the merge keeps both entries: they are read as
+  /// one, the entry changed last deciding each field it holds, the key ids
+  /// joined, the earliest pairing kept. The next [put] leaves one entry.
+  List<TomSecretsDeviceRecord> list() {
+    final entries = [..._group()?.entries ?? const <KdbxEntry>[]];
+    final byDevice = <String, List<KdbxEntry>>{};
+    for (final e in entries) {
+      final device = e.label;
+      if (device != null) byDevice.putIfAbsent(device, () => []).add(e);
+    }
+    return [for (final same in byDevice.values) ?_joined(same)];
+  }
+
+  static DateTime _changed(KdbxEntry e) =>
+      e.times.lastModificationTime.get() ??
+      DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+
+  static TomSecretsDeviceRecord? _joined(List<KdbxEntry> same) {
+    final records = [
+      for (final e in [
+        ...same,
+      ]..sort((a, b) => _changed(a).compareTo(_changed(b))))
+        ?_read(e),
+    ];
+    if (records.length < 2) return records.firstOrNull;
+    var joined = records.first;
+    for (final r in records.skip(1)) {
+      joined = TomSecretsDeviceRecord(
+        device: joined.device,
+        platform: r.platform ?? joined.platform,
+        paired: r.paired.isBefore(joined.paired) ? r.paired : joined.paired,
+        pairedBy: r.pairedBy ?? joined.pairedBy,
+        keyIds: {...joined.keyIds, ...r.keyIds}.toList(),
+        approverKeyId: r.approverKeyId ?? joined.approverKeyId,
+        approverKeySince: r.approverKeySince ?? joined.approverKeySince,
+        linkKeySince: r.linkKeySince ?? joined.linkKeySince,
+        revoked: r.revoked ?? joined.revoked,
+        githubAuth: r.githubAuth ?? joined.githubAuth,
+        githubTokenExpires: r.githubTokenExpires ?? joined.githubTokenExpires,
+        serviceKey: r.serviceKey ?? joined.serviceKey,
+      );
+    }
+    return joined;
+  }
 
   /// The record of [device], or null.
   TomSecretsDeviceRecord? byDevice(String device) =>
@@ -176,9 +244,15 @@ final class TomSecretsDeviceRecords {
   /// paired again is updated, never duplicated).
   void put(TomSecretsDeviceRecord record) {
     final group = _group(create: true)!;
-    var entry = group.entries
-        .where((e) => e.label == record.device)
-        .firstOrNull;
+    final same = [
+      for (final e in group.entries)
+        if (e.label == record.device) e,
+    ];
+    // Entries two devices each made for it: one stays.
+    for (final extra in same.skip(1)) {
+      file.deletePermanently(extra);
+    }
+    var entry = same.firstOrNull;
     if (entry == null) {
       entry = KdbxEntry.create(file, group);
       group.addEntry(entry);
@@ -198,6 +272,7 @@ final class TomSecretsDeviceRecords {
       set(_linkKeySince, time(record.linkKeySince));
       set(_revoked, time(record.revoked));
       set(_githubAuth, record.githubAuth?.name);
+      set(_serviceKey, record.serviceKey);
       set(_githubTokenExpires, time(record.githubTokenExpires));
     });
   }
@@ -245,7 +320,21 @@ final class TomSecretsDeviceRecords {
         revoked: record?.revoked,
         githubAuth: record?.githubAuth,
         githubTokenExpires: record?.githubTokenExpires,
+        serviceKey: record?.serviceKey,
       ),
+    );
+    return true;
+  }
+
+  /// Records the public identity key [key] (base64) of [device]'s secrets
+  /// service; a device without a record yet (the first one, never paired)
+  /// gets one, paired at [now]. Whether the record changed.
+  bool setServiceKey(String device, String key, {required DateTime now}) {
+    final record = byDevice(device);
+    if (record?.serviceKey == key) return false;
+    put(
+      (record ?? TomSecretsDeviceRecord(device: device, paired: now))
+          .withServiceKey(key),
     );
     return true;
   }
@@ -274,6 +363,7 @@ final class TomSecretsDeviceRecords {
         revoked: at,
         githubAuth: record.githubAuth,
         githubTokenExpires: record.githubTokenExpires,
+        serviceKey: record.serviceKey,
       ),
     );
     return true;
@@ -309,6 +399,7 @@ final class TomSecretsDeviceRecords {
       revoked: time(_revoked),
       githubAuth: TomSecretsGitHubAuth.of(text(_githubAuth)),
       githubTokenExpires: time(_githubTokenExpires),
+      serviceKey: text(_serviceKey),
     );
   }
 }

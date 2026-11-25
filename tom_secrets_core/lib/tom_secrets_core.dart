@@ -57,6 +57,7 @@ export 'src/certificate.dart';
 export 'src/pgp_key.dart';
 export 'src/share.dart';
 export 'src/shared_vault.dart';
+export 'src/service_identity.dart';
 export 'src/signed_objects.dart';
 export 'src/ssh_agent.dart';
 export 'src/ssh_key.dart';

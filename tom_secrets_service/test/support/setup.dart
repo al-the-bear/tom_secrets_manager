@@ -113,6 +113,16 @@ final class _PassingFacts implements TomSecretsEndpointInspector {
   TomSecretsEndpointFacts withPeer(TomSecretsEndpointFacts f, Socket s) => f;
 }
 
+/// The tests' admin connections check the identity key of the service
+/// they started themselves with the real primitives, and pin it as it
+/// presents itself (the pins are tested in identity_key_test.dart).
+void trustTestServices() =>
+    TomSecretsServiceTrust.fallbackIdentity ??= TomSecretsIdentityTrust(
+      pins: TomSecretsMemoryPins(),
+      crypto: const TomSecretsPqcIdentityCrypto(),
+      pinOnFirstUse: true,
+    );
+
 final class Demo {
   Demo._(this.dir);
 
@@ -120,6 +130,7 @@ final class Demo {
   static Future<Demo> create({
     TomSecretsDeviceKeyMode deviceKey = TomSecretsDeviceKeyMode.keyfile,
   }) async {
+    trustTestServices();
     final dir = Directory.systemTemp.createTempSync('tsm');
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);

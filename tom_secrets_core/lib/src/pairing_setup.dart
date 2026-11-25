@@ -128,6 +128,7 @@ Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({
   required String device,
   String? linkAddress,
   String? linkRelay,
+  String? serviceKey,
   DateTime? now,
   Duration connectTimeout = const Duration(seconds: 10),
 }) async {
@@ -162,6 +163,10 @@ Future<TomSecretsPairingReceipt> tomSecretsReceivePairingForSetup({
           ? null
           : TomSecretsRelayId.parse(linkRelay).text,
       linkId: linkRelay == null ? null : tomSecretsNewLinkId(),
+      // The identity key of the service this machine will run, made in
+      // its data directory before the pairing: the giving machine records
+      // it with the device.
+      serviceKey: serviceKey,
     );
   }
 

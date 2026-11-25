@@ -99,7 +99,8 @@ key on its standard input, which the starter keeps in the keychain.
 1. Set the machine up once by pairing (`tsm pair`, in the `tsm` user
    guide); this writes `bootstrap.yaml` into the data directory.
 2. Run `tsm start --unlock` and type the master password. It prints
-   `started`, then `unlocked`.
+   `started` and `unlocked`, each followed by the service's identity as
+   eight words (`identity harbor-violet-…`).
 3. Check it with `tsm status`.
 
 A second start finds the service running and says `already running`. The
@@ -115,6 +116,8 @@ The service executable exits with these codes when it cannot start:
 | 3 | already running |
 | 4 | the runtime directory is refused (wrong owner or mode) |
 | 5 | the keychain holding the device key is not available |
+| 8 | the data directory is refused (another user's, or no folder) |
+| 9 | the identity key in the data directory cannot be read |
 
 In its pairing mode (run by `tsm pair`) it exits 0 when the machine is set
 up, 2 when the handover cannot be used, 6 when the pairing failed and 7
@@ -185,8 +188,19 @@ and refuses to start in one another user owns.
 $ ls -l /home/demo/.local/share/tom-secrets-manager
 -rw-------  device-settings.kdbx
 -rw-------  device-settings.kdbx.key
+-rw-------  service-identity.json
 -rw-------  service.log
 ```
+
+`service-identity.json` is the service's **identity key**, made at its
+first start. The app and `tsm` remember its public key (they *pin* it) and
+talk only to the service that proves it holds this key; `tsm status` and
+the app's Status show its fingerprint as eight words, and your other
+devices show the same words for this machine. It stays the same across
+restarts and upgrades. Keep it with the data directory: a service that
+starts without it makes a new key, and the app and `tsm` then refuse the
+service until you compare the new words. The `tsm` user guide says how:
+[`tsm trust`](https://github.com/al-the-bear/tom_secrets_clients/blob/main/clients/dart/tsm/doc/tsm_user_guide.md#tsm-trust).
 
 After a while it also holds `bootstrap.yaml`, `audit/` (a file a day),
 `agent_keys.json` (the public keys the ssh-agent lists while locked) and,
@@ -337,6 +351,11 @@ $ tsm status --json
   "service": {
     "version": "<version>",
     "start": 1795510800000
+  },
+  "identity": {
+    "fingerprint": "5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e",
+    "words": "harbor-violet-cedar-lantern-maple-orbit-pebble-quill",
+    "since": "2026-11-24T09:00:00.000Z"
   },
   "stores": [
     {
@@ -501,8 +520,16 @@ cannot be read directly; files older than 90 days are deleted.
 Nothing in the data directory needs converting; the vaults and the
 device settings stay as they are.
 
-**To move the data directory:** stop the service, move the folder, and
-point the starters at it with `TSM_DATA_DIR`. Check `bootstrap.yaml` for
+Upgrade the service together with the app and `tsm`: from 0.26.0 the
+service takes a claim's master password only encrypted to itself, which a
+`tsm` or app older than that cannot do, and a newer `tsm` or app refuses a
+service without an identity key (`no_identity`). A service upgraded to
+0.26.0 makes its identity key at its first start; the program that starts
+it pins the key by itself.
+
+**To move the data directory:** stop the service, move the whole folder
+(`service-identity.json` included), and point the starters at it with
+`TSM_DATA_DIR`. Check `bootstrap.yaml` for
 `cache_dir` or `runtime_dir` naming the old place.
 
 **To move to another machine:** do not copy the data directory. Set the
@@ -516,6 +543,9 @@ old one revoke it in the app (Pairing › Revoke) once it is retired.
 | `tsm status` prints `not running` (exit 3) | no service answers in the runtime directory | start it (`tsm start`, or open the app); check that the program and the service see the same `TSM_RUNTIME_DIR` |
 | the service exits with code 4 | the runtime directory belongs to another user or is readable by others | remove the directory (it holds nothing that lasts) or fix its owner and mode 0700 |
 | `tsm` or the app says `service_untrusted` ("This is not your secrets service") | what answers on the admin endpoint is not this user's service: the runtime directory or socket is someone else's (`owner`) or open to others (`mode`), or the process answering runs as another user (`peer_user`) or is another program (`peer_executable`); nothing was sent | follow what the message says; for `mode`, `chmod 700` the runtime directory and `chmod 600` its sockets; for `peer_executable` with a service of yours installed elsewhere, name it in `TSM_SERVICE` |
+| `tsm` or the app says `service_untrusted` with `unpinned` ("Is this your secrets service?") | a service runs that this program did not start and has no identity key pinned for; nothing was sent | compare the words shown with the ones another of your devices shows for this machine (the app's Pairing screen), then `tsm trust <words>` or the app's "The words are the same: trust it" |
+| `tsm` or the app says `service_key_changed` | the service presents another identity key than the one pinned: its data directory was replaced or set up anew, or something else answers in its place; nothing was sent | if you replaced it: `tsm trust --remove`, start the service with `tsm start` or compare the new words; if not, do not enter the master password and find out what answers |
+| the service exits with code 9 | `service-identity.json` in the data directory cannot be read | restore the file from the data directory's backup; without one, remove it (the service makes a new key, and `tsm` and the app then ask you to compare its words) |
 | the service exits with code 8 | the data directory belongs to another user, is no folder, or cannot be made the user's alone | fix its owner (`chown -R <user>`), or point `TSM_DATA_DIR` at a folder of the service's user |
 | `denied` with `other_user` or `unidentifiable` | the asking process runs as another user, or the OS would not say who it is | run the program as the service's user |
 | `denied` with `wrong_executable` | an admin command from a program the service does not admit | use the `tsm` or app beside the service |

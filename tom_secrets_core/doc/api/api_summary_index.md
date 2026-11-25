@@ -376,6 +376,7 @@ The library also re-exports the KDBX types the service and the apps handle from 
 | `TomSecretsRelayPacer` | final class | The turns of the requests to one relay server | [→](api_summary_sharing.md#tomsecretsrelaypacer) |
 | `TomSecretsWormholeConnect` | typedef | Opens a WebSocket to a magic-wormhole server | [→](api_summary_sharing.md#tomsecretswormholeconnect) |
 | `TomSecretsWormholeRelay` | final class | A magic-wormhole mailbox server as a relay (pairing only) | [→](api_summary_sharing.md#tomsecretswormholerelay) |
+| `TomSecretsServiceIdentityKey`, `TomSecretsOneTimeKey`, `TomSecretsPqcIdentityCrypto` | final class | The identity key of a secrets service, the one-time key a claim is sealed to, and an admin's identity primitives. | [→](api_summary_sharing.md#tomsecretsserviceidentitykey) |
 | `TomSecretsDeviceRecord` | final class | One paired device. | [→](api_summary_sharing.md#tomsecretsdevicerecord) |
 | `TomSecretsGitHubAuth` | enum | How a device reaches GitHub: the App sign-in or a pasted token. | [→](api_summary_sharing.md#tomsecretsdevicerecord) |
 | `TomSecretsDeviceRecords` | final class | The device records of the primary vault `file`. | [→](api_summary_sharing.md#tomsecretsdevicerecords) |

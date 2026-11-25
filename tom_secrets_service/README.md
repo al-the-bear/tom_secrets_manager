@@ -77,9 +77,11 @@ starter (`tomSecretsStartService`) makes a fresh admin key, starts the
 executable detached, writes one handover line to its standard input
 (`TomSecretsHandover`: the admin key, the path of `bootstrap.yaml`, the
 starter's PID) and closes it; the key never touches a file. The service
-answers one JSON line on its standard output — `{"status":"ready"}`,
-`{"status":"already_running"}` or `{"status":"error","code":…}` — and runs
-until `shutdown`, SIGTERM or SIGHUP (the user logs out).
+answers one JSON line on its standard output — `{"status":"ready",
+"identity":…}`, `{"status":"already_running"}` or
+`{"status":"error","code":…}` — and runs until `shutdown`, SIGTERM or
+SIGHUP (the user logs out). `identity` is the service's public identity
+key (below), which the starter pins.
 
 ```text
 tsm start --unlock
@@ -94,6 +96,14 @@ tsm status
 | 4 | the runtime directory is refused (wrong owner or mode) |
 | 5 | the keychain holding the device key is not available |
 | 8 | the data directory is refused (no folder, another user's, or it cannot be made the user's alone) |
+| 9 | the identity key in the data directory (`service-identity.json`) cannot be read |
+
+Started with `{"identityHelper": 1}` as its first input line instead, the
+executable is an admin's **identity helper**: it answers one JSON line per
+request, `{"op":"verify", …}` with `{"valid"}` and `{"op":"encapsulate",
+…}` with `{"ciphertext","sharedSecret"}` (base64), until its input ends.
+`tsm` uses it for the two post-quantum operations of the identity exchange,
+so `tsm` links none; no secret of a vault passes it.
 
 ### The pairing mode
 
@@ -400,6 +410,16 @@ The admin's executable must be `tsm` or the manager app beside the service
 6.1) or a `claim` with the master password, which issues a new admin key and
 revokes the old one. Failed authentications delay the next one (1 s, 2 s,
 4 s … 60 s).
+
+Before either, the service proves which service it is (`identify`,
+answered `identity`): it signs the admin's nonce, its own nonce and start
+time, and a one-time key made for the connection, with its **identity
+key**. That key (ML-DSA-65 with Ed25519) is made at the first start and
+kept in the data directory (`service-identity.json`, 0600); it is the same
+after every restart, and `keys.rotate {identity}` replaces it with a
+statement the old key signs. `status` names its fingerprint and words. A
+`claim` carries the master password sealed to the one-time key (`sealed`);
+a claim in the clear is refused (`malformed`, reason `unsealed`).
 
 | Requests | What they do |
 | --- | --- |

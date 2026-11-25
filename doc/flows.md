@@ -114,8 +114,12 @@ sequenceDiagram
   participant A as App or tsm
   participant S as Service
   A-&gt;&gt;S: start, one line on stdin: admin key, bootstrap
-  S--&gt;&gt;A: one line on stdout: ready
+  S--&gt;&gt;A: one line on stdout: ready, identity key
+  Note over A: pin the identity key
   S-&gt;&gt;A: challenge (service nonce, start)
+  A-&gt;&gt;S: identify (admin nonce)
+  S--&gt;&gt;A: identity (key, one-time key, signature)
+  Note over A: check the signature and the pin
   A-&gt;&gt;S: auth (admin nonce, MAC)
   S-&gt;&gt;A: authed (MAC back)
   A-&gt;&gt;S: subscribe
@@ -125,13 +129,19 @@ sequenceDiagram
 -->
 
 The starter makes a fresh admin key, hands it over on standard input and
-keeps it in the keychain. The service checks the admin's executable before
-the MAC.
+keeps it in the keychain. The service says its identity key on its
+standard output, and the starter pins it. On every connection the service
+then proves it holds that key before the admin sends its MAC; a claim's
+master password is encrypted to the one-time key the service signed. The
+service checks the admin's executable before the MAC.
 
 Fails with: `already_running` (exit 3: attach to the running service, or
 `claim` it with the master password), `denied` with `wrong_executable` or
 `bad_mac` (failures are delayed 1, 2, 4 seconds up to a minute), and on the
-admin's side `service_impostor` when `authed` does not check out.
+admin's side, with nothing sent, `service_untrusted` (the endpoint is not
+the user's service, or no key is pinned for it: `unpinned`),
+`service_key_changed` (another key than the pinned one) and
+`service_impostor` (a signature or `authed` that does not check out).
 
 ### Unlocking with the master password
 

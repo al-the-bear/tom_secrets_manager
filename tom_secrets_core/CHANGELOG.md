@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.38
+
+- The service's identity key (protocol.md 6.1):
+  `TomSecretsServiceIdentityKey` (ML-DSA-65 with Ed25519, `tom_pqc`'s
+  composite signature; made in the data directory at the first start,
+  `service-identity.json`, rotated with a statement the old key signs),
+  `TomSecretsOneTimeKey` (ML-KEM-768 with X25519) a claim is sealed to,
+  `TomSecretsPqcIdentityCrypto` (an admin's two primitives in this
+  process) and `tomSecretsIdentityHelperAnswer` (the same for the service
+  executable's helper mode).
+- A device record names its service's identity key
+  (`TomSecretsDeviceRecord.serviceKey`, `TomSecretsDeviceRecords.
+  setServiceKey`), and so do a pairing's peer keys
+  (`TomSecretsPairingPeerKeys.serviceKey`,
+  `tomSecretsReceivePairingForSetup(serviceKey:)`).
+- Device records made twice for one device, by two devices before their
+  copies of the primary met, are read as one (the entry changed last
+  decides, the key ids are joined) and written back as one entry.
+
 ## 0.2.37
 
 - The outer encryption of a vault's content (`.tsmx`, XChaCha20-Poly1305)

@@ -210,11 +210,12 @@ one. Locking keeps the admin key. (`client/admin/admin_auth.dart`,
 
 ### Who answers on the admin endpoint
 
-A claim sends the master password, and a claimant holds no key the service
-could prove itself with. This is every `tsm unlock` in an SSH session on a
-server without a keychain. So before the app or `tsm` sends anything on
-the admin endpoint, the key proof of the challenge included, and before it
-asks for the master password, it checks who answers:
+A claim sends the master password, and a claimant shares no admin key with
+the service. This is every `tsm unlock` in an SSH session on a server
+without a keychain. So before the app or `tsm` sends anything on the admin
+endpoint, the key proof of the challenge included, and before it asks for
+the master password, it checks two things: whose process answers (this
+section), and which service it is (the next).
 
 | Check | Linux, macOS | Windows |
 | --- | --- | --- |
@@ -242,13 +243,61 @@ Two traps this closes:
   service left can name a port another process has taken since. The owner
   and the executable of that process are checked.
 
-One limit: on Linux the service makes itself not dumpable at its start, so
-that no process of the user reads its memory, and Linux then hides its
-executable (`/proc/<pid>/exe`) from its own user too. For such a peer the
-directory, socket and user checks hold and the executable cannot be
-compared; a peer whose executable can be read must match. The checks say
-which user's which program answers. They do not prove the service holds a
-key. (`client/admin/service_trust.dart`, `protocol.md` 6.0.)
+On Linux the service makes itself not dumpable at its start, so that no
+process of the user reads its memory, and Linux then hides its executable
+(`/proc/<pid>/exe`) from its own user too. For such a peer the directory,
+socket and user checks hold and the executable cannot be compared; a peer
+whose executable can be read must match. What tells the service apart from
+any other process of the user there is its identity key.
+(`client/admin/service_trust.dart`, `protocol.md` 6.0.)
+
+### The service's identity key
+
+Every service has a signing key pair of its own, made at its first start:
+ML-DSA-65 with Ed25519 as one composite signature (RFC 10073). The secret
+key is in the data directory (`service-identity.json`, mode 0600); it stays
+the same across restarts and updates, and a file that cannot be read stops
+the start. The key's fingerprint is shown as eight words.
+
+The app and `tsm` **pin** the public key of each service they know, in one
+file they share (`~/.config/tsm/services`). A key is pinned:
+
+| When | How the admin knows the key is the service's |
+| --- | --- |
+| The app or `tsm start` started the service | the service says it on its standard output, the pipe of the process just started |
+| The machine was set up by pairing, or another device was paired | each side names its service's key in the pairing, and the primary vault's device records carry every device's key |
+| The user compared the words | `tsm trust <words>`, or the app's "The words are the same: trust it", against the words another device shows for this machine |
+| The service's key was rotated | the old key signed the new one, and the service presents that statement |
+
+On every admin connection, before `auth` or `claim`, the admin sends a
+nonce, and the service signs the nonce, its own nonce and start time, and a
+**one-time key** (ML-KEM-768 with X25519) it made for that connection. The
+admin checks the signature and compares the key with its pin:
+
+- the pinned key, or one the pinned key signed its way to: it goes on;
+- no pin: `service_untrusted` (`unpinned`). Nothing is sent; the words are
+  shown for the user to compare;
+- another key: `service_key_changed`. Nothing is sent, and neither the app
+  nor `tsm` offers a way to enter the password anyway. The pin is removed
+  by hand (`tsm trust --remove`, or the app's "I set this service up
+  anew"), and the new key is compared like a first one.
+
+**The claim's password is sealed.** The master password (and key file) of a
+claim is encrypted to the one-time key the service signed (HKDF-SHA-256
+over the X-Wing shared secret and the signed bytes, AES-256-GCM). Only the
+process that holds the one-time secret key reads it, and the signature says
+that process holds the pinned identity key. A process that only passes the
+connection on reads nothing; one that swaps the one-time key breaks the
+signature.
+
+There is no phrase of the user's that the service shows before the
+password is typed: whatever a service shows, a process in its place could
+show too. The words, compared once, are the one check a person makes.
+
+`tsm` links no post-quantum code. The signature check and the encapsulation
+are run for it by the service executable beside it (its helper mode); the
+password never passes the helper. (`client/admin/service_identity.dart`,
+`core/service_identity.dart`, `protocol.md` 6.1, 6.2.)
 
 ### Client tokens
 
@@ -826,10 +875,9 @@ are held in memory.
 **Residual risks the code names:**
 
 - the Windows clipboard history and the plain clipboard on Linux;
-- on Linux the executable of a hardened service cannot be read by its own
-  user, so an admin there checks its user but not its executable; a
-  process of the same user that takes the service's place while none runs
-  is a compromised session (above);
+- a process of the same user that reads the service's identity key from
+  the data directory can answer in its place; that is a compromised
+  session (above), which reads the app's memory as well;
 - no screen-capture exclusion on Linux;
 - the gate-only Touch ID item on a Mac without the team-signed build;
 - a shared vault's old recipients files in the history until it is cut.
@@ -839,6 +887,7 @@ are held in memory.
 | Check | Where | What it shows |
 | --- | --- | --- |
 | RFC 9382 vectors | `tom_secrets_core/test/pairing_test.dart` | SPAKE2 matches the RFC |
+| The identity key | `tom_secrets_service/test/identity_key_test.dart` | an unpinned or changed key gets neither `auth` nor `claim`; a relay between the admin and the service reads nothing of a claim |
 | Protocol vectors | `tom_secrets_clients/protocol/vectors/` | frames, references, HMACs, signatures, approval codes and the link handshake; recomputed independently with Go's standard library |
 | The `age` testkit | `tom_secrets_age/test/age_test.dart` | the hybrid and scrypt vectors of the C2SP test kit |
 | `filippo.io/age` | `tom_secrets_core/test/member_keys_test.dart` | member keys made by `age` v1.3.2 read back |

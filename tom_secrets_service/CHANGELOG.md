@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.26.0
+
+- The service has an identity key (protocol.md 6.1), made at its first
+  start and kept in the data directory (`service-identity.json`, 0600): the
+  same across restarts and updates; a file that cannot be read stops the
+  start (exit code 9). The `ready` line names it for the starter, `status`
+  its fingerprint and words (`identity`).
+- The identity exchange: `challenge` offers `identity`; `identify
+  {clientNonce}` is answered `identity {publicKey, oneTimeKey, signature,
+  changes?}`, the signature over both nonces, the start and a one-time key
+  made for the connection.
+- **A claim must be sealed** (protocol.md 6.2): `claim {sealed}` carries the
+  master password encrypted to the connection's one-time key. A claim in
+  the clear is refused (`malformed`, reason `unsealed`), one that does not
+  open `denied` (`bad_seal`). An admin older than `tom_secrets_client`
+  0.2.25 can no longer claim; update `tsm` and the app with the service.
+- `keys.rotate {identity}` makes a new identity key; the old key signs it,
+  and the statement is presented from then on (the last 8 are kept).
+- This device's record in the primary names the service's key, and
+  `pair.identity` / `pair.record` carry it (`serviceKey`).
+- The identity helper mode: started with `{"identityHelper": 1}` on its
+  standard input, the executable runs an admin's signature check and
+  encapsulation, one JSON line each (`tsm` links no post-quantum code).
+- The pairing mode names the new machine's service key in the pairing and
+  writes it once the machine is set up.
+
 ## 0.25.10
 
 - Large vaults: a `save` answers `ok` with the `revision` the file has now

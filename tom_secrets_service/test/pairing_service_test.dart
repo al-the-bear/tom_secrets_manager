@@ -169,7 +169,10 @@ void main() {
     );
 
     final devices = await adminA.request('pair.list');
-    final record = (devices['devices']! as List).cast<Map>().single;
+    // mbp's own record is there too (it names its service's key).
+    final record = (devices['devices']! as List).cast<Map>().singleWhere(
+      (d) => d['device'] == 'bigbeast',
+    );
     expect(record['device'], 'bigbeast');
     expect(record['platform'], 'linux');
     expect(record['pairedBy'], 'mbp');
@@ -224,7 +227,10 @@ void main() {
     expect(mbp.trust.host('bigbeast'), isNull);
     final devices = await adminA.request('pair.list');
     expect(
-      ((devices['devices']! as List).single as Map).containsKey('revoked'),
+      (devices['devices']! as List)
+          .cast<Map>()
+          .singleWhere((d) => d['device'] == 'bigbeast')
+          .containsKey('revoked'),
       isTrue,
     );
     final unknown = await adminA
@@ -241,7 +247,10 @@ void main() {
       'record': {'platform': 'linux', 'keyIds': <String>[]},
     });
     final relisted = await adminA.request('pair.list');
-    final record = (relisted['devices']! as List).cast<Map>();
+    final record = [
+      for (final d in (relisted['devices']! as List).cast<Map>())
+        if (d['device'] == 'bigbeast') d,
+    ];
     expect(record, hasLength(1));
     expect(record.single.containsKey('revoked'), isFalse);
     expect(mbp.trust.host('bigbeast')!.tokenKey, again.tokenKey);

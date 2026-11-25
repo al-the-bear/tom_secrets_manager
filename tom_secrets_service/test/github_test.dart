@@ -1731,7 +1731,8 @@ void main() {
       expect(all.first.committer?['email'], 'demo-host@tsm.invalid');
       expect(all.first.author?['email'], 'demo-host@tsm.invalid');
       await settle();
-      expect(ofOp('store_changed').single, {
+      // (The primary changed too, at the unlock: this device's record.)
+      expect(ofOp('store_changed').where((e) => e['store'] == 'team').single, {
         'op': 'store_changed',
         'store': 'team',
         'revision': tomSecretsBlobId(edited),
