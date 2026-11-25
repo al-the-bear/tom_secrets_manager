@@ -290,7 +290,7 @@ A share is a JSON document of the format `tsm.share`, version 1.
 | --- | --- | --- | --- |
 | `TSM_RUNTIME_DIR` | the service, every client, the app | the runtime directory | the OS's (above) |
 | `TSM_DATA_DIR` | the app, `tsm` | the data directory | the OS's (above) |
-| `TSM_SERVICE` | `tsm`, the app | the service executable to start | `tom_secrets_service` beside `tsm` or in the app's `tsm/bin` |
+| `TSM_SERVICE` | `tsm`, the app | the service executable to start, and one an admin expects to answer on the admin endpoint (protocol.md 6.0) | `tom_secrets_service` beside `tsm` or in the app's `tsm/bin` |
 | `TSM_LOGIN_ITEM` | the desktop app | `off`: a development run; no login item is registered, an old one is removed | on |
 | `TSM_RELAY_CONFIG` | the relay server | its configuration file | `config=` argument, else `./relay.yaml` |
 | `TSM_NOW` | the compaction script in each vault repository | the clock in epoch seconds, for tests | the current time |

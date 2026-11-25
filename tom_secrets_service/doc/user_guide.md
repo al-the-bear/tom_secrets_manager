@@ -515,6 +515,7 @@ old one revoke it in the app (Pairing › Revoke) once it is retired.
 | --- | --- | --- |
 | `tsm status` prints `not running` (exit 3) | no service answers in the runtime directory | start it (`tsm start`, or open the app); check that the program and the service see the same `TSM_RUNTIME_DIR` |
 | the service exits with code 4 | the runtime directory belongs to another user or is readable by others | remove the directory (it holds nothing that lasts) or fix its owner and mode 0700 |
+| `tsm` or the app says `service_untrusted` ("This is not your secrets service") | what answers on the admin endpoint is not this user's service: the runtime directory or socket is someone else's (`owner`) or open to others (`mode`), or the process answering runs as another user (`peer_user`) or is another program (`peer_executable`); nothing was sent | follow what the message says; for `mode`, `chmod 700` the runtime directory and `chmod 600` its sockets; for `peer_executable` with a service of yours installed elsewhere, name it in `TSM_SERVICE` |
 | the service exits with code 8 | the data directory belongs to another user, is no folder, or cannot be made the user's alone | fix its owner (`chown -R <user>`), or point `TSM_DATA_DIR` at a folder of the service's user |
 | `denied` with `other_user` or `unidentifiable` | the asking process runs as another user, or the OS would not say who it is | run the program as the service's user |
 | `denied` with `wrong_executable` | an admin command from a program the service does not admit | use the `tsm` or app beside the service |

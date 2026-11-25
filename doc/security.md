@@ -208,6 +208,48 @@ claims a new one with the master password (`claim`), which revokes the old
 one. Locking keeps the admin key. (`client/admin/admin_auth.dart`,
 `client/admin/starter.dart`, `protocol.md` 6.1, 6.2.)
 
+### Who answers on the admin endpoint
+
+A claim sends the master password, and a claimant holds no key the service
+could prove itself with. This is every `tsm unlock` in an SSH session on a
+server without a keychain. So before the app or `tsm` sends anything on
+the admin endpoint, the key proof of the challenge included, and before it
+asks for the master password, it checks who answers:
+
+| Check | Linux, macOS | Windows |
+| --- | --- | --- |
+| The runtime directory is the user's alone | a directory itself (no link to one), the user's, mode 0700 | its access list grants only the user and SYSTEM |
+| The admin socket is the user's alone | a socket, the user's, mode 0600 | a localhost port: no file to check, the next two rows carry it |
+| The process answering runs as the user | `SO_PEERCRED`; `LOCAL_PEERPID` and `LOCAL_PEERCRED` | the process owning the other end of the connection (`GetExtendedTcpTable`), its token's SID |
+| It is the service expected | `/proc/<pid>/exe`; `proc_pidpath` | `QueryFullProcessImageNameW` |
+
+The service expected is `tom_secrets_service` beside the app or `tsm`, the
+one in the app's `tsm/bin`, or the one `TSM_SERVICE` (or `tsm start
+--service`) names: the mirror of the service admitting only the `tsm` and
+app beside it. A check that fails ends the connection with
+`service_untrusted` and its reason (`owner`, `mode`, `peer_user`,
+`peer_executable`); nothing was sent, and the app and `tsm` say what is
+wrong and what to do.
+
+Two traps this closes:
+
+- On a shared Linux host without `XDG_RUNTIME_DIR` the runtime directory is
+  `/tmp/tsm-<uid>`, a name another user can take first. The real service
+  refuses to start there; `tsm` used to connect to whatever socket the other
+  user put there. Now the directory's owner is refused, by the service and
+  by the client, and it is never used or changed.
+- On Windows the admin endpoint is a localhost port. A port file a dead
+  service left can name a port another process has taken since. The owner
+  and the executable of that process are checked.
+
+One limit: on Linux the service makes itself not dumpable at its start, so
+that no process of the user reads its memory, and Linux then hides its
+executable (`/proc/<pid>/exe`) from its own user too. For such a peer the
+directory, socket and user checks hold and the executable cannot be
+compared; a peer whose executable can be read must match. The checks say
+which user's which program answers. They do not prove the service holds a
+key. (`client/admin/service_trust.dart`, `protocol.md` 6.0.)
+
 ### Client tokens
 
 Two different things:
@@ -759,6 +801,7 @@ are held in memory.
 | A malicious program of the same user | It is measured and gets nothing without a signed grant or an approval; it cannot forge a grant without an approver's private keys |
 | A program that changed after it was granted | A pinned grant no longer matches its hash |
 | A process of another OS user | The endpoints are the user's alone; another user's peer is refused |
+| Another user's, or another program's, process in the service's place | Before an admin sends its key proof or a master password it checks the runtime directory, the socket, and the user and executable of the process answering; a failure sends nothing |
 | A malicious relay | It carries only encrypted frames; pairing is authenticated by the code, the link by keys from pairing, mailbox items are `age` files, and a mailbox opens only to its member key's proof |
 | A lost phone | Its vaults are in memory only while unlocked; the unlock needs the master password or the biometric; the device is revoked and its GitHub access withdrawn |
 | An eavesdropper recording today for a quantum computer | Every exchange between devices is hybrid |
@@ -783,6 +826,10 @@ are held in memory.
 **Residual risks the code names:**
 
 - the Windows clipboard history and the plain clipboard on Linux;
+- on Linux the executable of a hardened service cannot be read by its own
+  user, so an admin there checks its user but not its executable; a
+  process of the same user that takes the service's place while none runs
+  is a compromised session (above);
 - no screen-capture exclusion on Linux;
 - the gate-only Touch ID item on a Mac without the team-signed build;
 - a shared vault's old recipients files in the history until it is cut.
@@ -803,6 +850,7 @@ are held in memory.
 | Outer-format fixtures | `tom_secrets_core/test/fixtures/outer/` | files every later version must still open |
 | Passkeys | `tom_secrets_core/test/webauthn_test.dart` | ES256 and Ed25519 assertions verify |
 | The conformance suite | `tom_secrets_clients/conformance/` | every client library behaves the same, with the parity gate |
+| Who answers on the admin endpoint | `tom_secrets_client/test/service_trust_test.dart`, `tom_secrets_service/test/process_test.dart` | a directory or socket of another owner or mode, a link, a peer of another user and another process in the service's place are refused and nothing is sent; the built service passes when it is the one expected; run on macOS, Linux and Windows |
 
 Some checks were made by hand and are not repeated by the tests: the
 certificates against OpenSSL, the passkeys against `py_webauthn` as a

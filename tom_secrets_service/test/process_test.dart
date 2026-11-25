@@ -68,26 +68,45 @@ void main() {
     final trust = TomSecretsServiceTrust(
       executables: {tomSecretsRealExecutable(exe)},
     );
-    // Without it the admin sends nothing: this service is not the one a
-    // program in the Dart SDK's folder expects.
-    await expectLater(
-      TomSecretsAdminClient.connect(runtime, key),
-      throwsA(
-        isA<TomSecretsAdminException>()
-            .having((e) => e.kind, 'kind', tomSecretsServiceUntrusted)
-            .having((e) => e.details['reason'], 'reason', 'peer_executable'),
-      ),
-    );
-    await expectLater(
-      TomSecretsAdminClient.claim(runtime, password: primaryPassword),
-      throwsA(
-        isA<TomSecretsAdminException>().having(
-          (e) => e.kind,
-          'kind',
-          tomSecretsServiceUntrusted,
+    if (Platform.isLinux) {
+      // Linux hides the executable of the hardened service from its own
+      // user: its user is measured, its executable cannot be compared.
+      final socket = await Socket.connect(
+        InternetAddress(runtime.adminSocket, type: InternetAddressType.unix),
+        0,
+      );
+      final peer = tomSecretsServicePeerOf(socket)!;
+      socket.destroy();
+      expect(peer.pid, servicePid);
+      expect(peer.user, tomSecretsOwnUser());
+      expect(peer.executableHidden, isTrue);
+      expect(peer.executable, isNull);
+    } else {
+      // Without it the admin sends nothing: this service is not the one a
+      // program in the Dart SDK's folder expects.
+      await expectLater(
+        TomSecretsAdminClient.connect(runtime, key),
+        throwsA(
+          isA<TomSecretsAdminException>()
+              .having((e) => e.kind, 'kind', tomSecretsServiceUntrusted)
+              .having((e) => e.details['reason'], 'reason', 'peer_executable'),
         ),
-      ),
-    );
+      );
+      await expectLater(
+        TomSecretsAdminClient.claim(runtime, password: primaryPassword),
+        throwsA(
+          isA<TomSecretsAdminException>().having(
+            (e) => e.kind,
+            'kind',
+            tomSecretsServiceUntrusted,
+          ),
+        ),
+      );
+    }
+    // The files of the real service pass as they are.
+    final files = const TomSecretsSystemEndpointInspector().files(runtime);
+    expect(tomSecretsJudgeEndpointFiles(files), isNull);
+    expect(files.socket!.mode, 384, reason: '0600');
     final admin = await TomSecretsAdminClient.connect(
       runtime,
       key,
