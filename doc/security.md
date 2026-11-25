@@ -848,6 +848,7 @@ are held in memory.
 | KeePassXC | `tom_secrets_core/test/new_vault_test.dart` | new vaults open in `keepassxc-cli`, where installed |
 | KeePass files | `tom_kdbx_store`'s compatibility corpus | files written by KeePass 2.62, KeePassXC and the libraries |
 | Outer-format fixtures | `tom_secrets_core/test/fixtures/outer/` | files every later version must still open |
+| The outer content's tag | `tom_secrets_core/test/poly1305_test.dart` | the Poly1305 of a `.tsmx` file's content gives RFC 8439's vectors, and ciphertext and tag are those of `package:cryptography`'s XChaCha20-Poly1305, each opening the other's |
 | Passkeys | `tom_secrets_core/test/webauthn_test.dart` | ES256 and Ed25519 assertions verify |
 | The conformance suite | `tom_secrets_clients/conformance/` | every client library behaves the same, with the parity gate |
 | Who answers on the admin endpoint | `tom_secrets_client/test/service_trust_test.dart`, `tom_secrets_service/test/process_test.dart` | a directory or socket of another owner or mode, a link, a peer of another user and another process in the service's place are refused and nothing is sent; the built service passes when it is the one expected; run on macOS, Linux and Windows |
