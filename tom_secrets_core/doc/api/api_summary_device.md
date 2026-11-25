@@ -309,7 +309,7 @@ What the device settings hold. The keys of later parts (approver and approval-li
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsDeviceSettings({serviceLock, appLock, defaultEnvironment, servedStores, refreshMinutes, offlineCache, keyExpiryWarningDays, approvalTimeout, codeTimeout, approvalLink, otherKeyWarningDays, keyPairAgeMonths, primaryKeyAgeMonths, vaultKeyAgeMonths, memberKeyAgeMonths})` | const | Settings with the defaults for every value not given. |
+| `TomSecretsDeviceSettings({serviceLock, appLock, defaultEnvironment, servedStores, refreshMinutes, offlineCache, keyExpiryWarningDays, approvalTimeout, codeTimeout, approvalLink, otherKeyWarningDays, keyPairAgeMonths, primaryKeyAgeMonths, vaultKeyAgeMonths, memberKeyAgeMonths, memoryOnlyApplied})` | const | Settings with the defaults for every value not given. |
 | `TomSecretsDeviceSettings.fromJson(json)` | factory | From the stored JSON; a value missing takes its default. |
 
 #### Properties
@@ -321,7 +321,7 @@ What the device settings hold. The keys of later parts (approver and approval-li
 | `defaultEnvironment` | `String?` | The machine's default environment (`env`), or null. |
 | `servedStores` | `List<String>?` | The stores this machine serves, or null for every one. |
 | `refreshMinutes` | `int` | The refresh interval in minutes; 0 switches it off. |
-| `offlineCache` | `bool` | Whether the offline cache is kept. |
+| `offlineCache` | `bool` | Whether the offline cache is kept (default false: the vaults are kept in memory only). |
 | `keyExpiryWarningDays` | `int` | How many days before a key expires the reminders start. |
 | `approvalTimeout` | `Duration` | How long a request waits for an unlock or an approval. |
 | `codeTimeout` | `Duration` | How long an approval code is valid. |
@@ -331,11 +331,13 @@ What the device settings hold. The keys of later parts (approver and approval-li
 | `primaryKeyAgeMonths` | `int` | The rotation age a new key file or repository key of the primary vault gets, in months (default 24; rotating them means pairing again). |
 | `vaultKeyAgeMonths` | `int` | The rotation age a new key file or repository key of every other vault gets, in months (default 12). |
 | `memberKeyAgeMonths` | `int` | **[C]** The rotation age of the user's member key, in months (default 24), counted from its entry's creation. |
+| `memoryOnlyApplied` | `bool` | Whether these settings took the in-memory default (true for settings made now; false for settings stored without the marker, which the service turns to the default once). |
 
 #### Methods
 
 | Method | Return Type | Description |
 | --- | --- | --- |
+| `withMemoryOnlyApplied()` | `TomSecretsDeviceSettings` | These settings with the offline cache off and the marker set; every other value kept. |
 | `toJson()` | `Map<String, Object?>` | The JSON kept in the container. |
 
 ---

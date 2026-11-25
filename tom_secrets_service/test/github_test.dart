@@ -295,12 +295,17 @@ void main() {
     await put(_other, _vault('other', _otherPassword, {'Web/Key': 'key-1'}));
   });
 
+  /// The service unlocked (unless not [unlock]); with [offlineCache] the
+  /// device setting turned on and the service unlocked once more, so the
+  /// cache holds every vault as the tests of the cache expect (it is off by
+  /// default: the vaults are kept in memory only).
   Future<TomSecretsService> start({
     bool unlock = true,
     Duration refreshTick = const Duration(minutes: 1),
     bool approvals = false,
     TomSecretsGitRemoteFor? remoteFor,
     TomSecretsCommitReaderFor? readerFor,
+    bool offlineCache = false,
   }) async {
     final service = await demo.start(
       githubRemoteFor: remoteFor,
@@ -322,6 +327,13 @@ void main() {
     admin.events.listen(events.add);
     await admin.request('subscribe');
     if (unlock) await admin.unlock(primaryPassword);
+    if (unlock && offlineCache) {
+      await service.writeSettings(
+        const TomSecretsDeviceSettings(offlineCache: true),
+      );
+      await admin.request('lock');
+      await admin.unlock(primaryPassword);
+    }
     return service;
   }
 
@@ -352,6 +364,15 @@ void main() {
 
   List<Map<String, Object?>> ofOp(String op) =>
       events.where((e) => e['op'] == op).toList();
+
+  /// The files under the offline cache's folder (none when it is not
+  /// there).
+  List<File> cachedFiles() {
+    final cache = Directory(demo.bootstrap.cacheDirectory);
+    return cache.existsSync()
+        ? cache.listSync(recursive: true).whereType<File>().toList()
+        : const [];
+  }
 
   Future<TomSecretsAdminException> refused(Future<Object?> request) async {
     try {
@@ -419,7 +440,7 @@ void main() {
       'migration period): the copy under the old key is served read-only, '
       'also after a new unlock from the offline cache; once the primary '
       'lists the new key the store is current and writable again', () async {
-    final service = await start();
+    final service = await start(offlineCache: true);
     // Another member re-keys `team` on GitHub.
     final team =
         await KdbxFormat().read(
@@ -500,10 +521,10 @@ void main() {
     });
   });
 
-  test('GitHub unreachable: the stores are served from the copy held '
-      '(offline, source cache), the admins are told, reload answers '
-      'offline, the fetch backs off 1, 2, 4 minutes; back online all is '
-      'current again', () async {
+  test('GitHub unreachable: the stores are served from the copy held in '
+      'memory (offline, source cache; the offline cache is off), the admins '
+      'are told, reload answers offline, the fetch backs off 1, 2, 4 '
+      'minutes; back online all is current again', () async {
     final service = await start();
     events.clear();
     network.net = _Net.unreachable;
@@ -540,14 +561,16 @@ void main() {
     final e = await refused(admin.request('reload'));
     expect(e.kind, 'offline');
     expect(e.details['stores'], ['primary', 'team', 'other']);
+    // With the cache off a save waits in memory once it opens with the
+    // store's keys; this one does not open.
     final save = await refused(
       admin.request('save', {
         'store': 'team',
         'bytes': base64.encode([1, 2, 3]),
       }),
     );
-    expect(save.kind, 'offline', reason: 'no save while on the copy');
-    expect(save.details['stores'], ['team']);
+    expect(save.kind, 'malformed');
+    expect(save.details['reason'], 'bytes');
 
     network.net = _Net.online;
     events.clear();
@@ -582,50 +605,68 @@ void main() {
     expect(stores(service).values.map((s) => s['state']).toSet(), {'current'});
   });
 
-  test(
-    'unlock with GitHub unreachable: the vaults open from the offline '
-    'cache; with the cache switched off a further vault is unavailable',
-    () async {
-      final service = await start();
-      await admin.request('lock');
-      network.net = _Net.unreachable;
-      await admin.unlock(primaryPassword);
-      var status = stores(service);
-      expect(status['primary']!['state'], 'offline');
-      expect(status['team']!['state'], 'offline');
-      expect(status['team']!['source'], 'cache');
-      expect(await get('team/Api/Token'), 'token-1');
+  test('unlock with GitHub unreachable: the vaults open from the offline '
+      'cache when it is on; turned off it is deleted at once, nothing is kept '
+      'on the disk, and an unlock without GitHub answers offline (no_copy) '
+      'until GitHub answers', () async {
+    final service = await start(offlineCache: true);
+    await admin.request('lock');
+    network.net = _Net.unreachable;
+    await admin.unlock(primaryPassword);
+    var status = stores(service);
+    expect(status['primary']!['state'], 'offline');
+    expect(status['team']!['state'], 'offline');
+    expect(status['team']!['source'], 'cache');
+    expect(await get('team/Api/Token'), 'token-1');
 
-      network.net = _Net.online;
-      await admin.request('reload');
-      await service.deviceContainer!.write(
-        const TomSecretsDeviceSettings(offlineCache: false),
-      );
-      await admin.request('lock');
-      await Directory(demo.bootstrap.cacheDirectory).delete(recursive: true);
-      network.net = _Net.unreachable;
-      await expectLater(
-        admin.unlock(primaryPassword),
-        throwsA(isA<TomSecretsAdminException>()),
-        reason: 'no copy of the primary',
-      );
-      network.net = _Net.online;
-      await admin.unlock(primaryPassword);
-      expect(
-        Directory(
-          demo.bootstrap.cacheDirectory,
-        ).listSync(recursive: true).where((f) => f.path.endsWith('team.kdbx')),
-        isEmpty,
-        reason: 'no further vault cached with the cache off',
-      );
-      await admin.request('lock');
-      network.net = _Net.unreachable;
-      await admin.unlock(primaryPassword);
-      status = stores(service);
-      expect(status['primary']!['state'], 'offline', reason: 'its cached copy');
-      expect(status['team']!['state'], 'unavailable');
-    },
-  );
+    network.net = _Net.online;
+    await admin.request('reload');
+    final cache = Directory(demo.bootstrap.cacheDirectory);
+    expect(cachedFiles(), isNotEmpty);
+    await service.writeSettings(const TomSecretsDeviceSettings());
+    expect(cache.existsSync(), isFalse, reason: 'deleted when turned off');
+    await admin.request('lock');
+    network.net = _Net.unreachable;
+    final waiting = await refused(admin.unlock(primaryPassword));
+    expect(waiting.kind, 'offline', reason: 'no copy of the primary');
+    expect(waiting.details['reason'], 'no_copy');
+    network.net = _Net.online;
+    await admin.unlock(primaryPassword);
+    status = stores(service);
+    expect(status['primary']!['state'], 'current');
+    expect(status['team']!['state'], 'current');
+    expect(cachedFiles(), isEmpty, reason: 'nothing on the disk');
+  });
+
+  test('a device set up before vaults were kept in memory by default: its '
+      'settings carry no marker, so the next unlock turns the cache off, '
+      'deletes it and says so in status once; the user may turn it on '
+      'again', () async {
+    final service = await start(offlineCache: true);
+    expect(cachedFiles(), isNotEmpty);
+    // The settings as an older service wrote them: no memoryOnlyApplied.
+    final old = service.settings.toJson()..remove('memoryOnlyApplied');
+    await service.deviceContainer!.write(
+      TomSecretsDeviceSettings.fromJson({...old, 'offlineCache': true}),
+    );
+    await admin.request('lock');
+    await admin.unlock(primaryPassword);
+    expect(service.settings.offlineCache, isFalse);
+    expect(service.settings.memoryOnlyApplied, isTrue);
+    expect(cachedFiles(), isEmpty);
+    expect(Directory(demo.bootstrap.cacheDirectory).existsSync(), isFalse);
+    final status = await admin.request('status') as Map;
+    expect(status['offlineCacheRemoved'], isA<String>());
+
+    // Turned on again by the user: kept on, filled at once.
+    await service.writeSettings(
+      const TomSecretsDeviceSettings(offlineCache: true),
+    );
+    expect(cachedFiles(), isNotEmpty, reason: 'filled when turned on');
+    await admin.request('lock');
+    await admin.unlock(primaryPassword);
+    expect(service.settings.offlineCache, isTrue, reason: 'migrated once');
+  });
 
   test('a file whose key changed goes to needs_unlock, its copy under the old '
       'key served read-only (keyChanged); a vault the primary lists anew is '
@@ -1643,7 +1684,7 @@ void main() {
 
     test('a save is one commit on the branch by this device, written as the '
         'app saved it, kept in the offline cache and announced', () async {
-      final service = await start();
+      final service = await start(offlineCache: true);
       final held = onGitHub('team.kdbx');
       final before = commits().length;
       final edited = await editedToken(held, 'token-2');
@@ -1699,6 +1740,78 @@ void main() {
         await expectLater(get('team/Api/Token'), throwsA(anything));
       },
     );
+
+    test('a fresh device keeps no vault on the disk: the offline cache is '
+        'off, nothing is written under <data>/cache by the unlock, a '
+        'refresh or a save', () async {
+      final service = await start();
+      expect(service.settings.offlineCache, isFalse);
+      await service.refresh(force: true);
+      final held = onGitHub('team.kdbx');
+      await save(await editedToken(held, 'token-2'), held);
+      expect(cachedFiles(), isEmpty);
+      expect(await get('team/Api/Token'), 'token-2');
+    });
+
+    test('with the cache off a save GitHub cannot take waits in memory: '
+        'answered pending, notPushed 1, vaultFile answers it; the next refresh '
+        'that reaches GitHub merges it onto the branch another device moved '
+        'and writes it; the lock drops one that waits', () async {
+      final service = await start();
+      final held = onGitHub('team.kdbx');
+      network.net = _Net.unreachable;
+      final edited = await editedToken(held, 'token-2');
+      final answer = await save(edited, held) as Map;
+      expect(answer['pending'], isTrue);
+      expect(stores(service)['team']!['notPushed'], 1);
+      expect(stores(service)['team']!['state'], 'offline');
+      final file = await admin.request('vaultFile', {'store': 'team'}) as Map;
+      expect(base64.decode(file['bytes']! as String), edited);
+      expect(file['revision'], tomSecretsBlobId(held), reason: 'its base');
+      expect(
+        await get('team/Api/Token'),
+        'token-1',
+        reason: 'served from the copy held until written',
+      );
+
+      // Another device writes a note meanwhile.
+      network.net = _Net.online;
+      final theirs = await openTeam(held);
+      final note = KdbxEntry.create(theirs, theirs.body.rootGroup)
+        ..setString(KdbxKeyCommon.TITLE, PlainValue('Written meanwhile'));
+      theirs.body.rootGroup.addEntry(note);
+      await put(_team, theirs);
+
+      await service.refresh();
+      final now = await openTeam(onGitHub('team.kdbx'));
+      expect(token(now), 'token-2', reason: 'the change written');
+      expect(
+        now.body.rootGroup.getAllEntries().map((e) => e.label),
+        contains('Written meanwhile'),
+        reason: 'merged with the in-memory base',
+      );
+      expect(stores(service)['team']!['notPushed'], 0);
+      expect(stores(service)['team']!['state'], 'current');
+      expect(await get('team/Api/Token'), 'token-2');
+      expect(cachedFiles(), isEmpty);
+
+      // Kept in memory only: the lock drops a save that waits.
+      network.net = _Net.unreachable;
+      final again = onGitHub('team.kdbx');
+      expect(
+        ((await save(await editedToken(again, 'token-3'), again))
+            as Map)['pending'],
+        isTrue,
+      );
+      await admin.request('lock');
+      network.net = _Net.online;
+      await admin.unlock(primaryPassword);
+      expect(
+        await get('team/Api/Token'),
+        'token-2',
+        reason: 'lost at the lock',
+      );
+    });
 
     test('a save racing another device\'s push: merged three-way with the '
         'held copy as the base, committed on top', () async {
@@ -1818,7 +1931,7 @@ void main() {
 
     test('GitHub unreachable or refusing the token during a save: refused '
         'with offline / token_expired, the store on its copy', () async {
-      final service = await start();
+      final service = await start(offlineCache: true);
       final held = onGitHub('team.kdbx');
       final before = commits().length;
       for (final (mode, kind) in [

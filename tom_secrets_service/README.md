@@ -59,7 +59,7 @@ tests and embedding.
 
 ```yaml
 dependencies:
-  tom_secrets_service: ^0.25.7
+  tom_secrets_service: ^0.25.8
 ```
 
 ```sh
@@ -431,7 +431,8 @@ open with the store's keys.
   refused (`stale_base`) otherwise.
 - `file:` vaults are written on the local disk; `github:` vaults as one
   commit on the branch, merged three-way when another device pushed
-  meanwhile, then kept in the offline cache. A branch rewritten without a
+  meanwhile, then kept in the offline cache when the device keeps one. A
+  branch rewritten without a
   compaction is refused (`history_rewritten`): the store reports `rewritten`,
   keeps the refused edit and is not refreshed until the app answers with
   `history.resolve` (`take: remote` follows the rewritten branch,
@@ -445,7 +446,12 @@ open with the store's keys.
   written as it is, never merged; the primary's own new keys come in the
   save's `keys` and replace its key file and repository key in the keychain.
 - A store on its offline copy, or whose remote fails during the save, refuses
-  with `offline` or `token_expired`. `store_changed` names the new revision.
+  with `offline` or `token_expired` while the device keeps an offline cache.
+  Without one (the default) the save waits in memory: answered `ok` with
+  `pending`, counted in the store's `notPushed`, answered by `vaultFile`,
+  merged onto the branch and written by the next refresh that reaches
+  GitHub; the lock and a stop drop it. `store_changed` names the new
+  revision.
   The service's own writes of the primary (grants, their last use, the device
   key) go the same way; one that cannot be delivered stays in the held copy
   and the next refresh writes it first.
@@ -459,11 +465,17 @@ open with the store's keys.
   vault list keeps for a vault in that repository (never for the primary's own
   repository). The expiry GitHub reports for a token is recorded for the
   reminders.
-- **The offline cache** keeps every fetched file as stored. When GitHub
-  cannot be reached or refuses the token, a vault opens from it (`offline` or
-  `token_expired`, `source: cache`); without a copy it is `unavailable`. The
-  primary is opened before the device settings are read, so it is always
-  cached.
+- **The vaults are kept in memory only** by default. While the service
+  runs, a vault GitHub cannot serve stays on the copy held (`offline` or
+  `token_expired`, `source: cache`); a restarted service fetches every vault
+  again, and an unlock while GitHub cannot be reached is refused
+  (`offline`, reason `no_copy`). A vault never fetched is `unavailable`
+  (with the `reason` it waits for).
+- **The offline cache** (the device setting `offlineCache`, off by default)
+  also keeps every fetched file as stored, so a vault opens from it after a
+  restart. Turning it off overwrites and deletes the files; turning it on
+  fills it with the copies held. Device settings stored before the default
+  take it once at the next unlock (`statusReport.offlineCacheRemoved`).
 - **The refresh** runs at unlock, on `reload` and every `refreshMinutes`. A
   file that did not move costs one conditional request; a moved file is
   reopened with the keys held (`store_changed`); a file whose key changed goes
@@ -626,7 +638,7 @@ session) the service never locks itself, the maximum unlocked time included.
 
 ## Status
 
-Version 0.25.7. The suite runs with `testkit :test` from the package folder.
+Version 0.25.8. The suite runs with `testkit :test` from the package folder.
 It covers the service in-process and as a compiled process (the handover, a
 second start, SIGTERM), the editing path and the log, the secret frames, the
 hardening seen from outside a hardened process, the peer identity of a real

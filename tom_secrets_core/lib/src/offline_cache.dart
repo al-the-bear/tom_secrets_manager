@@ -173,6 +173,45 @@ final class TomSecretsOfflineCache {
     );
   }
 
+  /// Whether nothing is cached: no file below [root] (or no [root]).
+  Future<bool> get isEmpty async {
+    if (!await root.exists()) return true;
+    return !await root
+        .list(recursive: true, followLinks: false)
+        .any((e) => e is File);
+  }
+
+  /// Deletes the whole cache (the setting turned off, the in-memory
+  /// default applied): every file is overwritten with zeros, flushed, and
+  /// deleted, then [root] itself. Where the file system keeps old blocks
+  /// elsewhere (copy-on-write, SSD wear levelling) the overwrite cannot
+  /// reach them; the files are encrypted as stored either way. Answers how
+  /// many files were deleted.
+  Future<int> wipe() async {
+    if (!await root.exists()) return 0;
+    var count = 0;
+    await for (final entry in root.list(recursive: true, followLinks: false)) {
+      if (entry is! File) continue;
+      final length = await entry.length();
+      final out = await entry.open(mode: FileMode.writeOnlyAppend);
+      try {
+        await out.setPosition(0);
+        const chunk = 64 * 1024;
+        final zeros = List<int>.filled(chunk, 0);
+        for (var left = length; left > 0; left -= chunk) {
+          await out.writeFrom(zeros, 0, left < chunk ? left : chunk);
+        }
+        await out.flush();
+      } finally {
+        await out.close();
+      }
+      await entry.delete();
+      count++;
+    }
+    await root.delete(recursive: true);
+    return count;
+  }
+
   /// Deletes what is cached for [locator] (a vault removed from the device,
   /// or the device revoked); answers whether anything was there.
   Future<bool> remove(String locator) async {

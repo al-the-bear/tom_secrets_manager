@@ -683,10 +683,11 @@ before, and daily once due. (`core/device_settings.dart`,
   dumpable on Linux; on Windows it sets the error mode and a process DACL
   that refuses memory read and write to all but SYSTEM. The macOS app is
   built with the hardened runtime. (`service/hardening.dart`.)
-- **The data directory is the user's alone.** It holds the offline cache,
-  the device settings container, the audit log, the operational log and
-  the agent's public keys. It is made mode 0700 (on Windows: the
-  inheritance cut, only the user and SYSTEM) by the First run, `tsm pair`,
+- **The data directory is the user's alone.** It holds the device
+  settings container, the offline cache when it is on, the audit log,
+  the operational log and the agent's public keys. It is made mode 0700
+  (on Windows: the inheritance cut, only the user and SYSTEM) by the First
+  run, `tsm pair`,
   the app and every start of the service; at each start the service
   tightens a looser one (group and others lose every bit on the folder and
   everything in it) and logs `data_directory_tightened`, and refuses one
@@ -713,14 +714,48 @@ before, and daily once due. (`core/device_settings.dart`,
   `SecretValue(<ref>: ***)` and is overwritten when closed (the C client
   wipes its buffers when a value is freed).
 
+## Copies on the disk
+
+The vaults are kept in memory only by default: the device setting
+`offlineCache` is off. A service fetches every vault at its unlock and
+holds the files (encrypted as stored) while it runs; through an outage it
+serves the copies held, and an edit then waits in memory and is written
+when GitHub answers. A restarted service cannot be unlocked until GitHub
+answers. Nothing of a vault is then on the disk to be copied, stolen with
+the laptop, or kept past a rotation: an old copy opens with the old keys,
+so a copy that outlives a rotation undoes part of it. Device settings
+stored before this default take it once: the service turns the cache off,
+overwrites and deletes its files, and the app says so.
+
+Turning the offline cache on (Settings) keeps the last fetched file of
+each `github:` vault in the data directory, encrypted as stored, so the
+service starts without GitHub. With the disk and the master password (and
+the key file, which the keychain holds) such a copy opens anywhere.
+Turning it off overwrites every file with zeros and deletes it.
+
+The other places a vault's content reaches the disk, each needed for what
+it does:
+
+| Copy | Why | Protection |
+| --- | --- | --- |
+| `file:` vaults | the user keeps the vault as a file | encrypted as stored; written through a `.tmp` file renamed over it |
+| the macOS AutoFill snapshot | AutoFill fills while the app is closed | AES-256-GCM under a key made for each unlock, the key behind Touch ID; deleted when AutoFill is turned off |
+| the passkey pending file | a passkey made in the AutoFill provider waits for the app | sealed under the pending key; cleared at the app's next sync |
+| `tsm run --file` | a command reads a key file | mode 600 in a 700 directory, overwritten and deleted when the command ends |
+| an attachment sent to the share sheet (phone) | the system shares a file | the app's temporary folder, deleted after |
+| exports, and import files the user chose | the user asked for the file | the export warns that CSV and JSON are plain text; the Import screen offers to delete the file |
+
+The app's editing copies (`vaultFile`) and a vault opened for editing only
+are held in memory.
+
 ## The threat model
 
 **Protected against:**
 
 | Threat | Why it fails |
 | --- | --- |
-| A stolen laptop, switched off or locked | The vaults on disk (the offline cache) are encrypted as stored; the keychain items need the user's login; without the master password the key files open nothing |
-| A stolen or read GitHub account | The repository holds only encrypted files; a rewritten history is shown to the user, who decides; every desktop keeps its offline copy |
+| A stolen laptop, switched off or locked | No vault is on the disk unless the offline cache or a `file:` vault keeps one, encrypted as stored; the keychain items need the user's login; without the master password the key files open nothing |
+| A stolen or read GitHub account | The repository holds only encrypted files; a rewritten history is shown to the user, who decides; every running service keeps the copy it holds |
 | A malicious program of the same user | It is measured and gets nothing without a signed grant or an approval; it cannot forge a grant without an approver's private keys |
 | A program that changed after it was granted | A pinned grant no longer matches its hash |
 | A process of another OS user | The endpoints are the user's alone; another user's peer is refused |

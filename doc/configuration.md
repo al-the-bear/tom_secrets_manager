@@ -61,7 +61,7 @@ way.
 | `bootstrap.yaml` | the service's start configuration (below) | the First run, `tsm pair`, the service |
 | `device-settings.kdbx` | the device settings and trust material (KDBX) | the service |
 | `device-settings.kdbx.key` | the container's key in key-file mode (mode 0600) | the service |
-| `cache/` | the offline cache: `<owner>/<repository>/<path>` and `<path>.tsm-cache.json` beside each file (locator, head, blob id, fetch time) | the service |
+| `cache/` | the offline cache, while `offlineCache` is on: `<owner>/<repository>/<path>` and `<path>.tsm-cache.json` beside each file (locator, head, blob id, fetch time) | the service |
 | `audit/<yyyy-mm-dd>.log` | the audit log, one encrypted record per line, kept 90 days | the service |
 | `service.log`, `service.log.1` to `.3` | the operational log, rotated at 1 MiB | the service |
 | `agent_keys.json` | the public keys the ssh-agent lists while locked | the service |
@@ -133,7 +133,7 @@ value is a non-empty string, except `admin_executables`.
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `primary` | locator | required | the primary vault: `file:<path>` or `github:<owner>/<repository>/<path>` |
-| `cache_dir` | path | `<data>/cache` | the offline cache |
+| `cache_dir` | path | `<data>/cache` | the offline cache (used while `offlineCache` is on) |
 | `runtime_dir` | path | the OS's runtime directory | where the endpoints are |
 | `device_key` | `auto`, `keychain`, `vault`, `keyfile` | `auto` | where the device settings container's key is kept |
 | `device_container` | path | `<data>/device-settings.kdbx` | the device settings container |
@@ -167,7 +167,8 @@ next unlock. Read by `TomSecretsDeviceSettings` (`tom_secrets_core`).
 | `defaultEnvironment` | string | none | this machine's default `env` value |
 | `servedStores` | list of store names | every store | the vaults this machine serves |
 | `refreshMinutes` | int, 0 or more | 5 | the refresh interval; 0 switches the timer off |
-| `offlineCache` | bool | `true` | whether fetched files are kept for offline use |
+| `offlineCache` | bool | `false` | whether fetched files are also kept on the disk, so the service starts without GitHub; off, the vaults are in memory only and a save GitHub cannot take waits in memory; turning it off overwrites and deletes the files |
+| `memoryOnlyApplied` | bool | `true` | set once the in-memory default was applied; settings stored without it take it at the next unlock (the cache turned off and deleted) |
 | `keyExpiryWarningDays` | int | 14 | days before a GitHub token's expiry the reminders start |
 | `approvalTimeoutSeconds` | int | 60 | how long a request waits for an unlock or an approval |
 | `codeTimeoutSeconds` | int | 300 | how long an approval code is valid |

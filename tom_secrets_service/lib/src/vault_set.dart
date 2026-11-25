@@ -943,7 +943,13 @@ final class TomSecretsSaveResult {
     this.merged = false,
     this.conflicts = 0,
     this.rekeyed = false,
+    this.pending = false,
   });
+
+  /// Whether the remote could not take the file and it waits in memory as a
+  /// change not written ([TomSecretsVaultSet.keepUnwrittenSaves]); then
+  /// [revision] is the revision the edit was made on.
+  final bool pending;
 
   /// Whether the file was written re-keyed (part-key-rotation): the store's
   /// keys are the new ones from then on.
@@ -972,10 +978,30 @@ final class TomSecretsStoreStatus {
     this.notPushed = 0,
     this.rewrittenHead,
     this.keyChanged = false,
+    this.reason,
   });
 
   /// The store's name.
   final String name;
+
+  /// Why a store is `unavailable` while no copy is held, so that it waits
+  /// for the remote: `offline` (the remote cannot be reached) or
+  /// `token_expired` (its token was refused); null otherwise.
+  final String? reason;
+
+  /// This status with [notPushed] changes not written.
+  TomSecretsStoreStatus withNotPushed(int notPushed) => TomSecretsStoreStatus(
+    name: name,
+    state: state,
+    locator: locator,
+    source: source,
+    fetchedAt: fetchedAt,
+    revision: revision,
+    notPushed: notPushed,
+    rewrittenHead: rewrittenHead,
+    keyChanged: keyChanged,
+    reason: reason,
+  );
 
   /// **[C]** Whether it is served from a copy under its old key, read-only,
   /// because another device re-keyed it ([TomSecretsKeyChangedException]).
@@ -1020,6 +1046,7 @@ final class TomSecretsStoreStatus {
     'notPushed': notPushed,
     if (rewrittenHead != null) 'rewritten': {'head': rewrittenHead},
     if (keyChanged) 'keyChanged': true,
+    'reason': ?reason,
   };
 }
 
@@ -1216,10 +1243,53 @@ final class TomSecretsVaultSet {
   TomSecretsResolver? get resolver => _resolver;
 
   /// Every store's status, the primary first.
-  List<TomSecretsStoreStatus> get status => _status.values.toList();
+  List<TomSecretsStoreStatus> get status => [
+    for (final s in _status.values) _withUnwritten(s),
+  ];
 
   /// The status of store [name], or null.
-  TomSecretsStoreStatus? statusOf(String name) => _status[name];
+  TomSecretsStoreStatus? statusOf(String name) => switch (_status[name]) {
+    final s? => _withUnwritten(s),
+    null => null,
+  };
+
+  /// [status] with a change not written counted ([keepUnwrittenSaves]).
+  TomSecretsStoreStatus _withUnwritten(TomSecretsStoreStatus status) =>
+      _unwritten.containsKey(status.name)
+      ? status.withNotPushed(status.notPushed + 1)
+      : status;
+
+  /// Whether a save the remote cannot take (no network, a refused token) is
+  /// kept in memory as a change not written, instead of being refused: it is
+  /// what [vaultFile] answers for the store from then on (an editor edits on
+  /// it), counted in its status's `notPushed`, and written at the next
+  /// [refresh] that reaches the remote, merged three-way first when another
+  /// device moved the file meanwhile (the copy it was made on as the base).
+  /// It lives only in memory: the lock and a stop lose it. A later save of
+  /// the same store replaces it and keeps the first one's base. The phone's
+  /// engine keeps them always; the desktop service when the offline cache is
+  /// off.
+  bool keepUnwrittenSaves = false;
+
+  /// The saves waiting to be written, by store.
+  final Map<String, _Unwritten> _unwritten = {};
+
+  /// The copy of store [name] the set serves (never a change not written):
+  /// its file as stored and the remote's revision it was read at; null when
+  /// the store is not open or has no remote revision (a `file:` store).
+  Future<({Uint8List stored, String revision})?> heldCopy(String name) async {
+    final opened = _opened[name];
+    final revision = opened?.revision;
+    if (opened == null || revision == null) return null;
+    return (stored: opened.stored, revision: revision);
+  }
+
+  /// Whether store [name] has a change not written.
+  bool hasUnwritten(String name) => _unwritten.containsKey(name);
+
+  /// Drops store [name]'s change not written (one that cannot wait: a
+  /// primary edit that has to reach the remote at once).
+  void dropUnwritten(String name) => _unwritten.remove(name);
 
   /// Opens the primary at [locator] with [keys] (phase one of the unlock:
   /// the device settings container's key may live in it). The set holds
@@ -1478,12 +1548,15 @@ final class TomSecretsVaultSet {
         locator: locator,
       );
     } on Object catch (e) {
-      // A file the service cannot fetch and has no copy of.
-      _fetched(name, tomSecretsIsFetchFailure(e) ? e : null);
+      // A file the service cannot fetch and has no copy of: it waits for
+      // the remote, which the refresh tries again with its backoff.
+      final fetchFailed = tomSecretsIsFetchFailure(e);
+      _fetched(name, fetchFailed ? e : null);
       _status[name] = TomSecretsStoreStatus(
         name: name,
         state: TomSecretsStoreState.unavailable,
         locator: locator,
+        reason: fetchFailed ? _waitingReason(e) : null,
       );
     }
     return null;
@@ -1548,10 +1621,12 @@ final class TomSecretsVaultSet {
   vaultFile(String name) async {
     final served = _opened[name];
     if (served != null) {
+      // A save that waits is what an editor edits on.
+      final waiting = _unwritten[name];
       return (
         location: served.locator,
-        revision: _revisionOf(served),
-        stored: served.stored,
+        revision: waiting?.base ?? _revisionOf(served),
+        stored: waiting?.stored ?? served.stored,
         served: true,
       );
     }
@@ -1674,7 +1749,124 @@ final class TomSecretsVaultSet {
   /// be the held copy (or none) and the file must not have moved since,
   /// otherwise `denied`, `stale_base`. The store's keys are the new ones
   /// from then on.
+  ///
+  /// With [keepUnwrittenSaves], a save the remote cannot take (the store
+  /// `offline` or `token_expired`, or its remote failing during the save)
+  /// waits in memory instead of being refused, once the file is shown to
+  /// open with the store's keys; it answers `pending` with the revision the
+  /// edit was made on. A re-keyed save, one with a recipients file and one
+  /// of a vault open for editing only are never kept.
   Future<TomSecretsSaveResult> save(
+    String name,
+    Uint8List stored, {
+    String? baseRevision,
+    TomSecretsHeldKeys? newKeys,
+    Uint8List? recipients,
+  }) async {
+    try {
+      final result = await _saveNow(
+        name,
+        stored,
+        baseRevision: baseRevision,
+        newKeys: newKeys,
+        recipients: recipients,
+      );
+      _unwritten.remove(name);
+      return result;
+    } on TomSecretsSaveException catch (e) {
+      final held = _opened[name];
+      final keys = name == _primaryName ? _primaryKeys : _held[name];
+      if (!keepUnwrittenSaves ||
+          newKeys != null ||
+          recipients != null ||
+          held == null ||
+          keys == null ||
+          !_unreachable(e.kind)) {
+        rethrow;
+      }
+      final opens = await _opening(name, held, stored, keys, editOnly: false);
+      if (opens.newKeys != null) rethrow;
+      final waiting = _unwritten[name];
+      final kept = _unwritten[name] = waiting != null
+          ? _Unwritten(stored, waiting.base, waiting.baseStored)
+          : _Unwritten(stored, baseRevision, held.stored);
+      return TomSecretsSaveResult(
+        revision: kept.base ?? _revisionOf(held),
+        pending: true,
+      );
+    }
+  }
+
+  static bool _unreachable(String kind) =>
+      kind == TomSecretsStoreState.offline.wireName ||
+      kind == TomSecretsStoreState.tokenExpired.wireName;
+
+  /// Writes every save that waits ([keepUnwrittenSaves]) whose store reaches
+  /// its remote again; a file another device moved meanwhile is merged
+  /// three-way first, the copy the save was made on as the base. A save
+  /// refused for another reason (the vault re-keyed elsewhere, ...) cannot
+  /// be written and is dropped. Answers the stores written.
+  Future<List<String>> _writeUnwritten() async {
+    final written = <String>[];
+    for (final MapEntry(key: name, value: waiting)
+        in _unwritten.entries.toList()) {
+      final status = _status[name];
+      final held = _opened[name];
+      if (status == null || held == null) {
+        _unwritten.remove(name);
+        continue;
+      }
+      if (_unreachable(status.state.wireName)) continue;
+      var pending = waiting;
+      try {
+        if (_revisionOf(held) != pending.base) {
+          pending = await _mergedOnto(name, held, pending);
+          _unwritten[name] = pending;
+        }
+        await _saveNow(name, pending.stored, baseRevision: pending.base);
+        _unwritten.remove(name);
+        written.add(name);
+      } on TomSecretsSaveException catch (e) {
+        if (!_unreachable(e.kind)) _unwritten.remove(name);
+      }
+    }
+    return written;
+  }
+
+  /// [pending] merged onto [held], the copy of [name] held now; the held
+  /// file's outer cipher is kept.
+  Future<_Unwritten> _mergedOnto(
+    String name,
+    TomSecretsOpenedVault held,
+    _Unwritten pending,
+  ) async {
+    final keys = (name == _primaryName ? _primaryKeys : _held[name])!;
+    Future<KdbxFile> open(Uint8List stored) => opener.decode(
+      held.locator,
+      stored,
+      keys.credentials,
+      outerKey: keys.outerKeyText,
+    );
+    final ours = await open(pending.stored);
+    tomSecretsMergeVaults(
+      base: await open(pending.baseStored),
+      ours: ours,
+      theirs: held.file,
+      location: held.locator,
+    );
+    return _Unwritten(
+      await tomSecretsEncodeStored(
+        held.locator,
+        ours,
+        outerKey: keys.outerKeyText,
+        like: held.stored,
+      ),
+      _revisionOf(held),
+      held.stored,
+    );
+  }
+
+  Future<TomSecretsSaveResult> _saveNow(
     String name,
     Uint8List stored, {
     String? baseRevision,
@@ -2622,7 +2814,15 @@ final class TomSecretsVaultSet {
   /// could not write before ([primaryWritePending]) are written first, and
   /// the primary is not fetched while they wait. Nothing is done while
   /// locked, and a lock during the refresh ends it.
-  Future<TomSecretsRefreshReport> refresh({bool force = false}) async {
+  ///
+  /// The saves that wait ([keepUnwrittenSaves]) make it fetch every store
+  /// and are written at its end; a refresh that must not write (the phone's
+  /// in the background) passes [writeUnwritten] false.
+  Future<TomSecretsRefreshReport> refresh({
+    bool force = false,
+    bool writeUnwritten = true,
+  }) async {
+    if (writeUnwritten && _unwritten.isNotEmpty) force = true;
     final primaryName = _primaryName;
     final primaryKeys = _primaryKeys;
     final machine = _machine;
@@ -2758,14 +2958,24 @@ final class TomSecretsVaultSet {
       if (outcome == _Outcome.reopened) reopened.add(name);
     }
     if (rebuild) _rebuildOpened(machine);
+    final waiting = _unwritten.keys.toSet();
+    final written = writeUnwritten && waiting.isNotEmpty
+        ? await _writeUnwritten()
+        : const <String>[];
+    if (epoch != _epoch) return const TomSecretsRefreshReport();
     return TomSecretsRefreshReport(
       states: [
         for (final status in _status.values)
           if (before[status.name]?.state != status.state ||
-              before[status.name]?.wireSource != status.wireSource)
-            status,
+              before[status.name]?.wireSource != status.wireSource ||
+              waiting.contains(status.name))
+            _withUnwritten(status),
       ],
-      reopened: reopened,
+      reopened: [
+        ...reopened,
+        for (final name in written)
+          if (!reopened.contains(name)) name,
+      ],
     );
   }
 
@@ -2841,6 +3051,7 @@ final class TomSecretsVaultSet {
     TomSecretsOpenedVault? from,
     String? source,
     bool keyChanged = false,
+    String? reason,
   }) => _status[name] = TomSecretsStoreStatus(
     name: name,
     state: state,
@@ -2851,7 +3062,14 @@ final class TomSecretsVaultSet {
     rewrittenHead: _rewritten[name],
     keyChanged:
         keyChanged || from?.offlineReason is TomSecretsKeyChangedException,
+    reason: reason,
   );
+
+  /// The `reason` of a store that waits for its remote after [failure]: the
+  /// wire name of the state it would be served in (`offline`,
+  /// `token_expired`).
+  static String _waitingReason(Object failure) =>
+      TomSecretsStoreState.offlineFor(failure).wireName;
 
   /// Fetches store [name] at [locator] and reopens it when its file moved
   /// ([reopen]: always, its keys changed).
@@ -2967,6 +3185,7 @@ final class TomSecretsVaultSet {
         keyChanged
             ? TomSecretsStoreState.needsUnlock
             : TomSecretsStoreState.unavailable,
+        reason: fetchFailed ? _waitingReason(e) : null,
       );
       return _opened.remove(name) == null
           ? _Outcome.unchanged
@@ -3056,6 +3275,7 @@ final class TomSecretsVaultSet {
     _epoch++;
     opener.drop();
     _primaryPending = false;
+    _unwritten.clear();
     _next.clear();
     _served = null;
     _primary = null;
@@ -3082,4 +3302,15 @@ String tomSecretsBesidePath(String name) {
     throw ArgumentError.value(name, 'name', 'not a path beside the vault');
   }
   return name;
+}
+
+/// A save the remote has not taken yet: the file, the revision it was made
+/// on and that revision's file (the merge base when the store moved
+/// meanwhile).
+final class _Unwritten {
+  _Unwritten(this.stored, this.base, this.baseStored);
+
+  final Uint8List stored;
+  final String? base;
+  final Uint8List baseStored;
 }

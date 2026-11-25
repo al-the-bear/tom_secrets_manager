@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.25.8
+
+- The vaults are kept in memory only by default (`offlineCache` off): the
+  offline cache is used only while the setting is on. Turning it off
+  overwrites and deletes the files (`offline_cache_removed`), turning it on
+  fills it with the copies held (`offline_cache_filled`). Device settings
+  stored before the default take it once at the next unlock, the cache
+  deleted, `statusReport.offlineCacheRemoved` telling the app.
+- Without the cache a save GitHub cannot take waits in memory
+  (`TomSecretsVaultSet.keepUnwrittenSaves`): answered `ok` with `pending`,
+  counted in the store's `notPushed`, answered by `vaultFile`, merged onto
+  the branch and written by the next refresh that reaches GitHub, dropped by
+  the lock. `statusReport.keepsUnwritten` says so; the phone's engine uses
+  the same.
+- An `unavailable` store says what it waits for (`reason` `offline` /
+  `token_expired`, in `status` and `store_state`); an unlock whose primary
+  cannot be fetched without a copy is `offline` / `token_expired` with
+  reason `no_copy`.
+
 ## 0.25.7
 
 - The data directory is the user's alone at every start: made 0700

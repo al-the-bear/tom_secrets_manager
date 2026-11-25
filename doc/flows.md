@@ -689,37 +689,44 @@ Fails with: `denied` `stale_base` (the app saved over a revision the file
 has moved past: it reopens and the user saves again), `branch_moving` (the
 branch kept moving through every attempt), `history_rewritten` (below),
 `needs_unlock` (the vault's key changed), `offline` and `token_expired`
-(the store is on its cached copy).
+(the store is on the copy held, with the offline cache on).
 
 ### Offline
 
-This diagram shows a vault opened from the offline cache.
+This diagram shows a vault through an outage, with the vaults in memory
+only (the default).
 
-![The offline cache](images/diagrams/flows/25-sync-offline.svg)
+![An outage](images/diagrams/flows/25-sync-offline.svg)
 
 <!-- diagram 25-sync-offline
 ```mermaid
 sequenceDiagram
   participant S as Service
   participant G as GitHub
-  participant C as Offline cache
   participant A as App
   S-&gt;&gt;G: read the vault
   G--&gt;&gt;S: no network, or the token refused
-  S-&gt;&gt;C: the last file fetched
+  Note over S: keeps serving the copy it holds
   S-&gt;&gt;A: event store_state (offline or token_expired, source cache)
+  A-&gt;&gt;S: save (an edit)
+  S--&gt;&gt;A: ok, pending (notPushed 1)
   Note over S: retried after 1, 2, 4 minutes, up to 30
   S-&gt;&gt;G: read again once reachable
+  S-&gt;&gt;G: the waiting edit, merged onto the branch, committed
   S-&gt;&gt;A: event store_state (current)
 ```
 -->
 
-A refused token is not tried again until `reload` or the next unlock. While
-a store is on its cached copy the service serves it but refuses a `save`
-(`offline`, `token_expired`); only the service's own writes to the primary
-wait and are written at the next refresh. The phone keeps no cache: it
-holds an unwritten save in memory and merges it at the next refresh that
-reaches GitHub (below).
+A refused token is not tried again until `reload` or the next unlock. The
+waiting edit lives in memory only: the lock or a stop drops it, and the
+app says so. A restarted service has no copy to serve: its unlock waits
+for GitHub (`offline`, reason `no_copy`), and a vault never fetched is
+`unavailable`. With the offline cache on, the service opens a vault from
+its last file on the disk after a restart too, but refuses a `save` while
+the store is on that copy (`offline`, `token_expired`); only the service's
+own writes to the primary wait and are written at the next refresh. The
+phone keeps no cache and holds an unwritten save in memory like the
+default (below).
 
 ### A conflict
 

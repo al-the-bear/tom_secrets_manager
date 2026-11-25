@@ -242,9 +242,9 @@ This diagram shows a save that meets another device's change on GitHub.
 
 The devices never talk to a server of the product's own to sync: GitHub is the store. A save is a commit on top of the version the device last read. When another device saved first, the device reads the new version, merges the two **entry by entry** and commits again. A field only one side changed takes that side; a real conflict keeps the newer value, puts the other into the entry's history and shows it in the app's Conflicts view until the user settles it.
 
-Each desktop keeps the last file it fetched of every vault, still encrypted, in an **offline cache**, so the vaults open without a network; an edit waits until GitHub is back (a desktop saves nothing to an offline copy, the phone keeps the edit in memory and writes it then). The service refreshes the vaults every five minutes by default, at the cost of one small request when nothing moved. The **history compaction** keeps the repository from holding old keys' files forever; a history that was rewritten any other way is shown to the user, who decides which side wins.
+The vaults are kept **in memory only** by default: a service holds the last file it fetched of every vault, still encrypted, while it runs, and serves it through an outage; an edit then waits in memory and is written when GitHub is back, as on the phone. A restarted service waits for GitHub. A desktop may also keep the files in an **offline cache** on its disk, so it starts without a network; an edit then waits until GitHub is back. The service refreshes the vaults every five minutes by default, at the cost of one small request when nothing moved. The **history compaction** keeps the repository from holding old keys' files forever; a history that was rewritten any other way is shown to the user, who decides which side wins.
 
-The [flows](https://github.com/al-the-bear/tom_secrets_manager/blob/main/doc/flows.md#sync) show the refresh, a save, the offline cache, a conflict, the compaction and the force-push question step by step.
+The [flows](https://github.com/al-the-bear/tom_secrets_manager/blob/main/doc/flows.md#sync) show the refresh, a save, an outage, a conflict, the compaction and the force-push question step by step.
 
 ## Open source and licences
 

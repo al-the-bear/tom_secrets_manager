@@ -154,7 +154,8 @@ final class TomSecretsDeviceSettings {
     this.defaultEnvironment,
     this.servedStores,
     this.refreshMinutes = 5,
-    this.offlineCache = true,
+    this.offlineCache = false,
+    this.memoryOnlyApplied = true,
     this.keyExpiryWarningDays = 14,
     this.approvalTimeout = const Duration(seconds: 60),
     this.codeTimeout = const Duration(minutes: 5),
@@ -190,6 +191,9 @@ final class TomSecretsDeviceSettings {
       offlineCache: json['offlineCache'] is bool
           ? json['offlineCache']! as bool
           : d.offlineCache,
+      // Settings written before vaults were kept in memory by default carry
+      // no marker: the service applies the new default to them once.
+      memoryOnlyApplied: json['memoryOnlyApplied'] == true,
       keyExpiryWarningDays: intOf(
         'keyExpiryWarningDays',
         d.keyExpiryWarningDays,
@@ -224,8 +228,26 @@ final class TomSecretsDeviceSettings {
   /// The refresh interval in minutes; 0 switches it off.
   final int refreshMinutes;
 
-  /// Whether the offline cache is kept.
+  /// Whether the offline cache is kept: the last fetched file of each
+  /// `github:` vault on the disk (`<data>/cache`). Off by default: the
+  /// vaults are kept in memory only, and a restarted service fetches them
+  /// again.
   final bool offlineCache;
+
+  /// Whether these settings have taken the in-memory default: true for every
+  /// settings value made now; false only for settings stored before it
+  /// (no `memoryOnlyApplied` key), which the service turns the cache off for
+  /// once, deleting the cache ([withMemoryOnlyApplied]).
+  final bool memoryOnlyApplied;
+
+  /// These settings with the in-memory default applied: the offline cache
+  /// off and [memoryOnlyApplied] set; every other value kept.
+  TomSecretsDeviceSettings withMemoryOnlyApplied() =>
+      TomSecretsDeviceSettings.fromJson({
+        ...toJson(),
+        'offlineCache': false,
+        'memoryOnlyApplied': true,
+      });
 
   /// How many days before a key expires the reminders start.
   final int keyExpiryWarningDays;
@@ -268,6 +290,7 @@ final class TomSecretsDeviceSettings {
     'servedStores': ?servedStores,
     'refreshMinutes': refreshMinutes,
     'offlineCache': offlineCache,
+    'memoryOnlyApplied': memoryOnlyApplied,
     'keyExpiryWarningDays': keyExpiryWarningDays,
     'approvalTimeoutSeconds': approvalTimeout.inSeconds,
     'codeTimeoutSeconds': codeTimeout.inSeconds,

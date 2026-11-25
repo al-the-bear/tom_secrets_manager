@@ -168,7 +168,8 @@ On Windows the endpoints are localhost TCP ports instead (`client.port`,
 ssh-agent is the named pipe `\\.\pipe\tsm-ssh-agent`.
 
 The **data directory** holds what lasts: `bootstrap.yaml`, the device
-settings, the offline cache, the audit log and the operational log. Its
+settings, the offline cache when it is on, the audit log and the
+operational log. Its
 place: `~/Library/Application Support/TomSecretsManager` on macOS,
 `$XDG_DATA_HOME/tom-secrets-manager` (else
 `~/.local/share/tom-secrets-manager`) on Linux,
@@ -187,10 +188,10 @@ $ ls -l /home/demo/.local/share/tom-secrets-manager
 -rw-------  service.log
 ```
 
-After a while it also holds `bootstrap.yaml`, `cache/` (the offline copies
-of the `github:` vaults), `audit/` (a file a day) and `agent_keys.json`
-(the public keys the ssh-agent lists while locked). Every file is
-described in the configuration reference's
+After a while it also holds `bootstrap.yaml`, `audit/` (a file a day),
+`agent_keys.json` (the public keys the ssh-agent lists while locked) and,
+while the offline cache is on, `cache/` (the copies of the `github:`
+vaults). Every file is described in the configuration reference's
 [data directory](../../doc/configuration.md#the-data-directory).
 
 ## Unlocking and the lock modes
@@ -243,7 +244,7 @@ The settings that matter most to an operator:
 | `serviceLock` | (b), 30 minutes | the lock mode above, the idle time, the longest unlocked time, locking on sleep |
 | `servedStores` | every vault | which of the primary's vaults this machine serves |
 | `refreshMinutes` | 5 | how often the `github:` vaults are fetched; 0 switches the timer off |
-| `offlineCache` | on | whether fetched vault files are kept for offline use |
+| `offlineCache` | off | whether fetched vault files are also kept on the disk |
 | `approvalTimeoutSeconds` | 60 | how long a request waits for an unlock or an approval |
 | `codeTimeoutSeconds` | 300 | how long an approval code is valid |
 | `approvalLink` | none | where this machine's approval link listens |
@@ -262,9 +263,17 @@ reference's [device settings](../../doc/configuration.md#the-device-settings).
   GitHub's API, each repository with its token (the keychain's, one the
   primary keeps, or the GitHub App sign-in's). Every save is a commit,
   merged with what another device pushed meanwhile.
-- **The offline cache** keeps every fetched file as stored (encrypted).
-  When GitHub cannot be reached, or refuses the token, a vault opens from
-  its copy; a vault never fetched has none.
+- **In memory only** by default: the service holds every fetched file
+  (encrypted as stored) while it runs. When GitHub cannot be reached, or
+  refuses the token, a vault stays on the copy held; an edit then waits in
+  memory and is written when GitHub answers, and is lost if the service
+  stops or locks first. A restarted service fetches every vault again, and
+  cannot be unlocked until GitHub answers.
+- **The offline cache** (`offlineCache`, off by default) also keeps the
+  files on this disk, so the service starts and unlocks without GitHub; an
+  edit is then refused until GitHub answers. Turning it off overwrites and
+  deletes the copies. The trade-off is in the security model's
+  [copies on the disk](../../doc/security.md#copies-on-the-disk).
 - **The refresh** fetches the `github:` vaults at the unlock, on `tsm
   reload` and every `refreshMinutes`. A file that did not move costs one
   conditional request; one that moved is opened again. A failed fetch
@@ -307,10 +316,10 @@ stateDiagram-v2
 | Vault state | Meaning | Served from |
 | --- | --- | --- |
 | `current` | opened from its file, up to date | the file, or GitHub |
-| `offline` | GitHub cannot be reached | its offline copy |
-| `token_expired` | GitHub refused the repository's token | its offline copy |
+| `offline` | GitHub cannot be reached | the copy held (memory or the offline cache) |
+| `token_expired` | GitHub refused the repository's token | the copy held (memory or the offline cache) |
 | `needs_unlock` | its key changed since the unlock (another device re-keyed it) | its copy under the old key, read-only (when it has one) |
-| `unavailable` | it could not be fetched and has no copy | nothing |
+| `unavailable` | it could not be fetched and has no copy (waiting for GitHub) | nothing |
 
 Each change of a vault's state is an event the app shows (`store_state`).
 A vault whose branch on GitHub was rewritten without a compaction is
@@ -348,6 +357,7 @@ $ tsm status --json
   "expiring": [],
   "links": [],
   "admins": 1,
+  "keepsUnwritten": true,
   "agent": {
     "socket": "/run/user/1000/tsm/agent.sock"
   },
@@ -509,7 +519,7 @@ old one revoke it in the app (Pairing › Revoke) once it is retired.
 | `denied` with `other_user` or `unidentifiable` | the asking process runs as another user, or the OS would not say who it is | run the program as the service's user |
 | `denied` with `wrong_executable` | an admin command from a program the service does not admit | use the `tsm` or app beside the service |
 | `rate_limited` | the program asked too often, or was refused too often | wait the time given; fix the program's loop |
-| a vault `unavailable` | it could not be fetched and has no offline copy | check the network and the token, then `tsm reload` |
+| a vault `unavailable` | it could not be fetched and no copy of it is held | check the network and the token, then `tsm reload` |
 | a vault `offline` | GitHub cannot be reached | nothing: it serves its copy and fetches again by itself |
 | a vault `token_expired` | GitHub refused the repository's token | renew the token in the app's Keys screen or sign in again (`tsm login`), then `tsm reload` |
 | a vault `needs_unlock` | another device re-keyed it | wait for the primary to bring the new keys, or `tsm lock` and `tsm unlock` |

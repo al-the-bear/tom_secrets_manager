@@ -423,8 +423,8 @@ again, up to `maxPushAttempts`. Commit messages name the vault and the device
 (`tsm: fleet.kdbx from build-01`); with
 `TomGitHubStorage(committer: tomSecretsDeviceCommitter(device))` the device is
 also the commit's author. When the remote cannot be reached or refuses the
-token, the vault opens from the offline cache (`source`, `fetchedAt`,
-`offlineReason`). `rekey` commits a re-keyed file as it is and switches the
+token, the vault opens from the offline cache when one is given
+(`source`, `fetchedAt`, `offlineReason`). `rekey` commits a re-keyed file as it is and switches the
 unit to the new credentials.
 
 The merge can also be called on its own:

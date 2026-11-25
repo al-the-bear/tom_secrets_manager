@@ -46,7 +46,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.25.7';
+const String tomSecretsServiceVersion = '0.25.8';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -395,7 +395,7 @@ final class TomSecretsService
           device: config.host,
           tokens: _githubToken,
           cacheDirectory: config.bootstrap.cacheDirectory,
-          useCache: () => settings.offlineCache,
+          useCache: _useOfflineCache,
           baseUrl: config.githubBaseUrl,
           httpClient: config.githubClient,
           clock: config.clock,
@@ -480,6 +480,69 @@ final class TomSecretsService
   @override
   TomSecretsDeviceSettings get settings =>
       _device?.settings ?? const TomSecretsDeviceSettings();
+
+  /// The offline cache, under the bootstrap's cache directory.
+  TomSecretsOfflineCache get _offlineCache =>
+      TomSecretsOfflineCache(Directory(config.bootstrap.cacheDirectory));
+
+  /// Whether the `github:` opener keeps and reads the offline cache: the
+  /// device setting once the settings are open; before (the primary opened
+  /// at the unlock, ahead of the settings) whether a cache is on the disk,
+  /// which only a device whose setting is on keeps (turning it off deletes
+  /// it).
+  bool _useOfflineCache() {
+    if (_device != null) return settings.offlineCache;
+    final root = Directory(config.bootstrap.cacheDirectory);
+    return root.existsSync() &&
+        root
+            .listSync(recursive: true, followLinks: false)
+            .any((e) => e is File);
+  }
+
+  /// Puts the copy held of every open `github:` store into the offline
+  /// cache; answers how many.
+  Future<int> _fillOfflineCache() async {
+    final cache = _offlineCache;
+    var count = 0;
+    for (final status in _vaults.status) {
+      final locator = status.locator;
+      if (locator == null || !locator.startsWith('github:')) continue;
+      if (_vaults.hasUnwritten(status.name)) continue;
+      final held = await _vaults.heldCopy(status.name);
+      if (held == null) continue;
+      await cache.put(
+        TomSecretsCachedVault(
+          locator: locator,
+          bytes: held.stored,
+          head: held.revision,
+          blobId: tomSecretsBlobId(held.stored),
+          fetchedAt: status.fetchedAt ?? DateTime.now().toUtc(),
+        ),
+      );
+      count++;
+    }
+    return count;
+  }
+
+  /// When this start applied the in-memory default to settings stored
+  /// before it and deleted their cache (`status.offlineCacheRemoved`), or
+  /// null.
+  DateTime? _offlineCacheRemoved;
+
+  /// Applies the in-memory default once to settings stored before it
+  /// (tsm_d7, decision (a)): the offline cache turned off and deleted, the
+  /// marker written. Then the vault set keeps a save the remote cannot take
+  /// in memory whenever the cache is off.
+  Future<void> _applyMemoryOnlyDefault() async {
+    final device = _device!;
+    if (!device.settings.memoryOnlyApplied) {
+      await device.write(device.settings.withMemoryOnlyApplied());
+      final files = await _offlineCache.wipe();
+      _offlineCacheRemoved = DateTime.now().toUtc();
+      log.info('offline_cache_removed', {'files': files, 'why': 'default'});
+    }
+    _vaults.keepUnwrittenSaves = !settings.offlineCache;
+  }
 
   /// The device settings container, open while unlocked.
   TomSecretsDeviceContainer? get deviceContainer => _device;
@@ -796,6 +859,7 @@ final class TomSecretsService
         config.bootstrap.deviceContainer,
         key,
       );
+      await _applyMemoryOnlyDefault();
       final refreshMinutes = settings.refreshMinutes;
       _vaults.refreshInterval = Duration(
         minutes: refreshMinutes > 0 ? refreshMinutes : 5,
@@ -1590,6 +1654,12 @@ final class TomSecretsService
     if (!isLocked) 'links': _linkStates.report,
     'admins': _admins.where((a) => a.authenticated).length,
     'hardening': _hardening,
+    // The offline cache this start deleted when it applied the in-memory
+    // default to settings stored before it (the app tells the user once).
+    'offlineCacheRemoved': ?_offlineCacheRemoved?.toIso8601String(),
+    // Whether a save GitHub cannot take waits in memory (the offline cache
+    // off): the app then lets an offline vault be edited.
+    if (!isLocked) 'keepsUnwritten': _vaults.keepUnwrittenSaves,
     // [B] The ssh-agent's endpoint, when it runs (part-os-integration).
     'agent': ?_agent.endpoint,
     // [B] The GitHub App sign-in (part-key-rotation §3).
@@ -1775,7 +1845,9 @@ final class TomSecretsService
         if (was != null &&
             (was.state != s.state ||
                 was.wireSource != s.wireSource ||
-                was.rewrittenHead != s.rewrittenHead)) {
+                was.rewrittenHead != s.rewrittenHead ||
+                was.notPushed != s.notPushed ||
+                was.reason != s.reason)) {
           _emitState(s);
         }
       }
@@ -1792,6 +1864,7 @@ final class TomSecretsService
     if (status.rewrittenHead != null)
       'rewritten': {'head': status.rewrittenHead},
     if (status.keyChanged) 'keyChanged': true,
+    'reason': ?status.reason,
   });
 
   /// Answers the rewritten branch of [store] (`history.resolve`, protocol.md
@@ -2461,7 +2534,25 @@ final class TomSecretsService
   /// (the stores served, the default environment, the approval link).
   Future<List<String>> writeSettings(TomSecretsDeviceSettings value) async {
     final old = settings;
+    // The app writes the settings it shows, which carry no marker: they
+    // have taken the in-memory default as these did.
+    if (!value.memoryOnlyApplied) {
+      value = TomSecretsDeviceSettings.fromJson({
+        ...value.toJson(),
+        'memoryOnlyApplied': true,
+      });
+    }
     await _device!.write(value);
+    _vaults.keepUnwrittenSaves = !value.offlineCache;
+    if (old.offlineCache && !value.offlineCache) {
+      // Turned off: no vault file stays on the disk.
+      final files = await _offlineCache.wipe();
+      log.info('offline_cache_removed', {'files': files, 'why': 'setting'});
+    } else if (!old.offlineCache && value.offlineCache) {
+      // Turned on: the copies held now go to the disk at once, the primary
+      // among them (the next unlock reads it before the settings).
+      log.info('offline_cache_filled', {'files': await _fillOfflineCache()});
+    }
     _lockTimer.update(value.serviceLock);
     _vaults.refreshInterval = Duration(
       minutes: value.refreshMinutes > 0 ? value.refreshMinutes : 5,
@@ -2530,7 +2621,19 @@ final class TomSecretsService
       'merged': result.merged,
       'conflicts': result.conflicts,
       if (result.rekeyed) 'rekeyed': true,
+      if (result.pending) 'pending': true,
     });
+    if (result.pending) {
+      // Kept in memory (the offline cache is off and the remote cannot be
+      // reached): the app reads it back with vaultFile; it is written at the
+      // next refresh that reaches the remote.
+      _emit({
+        'op': 'store_changed',
+        'store': store,
+        'revision': result.revision,
+      });
+      return result;
+    }
     if (result.rekeyed && newKeys != null && primaryLocator != null) {
       await _keepPrimaryKeys(primaryLocator, newKeys);
     }
@@ -4997,10 +5100,7 @@ final class _AdminSession {
         // A re-keyed vault: not a failed authentication, the bundle opened.
         return refusedKey();
       } on Object catch (e) {
-        service.log.error('unlock_failed', e);
-        connection.sendError(id, 'internal', 'the unlock failed', {
-          'code': e.runtimeType.toString(),
-        });
+        _unlockFailed(service, connection, id, e);
         return;
       }
       if (service.vaults.primaryName != vault) {
@@ -5057,10 +5157,7 @@ final class _AdminSession {
             'reason': 'bad_password',
           });
         } on Object catch (e) {
-          service.log.error('unlock_failed', e);
-          connection.sendError(id, 'internal', 'the unlock failed', {
-            'code': e.runtimeType.toString(),
-          });
+          _unlockFailed(service, connection, id, e);
         }
       case 'unlockStore':
         final keys = _keysOf(m);
@@ -5278,14 +5375,18 @@ final class _AdminSession {
           return;
         }
         try {
-          await service.save(
+          final result = await service.save(
             store,
             stored,
             baseRevision: base as String?,
             newKeys: newKeys,
             recipients: recipients,
           );
-          connection.send({'op': 'ok', 'id': id});
+          connection.send({
+            'op': 'ok',
+            'id': id,
+            if (result.pending) 'pending': true,
+          });
         } on TomSecretsSaveException catch (e) {
           service.log.info('save_refused', {
             'store': store,
@@ -6027,4 +6128,34 @@ final class TomSecretsPairsRotated {
   /// The hosts not reached: they find the key change in the vault at their
   /// next refresh, and the new link key is sent again at the refresh.
   final List<String> pending;
+}
+
+/// Answers an unlock that failed with [e]: the primary could not be fetched
+/// and no copy of it is kept on this device (the offline cache off) is
+/// `offline` or `token_expired` with reason `no_copy`, so the app says it
+/// waits for GitHub; anything else is `internal`.
+void _unlockFailed(
+  TomSecretsService service,
+  TomSecretsConnection connection,
+  Object? id,
+  Object e,
+) {
+  if (tomSecretsIsFetchFailure(e)) {
+    final state = TomSecretsStoreState.offlineFor(e);
+    service.log.info('unlock_waiting', {'state': state.wireName});
+    connection.sendError(
+      id,
+      state.wireName,
+      state == TomSecretsStoreState.offline
+          ? 'GitHub cannot be reached, and this device keeps no copy of '
+                'the primary vault: unlock again once GitHub answers'
+          : 'GitHub refused this device\'s token for the primary vault',
+      {'reason': 'no_copy'},
+    );
+    return;
+  }
+  service.log.error('unlock_failed', e);
+  connection.sendError(id, 'internal', 'the unlock failed', {
+    'code': e.runtimeType.toString(),
+  });
 }

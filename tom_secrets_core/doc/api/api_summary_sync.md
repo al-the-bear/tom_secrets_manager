@@ -311,7 +311,7 @@ The cache directory: `<root>/<repository>/<path>` per vault, beside it `<path>.t
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsOfflineCache(root)` | — | The cache under `root` (the app's or service's data directory, `cache/`). |
+| `TomSecretsOfflineCache(root)` | — | The cache under `root` (the service's data directory, `cache/`), used while the device setting `offlineCache` is on. |
 
 #### Static Properties
 
@@ -333,6 +333,8 @@ The cache directory: `<root>/<repository>/<path>` per vault, beside it `<path>.t
 | `put(vault)` | `Future<void>` | Keeps `vault`, replacing what was cached for its locator. The file is written first and the record last, each through a temporary file and a rename, so a record never names a file that is not there. |
 | `get(locator)` | `Future<TomSecretsCachedVault?>` | What is cached for `locator`, or null: nothing cached, a record of another locator, or a file that is not the one its record names (a write that did not finish). |
 | `remove(locator)` | `Future<bool>` | Deletes what is cached for `locator` (a vault removed from the device, or the device revoked); answers whether anything was there. |
+| `isEmpty` | `Future<bool>` | Whether nothing is cached (no file under `root`). |
+| `wipe()` | `Future<int>` | Overwrites every file under `root` with zeros, deletes it, then deletes `root` (the offline cache turned off); answers how many files there were. |
 
 ---
 

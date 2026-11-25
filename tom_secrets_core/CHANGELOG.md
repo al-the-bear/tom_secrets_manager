@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.35
+
+- The vaults are kept in memory only by default:
+  `TomSecretsDeviceSettings.offlineCache` defaults to false. The new
+  `memoryOnlyApplied` marks settings that took the default; settings stored
+  without it read false, and `withMemoryOnlyApplied()` turns the cache off
+  and sets it, every other value kept.
+- `TomSecretsOfflineCache.isEmpty`, and `wipe()`: every file overwritten
+  with zeros, then deleted, then the folder.
+
 ## 0.2.34
 
 - The First run makes the data directory the user's alone on a desktop
