@@ -47,7 +47,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.27.0';
+const String tomSecretsServiceVersion = '0.27.1';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -266,7 +266,27 @@ Set<String> tomSecretsAdminExecutables(
     ),
     for (final path in bootstrap.adminExecutables)
       tomSecretsRealPath(path, null),
+    // A service installed on its own (tsm_d12): the manager apps its
+    // install record names (the record in the folder above `bin/`).
+    for (final path in _installedApps(dir)) tomSecretsRealPath(path, null),
   };
+}
+
+/// The apps the install record beside [binDirectory] names, or none.
+List<String> _installedApps(String binDirectory) {
+  final record = File(
+    '${File(binDirectory).parent.path}${Platform.pathSeparator}'
+    '$tomSecretsUserInstallRecord',
+  );
+  try {
+    final json = jsonDecode(record.readAsStringSync());
+    return [
+      if (json is Map)
+        for (final a in json['apps'] as List? ?? const []) '$a',
+    ];
+  } on Object {
+    return const [];
+  }
 }
 
 /// The file name of the browser host (protocol.md 5.5), without `.exe`.
@@ -286,19 +306,39 @@ const List<String> tomSecretsHelperNames = [
 
 /// The browser host, the helpers and the Windows passkey plugin of a
 /// service started from [serviceExecutable], as real paths beside it
-/// (protocol.md 5.5, 5.8).
+/// (protocol.md 5.5, 5.8). A service installed on its own (tsm_d12) also
+/// takes them from the tools folders of the apps its install record names:
+/// Windows starts the passkey plugin from the app's package.
 ({Set<String> browserHosts, Set<String> helpers, Set<String> passkeyPlugins})
 tomSecretsLookupExecutables(String serviceExecutable) {
-  final dir = File(serviceExecutable).parent.path;
+  final bin = File(serviceExecutable).parent.path;
+  final dirs = {
+    bin,
+    for (final app in _installedApps(bin))
+      for (final c in tomSecretsServiceCandidates(
+        File(app).parent.path,
+        operatingSystem: Platform.operatingSystem,
+      ))
+        File(c).parent.path,
+  };
   final ext = Platform.isWindows ? '.exe' : '';
-  String at(String name) =>
-      tomSecretsRealPath('$dir${Platform.pathSeparator}$name$ext', null);
+  Set<String> at(String name) => {
+    for (final dir in dirs)
+      tomSecretsRealPath('$dir${Platform.pathSeparator}$name$ext', null),
+  };
   return (
-    browserHosts: {at(tomSecretsBrowserHostName)},
-    helpers: {for (final name in tomSecretsHelperNames) at(name)},
-    passkeyPlugins: {at(tomSecretsPasskeyPluginName)},
+    browserHosts: at(tomSecretsBrowserHostName),
+    helpers: {for (final name in tomSecretsHelperNames) ...at(name)},
+    passkeyPlugins: at(tomSecretsPasskeyPluginName),
   );
 }
+
+/// Whether [exe] is one of [allowed], or the same packaged Windows app's
+/// file in another version (an app update while the service runs).
+bool _admitsLookup(Set<String> allowed, String? exe) =>
+    exe != null &&
+    (allowed.contains(exe) ||
+        allowed.any((a) => tomSecretsSamePackagedApp(a, exe)));
 
 /// The optional features this service offers (protocol.md 8).
 const List<String> tomSecretsServiceFeatures = [
@@ -3007,7 +3047,7 @@ final class _ClientSession {
     final allowed = service.config.browserHostExecutables;
     return allowed == null
         ? _exeName == tomSecretsBrowserHostName
-        : allowed.contains(_identity?.exe);
+        : _admitsLookup(allowed, _identity?.exe);
   }
 
   /// **[C]** Whether the client is the Windows passkey plugin (protocol.md
@@ -3016,7 +3056,7 @@ final class _ClientSession {
     final allowed = service.config.passkeyPluginExecutables;
     return allowed == null
         ? _exeName == tomSecretsPasskeyPluginName
-        : allowed.contains(_identity?.exe);
+        : _admitsLookup(allowed, _identity?.exe);
   }
 
   /// Whether the client is a developer-tool helper (protocol.md 5.5).
@@ -3024,7 +3064,7 @@ final class _ClientSession {
     final allowed = service.config.helperExecutables;
     return allowed == null
         ? tomSecretsHelperNames.contains(_exeName)
-        : allowed.contains(_identity?.exe);
+        : _admitsLookup(allowed, _identity?.exe);
   }
 
   void _message(Map<String, Object?> m) {
@@ -4379,7 +4419,13 @@ final class _AdminSession {
       case TomSecretsPeerMeasured(:final identity):
         _identity = identity;
         final allowed = service.config.adminExecutables;
-        if (allowed == null || allowed.contains(identity.exe)) return true;
+        if (allowed == null ||
+            allowed.contains(identity.exe) ||
+            // The packaged app in a newer version: an app update must not
+            // lock out a service that kept running (tsm_d12).
+            allowed.any((a) => tomSecretsSamePackagedApp(a, identity.exe))) {
+          return true;
+        }
         reason = 'wrong_executable';
         service.log.debug('admin_executable', {'exe': identity.exe});
     }

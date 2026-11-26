@@ -225,12 +225,23 @@ section), and which service it is (the next).
 | It is the service expected | `/proc/<pid>/exe`; `proc_pidpath` | `QueryFullProcessImageNameW` |
 
 The service expected is `tom_secrets_service` beside the app or `tsm`, the
-one in the app's `tsm/bin`, or the one `TSM_SERVICE` (or `tsm start
---service`) names: the mirror of the service admitting only the `tsm` and
-app beside it. A check that fails ends the connection with
+one in the app's `tsm/bin`, the one installed on its own for the user
+(`tsm install`), or the one `TSM_SERVICE` (or `tsm start --service`) names:
+the mirror of the service admitting only the `tsm` and app beside it (an
+installed service: and the apps its `install.json` names). A check that fails ends the connection with
 `service_untrusted` and its reason (`owner`, `mode`, `peer_user`,
 `peer_executable`); nothing was sent, and the app and `tsm` say what is
 wrong and what to do.
+
+The service installed on its own lives in a folder of the user's, like an
+app the user installed in their home folder: a program of the user can
+replace it, or add itself to `install.json`. Neither gains anything by
+itself. The admin key or a claim with the master password is still needed
+to administer the service, and a replaced service has no identity key the
+app and `tsm` pinned, so they send it nothing (on macOS the keychain item
+holding the key trusts the original service's signature alone; on Linux
+the system install keeps the key from the user's programs, the per-user
+install does not).
 
 Two traps this closes:
 
@@ -338,7 +349,7 @@ and the user's programs trust the new key by its words.
 A Windows form that keeps the key from the user's own programs needs the
 service to run under an account of its own. That is a second deployment
 model (its own setup and key store; the service control manager starts it),
-and it is designed with the standalone service install (tsm_d12).
+and it is not built yet.
 
 A store that cannot take the key at the first start (a locked keychain in
 an SSH session) leaves it in the file; the service moves it at a later

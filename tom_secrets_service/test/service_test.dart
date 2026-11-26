@@ -216,6 +216,84 @@ void main() {
     expect(admins, contains('${root.path}/dev/tom_secrets_app$ext'));
   });
 
+  test('a service installed on its own (tsm_d12) admits the apps its install '
+      'record names', () {
+    final root = Directory.systemTemp.createTempSync('tsminstalled');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final ext = Platform.isWindows ? '.exe' : '';
+    final service = File('${root.path}/bin/tom_secrets_service$ext')
+      ..createSync(recursive: true);
+    final app = File('${root.path}/elsewhere/tom_secrets_app$ext')
+      ..createSync(recursive: true);
+    TomSecretsUserInstall(
+      directory: root.path,
+      version: '0.2.18',
+      installed: DateTime.utc(2026, 11, 26),
+      apps: [app.path],
+    ).writeRecord();
+    final admins = tomSecretsAdminExecutables(
+      service.path,
+      TomSecretsBootstrap(
+        primary: 'file:/demo/primary.kdbx',
+        dataDirectory: '${root.path}/data',
+      ),
+    );
+    expect(admins, contains(app.resolveSymbolicLinksSync()));
+    File('${root.path}/$tomSecretsUserInstallRecord').writeAsStringSync('no');
+    expect(
+      tomSecretsAdminExecutables(
+        service.path,
+        TomSecretsBootstrap(
+          primary: 'file:/demo/primary.kdbx',
+          dataDirectory: '${root.path}/data',
+        ),
+      ),
+      isNot(contains(app.resolveSymbolicLinksSync())),
+      reason: 'a record that cannot be read admits nothing',
+    );
+  });
+
+  test('a service installed on its own takes the browser host, the helpers '
+      'and the passkey plugin from the tools folders of the apps its record '
+      'names too (Windows starts the plugin from the app\'s package)', () {
+    final root = Directory.systemTemp.createTempSync('tsminstalled');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final ext = Platform.isWindows ? '.exe' : '';
+    final service = File('${root.path}/bin/tom_secrets_service$ext')
+      ..createSync(recursive: true);
+    final appDir = Platform.isMacOS
+        ? '${root.path}/App.app/Contents/MacOS'
+        : '${root.path}/app';
+    final tools = Platform.isMacOS
+        ? '${root.path}/App.app/Contents/Resources/tsm/bin'
+        : '${root.path}/app/tsm/bin';
+    final app = File('$appDir/tom_secrets_app$ext')
+      ..createSync(recursive: true);
+    final plugin = File('$tools/$tomSecretsPasskeyPluginName$ext')
+      ..createSync(recursive: true);
+    final host = File('$tools/$tomSecretsBrowserHostName$ext')
+      ..createSync(recursive: true);
+    TomSecretsUserInstall(
+      directory: root.path,
+      version: '0.2.18',
+      installed: DateTime.utc(2026, 11, 26),
+      apps: [app.path],
+    ).writeRecord();
+    final lookup = tomSecretsLookupExecutables(service.path);
+    expect(lookup.passkeyPlugins, contains(plugin.resolveSymbolicLinksSync()));
+    expect(lookup.browserHosts, contains(host.resolveSymbolicLinksSync()));
+    expect(
+      lookup.passkeyPlugins,
+      contains(
+        tomSecretsRealPath(
+          '${root.path}/bin/'
+          '$tomSecretsPasskeyPluginName$ext',
+          null,
+        ),
+      ),
+    );
+  });
+
   group('the admin channel', () {
     test('the mutual challenge matches protocol/vectors/hmac.json', () {
       final vectors =

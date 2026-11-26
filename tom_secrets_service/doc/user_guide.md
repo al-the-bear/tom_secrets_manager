@@ -16,6 +16,7 @@ tests, so they show what the service writes today).
 
 - [What the service is](#what-the-service-is)
 - [Starting and stopping it](#starting-and-stopping-it)
+- [Running it on its own](#running-it-on-its-own)
 - [The runtime and data directories](#the-runtime-and-data-directories)
 - [Unlocking and the lock modes](#unlocking-and-the-lock-modes)
 - [The device settings](#the-device-settings)
@@ -92,6 +93,7 @@ key on its standard input, which the starter keeps in the keychain.
 | Where | Started by | Stopped by |
 | --- | --- | --- |
 | A desktop | the manager app, when it opens and finds no service | Settings › "Stop the service", or `tsm stop` |
+| A desktop, installed on its own | login (a LaunchAgent, a systemd user unit, the Run key), else the app or `tsm start` | `tsm stop`, or Settings › "Stop the service" |
 | A desktop, at login | the app, with Settings › "Start the app at login, in the tray" on (a login item on macOS, the Run key on Windows, an XDG autostart entry on Linux) | logging out (the service ends on SIGHUP) |
 | A headless server | `tsm start` (see the [`tsm` user guide](https://github.com/al-the-bear/tom_secrets_clients/blob/main/clients/dart/tsm/doc/tsm_user_guide.md#tsm-start)) | `tsm stop`, or SIGTERM |
 
@@ -123,6 +125,45 @@ The service executable exits with these codes when it cannot start:
 In its pairing mode (run by `tsm pair`) it exits 0 when the machine is set
 up, 2 when the handover cannot be used, 6 when the pairing failed and 7
 when the setup failed (the [README](../README.md#the-pairing-mode)).
+
+## Running it on its own
+
+Started by the app from the app's own folder, the service goes on when
+the app quits on macOS and Linux. On Windows the app's package ends the
+processes it started: when the app is ended (Task Manager, `Stop-Process`)
+or updated, programs get no secrets until the service is started again.
+Installed on its own for your user, the service lives in a folder of
+yours, starts at login and keeps running whatever happens to the app.
+
+| Platform | Folder | Started at login by |
+| --- | --- | --- |
+| macOS | `~/Library/Application Support/TomSecretsManagerService` | the LaunchAgent `com.althebear.tomsecrets.service` |
+| Linux | `~/.local/lib/tom-secrets-manager` | the systemd user unit `tom-secrets-manager.service` |
+| Windows | `%LOCALAPPDATA%\Programs\TomSecretsManager` | the value `TomSecretsManagerService` of your Run key |
+
+**To install it:** in the app, Settings › This machine › "Run the service
+on its own" › Install; or `tsm install` from the app's tools folder or the
+unpacked tools archive. The folder's `install.json` names the apps the
+installed service takes as admins; the app adds itself there.
+
+What changes then:
+
+- The app and `tsm` find the installed service first and start it when
+  none runs; the app attaches to it as before.
+- The service running at the install goes on until it is stopped; the
+  installed one starts at the next login or the next start.
+- An update of the app does nothing to the installed service: it keeps
+  running, and the updated app attaches to it. To bring it up to the
+  app's version, use "Update from this app" (or `tsm install` again), then
+  stop the service and start it again.
+
+**To stop it:** `tsm stop` or Settings › "Stop the service"; it starts
+again at the next login. To keep it from starting at login, remove the
+install.
+
+**To remove it:** Settings › "Remove", or `tsm uninstall`. On Windows stop
+the service first: Windows does not delete a program that runs. The app
+then starts the service from its own folder again.
 
 ## The runtime and data directories
 
@@ -575,8 +616,8 @@ step the install makes:
 
 There is no system install on macOS (the keychain already binds the key to
 the service) or yet on Windows. On Windows only a service under an account
-of its own keeps the key from your other programs, and that form comes with
-the standalone service install.
+of its own keeps the key from your other programs, and that form is not
+built yet.
 
 ## Upgrading and moving it
 
@@ -593,6 +634,10 @@ the standalone service install.
 
 Nothing in the data directory needs converting; the vaults and the
 device settings stay as they are.
+
+With the service installed on its own, step 1 leaves it as it is: update
+it with Settings › "Update from this app" or `tsm install` from the new
+archive, then go on with steps 2 and 3.
 
 Upgrade the service together with the app and `tsm`: from 0.26.0 the
 service takes a claim's master password only encrypted to itself, which a

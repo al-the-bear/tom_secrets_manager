@@ -333,6 +333,40 @@ directory from the account: `~/.local/share/tom-secrets-manager` and
 their own. `tsm uninstall --system` removes all of it but the identity keys
 (`--purge`: those and the group too).
 
+## The service installed on its own
+
+`tsm install` (or the app's Settings › This machine › "Run the service on
+its own") copies the command-line tools (`bin/`, `lib/`) into a folder of
+the user's and starts the service from there at every login, so it keeps
+running when the app quits, is ended or is updated.
+
+| Platform | Folder | Started at login by |
+| --- | --- | --- |
+| macOS | `~/Library/Application Support/TomSecretsManagerService` | `~/Library/LaunchAgents/com.althebear.tomsecrets.service.plist`: runs `tsm start` at load and leaves the service running (`AbandonProcessGroup`); its output in `launchd.log` in the folder |
+| Linux | `~/.local/lib/tom-secrets-manager` | `~/.config/systemd/user/tom-secrets-manager.service` (`XDG_CONFIG_HOME`): a oneshot running `tsm start`, enabled for `default.target`; `~/.local/bin/tsm` links the installed `tsm` where no other file is |
+| Windows | `%LOCALAPPDATA%\Programs\TomSecretsManager` | the value `TomSecretsManagerService` of `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`: `conhost.exe --headless "<folder>\bin\tsm.exe" start` |
+
+`TSM_INSTALL_DIR` names another folder. The folder's `install.json`
+records the install:
+
+```json
+{
+  "version": "0.2.18",
+  "installed": "2026-11-26T10:00:00.000Z",
+  "apps": ["/Applications/Tom Secrets Manager.app/Contents/MacOS/tom_secrets_app"]
+}
+```
+
+`apps` are the manager apps the installed service admits as admins (the
+app adds itself when missing); on Windows an app of the same package in
+another version is admitted too, so an update of the app's MSIX stays
+admitted. The service takes the browser host, the helpers and the Windows
+passkey plugin from those apps' tools folders as well.
+
+The app and `tsm` start the installed service first (after `TSM_SERVICE`)
+and expect it on the admin endpoint. `tsm uninstall` removes the folder
+and the start at login.
+
 ## Environment variables
 
 ### Read by the product
@@ -342,6 +376,7 @@ their own. `tsm uninstall --system` removes all of it but the identity keys
 | `TSM_RUNTIME_DIR` | the service, every client, the app | the runtime directory | the OS's (above) |
 | `TSM_DATA_DIR` | the app, `tsm` | the data directory | the OS's (above) |
 | `TSM_CONFIG_DIR` | the app, `tsm` | the directory of the pin file | the OS's (above) |
+| `TSM_INSTALL_DIR` | the app, `tsm`, the service's admin check | the folder of the service installed on its own | the OS's (above) |
 | `TSM_SERVICE` | `tsm`, the app | the service executable to start, and one an admin expects to answer on the admin endpoint (protocol.md 6.0) | `tom_secrets_service` beside `tsm` or in the app's `tsm/bin` |
 | `TSM_LOGIN_ITEM` | the desktop app | `off`: a development run; no login item is registered, an old one is removed | on |
 | `TSM_RELAY_CONFIG` | the relay server | its configuration file | `config=` argument, else `./relay.yaml` |

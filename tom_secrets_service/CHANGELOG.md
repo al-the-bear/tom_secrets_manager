@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.27.1
+
+- A service installed on its own for one user (`tsm install`, tsm_d12)
+  admits as admins the manager apps its `install.json` names, and an app
+  of the same Windows package in another version, so an app update while
+  it runs stays admitted. It takes the browser host, the helpers and the
+  Windows passkey plugin from those apps' tools folders too (Windows
+  starts the plugin from the app's package).
+
 ## 0.27.0
 
 - The identity key's secret is kept behind the platform's boundary
