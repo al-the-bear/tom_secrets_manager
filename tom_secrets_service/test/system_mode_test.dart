@@ -5,8 +5,8 @@
 /// the directories come from the account, the key from the real user id,
 /// the group is dropped once the key is had, also when it cannot be had.
 /// The install itself is checked as root in a container (tom_secrets_build
-/// `:system`). Demo keys only.
-@TestOn('vm')
+/// `:system`). Demo keys only. (Linux and macOS: the paths are Linux's.)
+@TestOn('linux || mac-os')
 library;
 
 import 'dart:io';
