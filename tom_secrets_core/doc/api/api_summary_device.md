@@ -309,7 +309,7 @@ What the device settings hold. The keys of later parts (approver and approval-li
 
 | Constructor | Kind | Description |
 | --- | --- | --- |
-| `TomSecretsDeviceSettings({serviceLock, appLock, defaultEnvironment, servedStores, refreshMinutes, offlineCache, keyExpiryWarningDays, approvalTimeout, codeTimeout, approvalLink, otherKeyWarningDays, keyPairAgeMonths, primaryKeyAgeMonths, vaultKeyAgeMonths, memberKeyAgeMonths, memoryOnlyApplied})` | const | Settings with the defaults for every value not given. |
+| `TomSecretsDeviceSettings({serviceLock, appLock, defaultEnvironment, servedStores, refreshMinutes, offlineCache, keyExpiryWarningDays, approvalTimeout, codeTimeout, approvalLink, otherKeyWarningDays, keyPairAgeMonths, primaryKeyAgeMonths, vaultKeyAgeMonths, memberKeyAgeMonths, memoryOnlyApplied, quickUnlockPin})` | const | Settings with the defaults for every value not given. |
 | `TomSecretsDeviceSettings.fromJson(json)` | factory | From the stored JSON; a value missing takes its default. |
 
 #### Properties
@@ -331,6 +331,7 @@ What the device settings hold. The keys of later parts (approver and approval-li
 | `primaryKeyAgeMonths` | `int` | The rotation age a new key file or repository key of the primary vault gets, in months (default 24; rotating them means pairing again). |
 | `vaultKeyAgeMonths` | `int` | The rotation age a new key file or repository key of every other vault gets, in months (default 12). |
 | `memberKeyAgeMonths` | `int` | **[C]** The rotation age of the user's member key, in months (default 24), counted from its entry's creation. |
+| `quickUnlockPin` | `bool` | Whether quick unlock with a PIN is on (default off): the only thing kept about the PIN; the PIN and the keys it seals live in the running service's memory. |
 | `memoryOnlyApplied` | `bool` | Whether these settings took the in-memory default (true for settings made now; false for settings stored without the marker, which the service turns to the default once). |
 
 #### Methods
@@ -338,6 +339,7 @@ What the device settings hold. The keys of later parts (approver and approval-li
 | Method | Return Type | Description |
 | --- | --- | --- |
 | `withMemoryOnlyApplied()` | `TomSecretsDeviceSettings` | These settings with the offline cache off and the marker set; every other value kept. |
+| `withQuickUnlockPin(bool on)` | `TomSecretsDeviceSettings` | These settings with `quickUnlockPin` set; every other value kept. |
 | `toJson()` | `Map<String, Object?>` | The JSON kept in the container. |
 
 ---

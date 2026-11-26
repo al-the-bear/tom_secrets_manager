@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.40
+
+- The device settings' switch of the quick unlock, `quickUnlockPin`
+  (`withQuickUnlockPin`): the only thing kept about a PIN, whose sealed keys
+  live in the running service's memory (part-app, Unlocking).
+
 ## 0.2.39
 
 - The identity key's secret can be kept outside its file

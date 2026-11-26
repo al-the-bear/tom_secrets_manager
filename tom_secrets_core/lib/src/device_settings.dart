@@ -165,6 +165,7 @@ final class TomSecretsDeviceSettings {
     this.primaryKeyAgeMonths = tomSecretsPrimaryKeyMonths,
     this.vaultKeyAgeMonths = 12,
     this.memberKeyAgeMonths = 24,
+    this.quickUnlockPin = false,
   });
 
   /// From the stored JSON; a value missing takes its default, and a key
@@ -210,8 +211,15 @@ final class TomSecretsDeviceSettings {
       primaryKeyAgeMonths: intOf('primaryKeyAgeMonths', d.primaryKeyAgeMonths),
       vaultKeyAgeMonths: intOf('vaultKeyAgeMonths', d.vaultKeyAgeMonths),
       memberKeyAgeMonths: intOf('memberKeyAgeMonths', d.memberKeyAgeMonths),
+      quickUnlockPin: json['quickUnlockPin'] == true,
     );
   }
+
+  /// Whether quick unlock with a PIN is on (part-app, Unlocking): the only
+  /// thing kept about the PIN. The PIN itself, a verifier and the keys it
+  /// seals live in the running service's memory only; after a restart the
+  /// app asks for the master password once and then for the PIN again.
+  final bool quickUnlockPin;
 
   /// The service's lock mode (DP-14).
   final TomSecretsLockPolicy serviceLock;
@@ -248,6 +256,11 @@ final class TomSecretsDeviceSettings {
         'offlineCache': false,
         'memoryOnlyApplied': true,
       });
+
+  /// These settings with [quickUnlockPin] set to [on]; every other value
+  /// kept.
+  TomSecretsDeviceSettings withQuickUnlockPin(bool on) =>
+      TomSecretsDeviceSettings.fromJson({...toJson(), 'quickUnlockPin': on});
 
   /// How many days before a key expires the reminders start.
   final int keyExpiryWarningDays;
@@ -298,6 +311,7 @@ final class TomSecretsDeviceSettings {
     'otherKeyWarningDays': otherKeyWarningDays,
     'keyPairAgeMonths': keyPairAgeMonths,
     'primaryKeyAgeMonths': primaryKeyAgeMonths,
+    'quickUnlockPin': ?(quickUnlockPin ? true : null),
     'vaultKeyAgeMonths': vaultKeyAgeMonths,
     'memberKeyAgeMonths': memberKeyAgeMonths,
   };

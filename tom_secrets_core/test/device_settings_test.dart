@@ -77,4 +77,19 @@ void main() {
     expect(old.refreshMinutes, 7);
     expect(old.toJson().containsKey('startAtLogin'), isFalse);
   });
+
+  test('quick unlock with a PIN: only the switch is kept, off by default '
+      'and left out of the JSON while off', () {
+    const d = TomSecretsDeviceSettings();
+    expect(d.quickUnlockPin, isFalse);
+    expect(d.toJson().containsKey('quickUnlockPin'), isFalse);
+    final on = d.withQuickUnlockPin(true);
+    expect(on.toJson()['quickUnlockPin'], isTrue);
+    expect(
+      TomSecretsDeviceSettings.fromJson(on.toJson()).quickUnlockPin,
+      isTrue,
+    );
+    expect(on.withQuickUnlockPin(false).quickUnlockPin, isFalse);
+    expect(on.refreshMinutes, d.refreshMinutes);
+  });
 }
