@@ -342,8 +342,9 @@ void main() {
       onHostLinkKey: (key) async => taken = key,
     );
     expect(taken, isNull);
-    // The answer to the key may arrive after the delivery has ended.
-    final answer = await answered.future.timeout(const Duration(seconds: 5));
+    // The answer to the key may arrive after the delivery has ended (long
+    // after, while the CI runs every package's tests at once).
+    final answer = await answered.future.timeout(const Duration(seconds: 30));
     expect(answer['op'], 'error');
   });
 
