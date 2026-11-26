@@ -314,4 +314,164 @@ void main() {
       );
     },
   );
+
+  group('where the secret key is kept (tsm_d11)', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('tsmid'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    Map<String, Object?> fileJson(String name) =>
+        (jsonDecode(File('${dir.path}/$name').readAsStringSync()) as Map)
+            .cast();
+
+    test(
+      'a store keeps the secret: the file holds only what names it; read '
+      'back with the store, refused without it or when it gives nothing',
+      () async {
+        final store = _FakeStore();
+        final made = await TomSecretsServiceIdentityKey.loadOrCreate(
+          dir.path,
+          secretStore: store,
+        );
+        expect(made.keptIn, 'fake');
+        final json = fileJson(tomSecretsServiceIdentityFile);
+        expect(json.containsKey('secretKey'), isFalse);
+        expect((json['secret']! as Map)['store'], 'fake');
+        expect(store.items, hasLength(1));
+
+        final again = await TomSecretsServiceIdentityKey.loadOrCreate(
+          dir.path,
+          secretStore: store,
+        );
+        expect(again.publicKey, made.publicKey);
+        await expectLater(
+          TomSecretsServiceIdentityKey.loadOrCreate(dir.path),
+          throwsA(isA<TomSecretsIdentityKeyUnavailable>()),
+          reason: 'never a new key in its place',
+        );
+        store.refuse = true;
+        await expectLater(
+          TomSecretsServiceIdentityKey.loadOrCreate(
+            dir.path,
+            secretStore: store,
+          ),
+          throwsA(isA<TomSecretsIdentityKeyUnavailable>()),
+        );
+        expect(
+          fileJson(tomSecretsServiceIdentityFile)['publicKey'],
+          base64.encode(made.publicKey),
+        );
+      },
+    );
+
+    test('a key whose secret is in the file moves into the store; a store '
+        'that cannot take it now leaves it in the file', () async {
+      final plain = await TomSecretsServiceIdentityKey.loadOrCreate(dir.path);
+      expect(plain.keptIn, 'file');
+      final busy = _FakeStore()..refuse = true;
+      final stays = await TomSecretsServiceIdentityKey.loadOrCreate(
+        dir.path,
+        secretStore: busy,
+      );
+      expect(stays.keptIn, 'file');
+      expect(
+        fileJson(tomSecretsServiceIdentityFile)['secretKey'],
+        isA<String>(),
+      );
+
+      final store = _FakeStore();
+      final moved = await TomSecretsServiceIdentityKey.loadOrCreate(
+        dir.path,
+        secretStore: store,
+      );
+      expect(moved.publicKey, plain.publicKey);
+      expect(moved.keptIn, 'fake');
+      expect(
+        fileJson(tomSecretsServiceIdentityFile).containsKey('secretKey'),
+        isFalse,
+      );
+
+      // Rotated in place: the store's item is the new key's.
+      final rotated = await moved.rotate();
+      expect(rotated.keptIn, 'fake');
+      expect(store.items, hasLength(1));
+      final read = await TomSecretsServiceIdentityKey.loadOrCreate(
+        dir.path,
+        secretStore: store,
+      );
+      expect(read.publicKey, rotated.publicKey);
+      expect(read.changes.single.from, plain.publicKey);
+    });
+
+    test('a key moved to another file (a system install): the previous key '
+        'signs the new one, which a pin of the previous key follows, and the '
+        'previous file is gone', () async {
+      final before = await TomSecretsServiceIdentityKey.loadOrCreate(dir.path);
+      final previous = File('${dir.path}/$tomSecretsServiceIdentityFile');
+      final system = File('${dir.path}/system/1000.json');
+      final moved = await TomSecretsServiceIdentityKey.loadOrCreateFile(
+        system,
+        kept: 'system',
+        previous: previous,
+      );
+      expect(previous.existsSync(), isFalse);
+      expect(moved.keptIn, 'system');
+      expect(moved.publicKey, isNot(before.publicKey));
+      expect(
+        await tomSecretsJudgeIdentity(
+          pinned: [
+            TomSecretsServicePin(
+              host: 'h',
+              runtime: null,
+              key: before.publicKey,
+              source: TomSecretsPinSource.start,
+              at: DateTime.now(),
+            ),
+          ],
+          presented: moved.publicKey,
+          changes: moved.changes,
+          crypto: _crypto,
+        ),
+        TomSecretsPinVerdict.rotated,
+      );
+      if (!Platform.isWindows) {
+        expect(system.statSync().mode & 0x1ff, 0x1a0, reason: '0640');
+      }
+      final again = await TomSecretsServiceIdentityKey.loadOrCreateFile(
+        system,
+        kept: 'system',
+        previous: previous,
+      );
+      expect(again.publicKey, moved.publicKey);
+    });
+  });
+}
+
+/// A store in memory, which can refuse.
+final class _FakeStore implements TomSecretsIdentitySecretStore {
+  final Map<String, Uint8List> items = {};
+  bool refuse = false;
+
+  @override
+  String get name => 'fake';
+
+  @override
+  Future<Map<String, Object?>> seal(Uint8List secret, File file) async {
+    if (refuse) throw const TomSecretsIdentityKeyUnavailable('busy');
+    items[file.path] = Uint8List.fromList(secret);
+    return {'item': file.path};
+  }
+
+  @override
+  Future<Uint8List> open(Map<String, Object?> sealed, File file) async {
+    final item = items[sealed['item']];
+    if (refuse || item == null) {
+      throw const TomSecretsIdentityKeyUnavailable('refused');
+    }
+    return Uint8List.fromList(item);
+  }
+
+  @override
+  Future<void> forget(Map<String, Object?> sealed, File file) async =>
+      items.remove(sealed['item']);
 }

@@ -47,7 +47,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.26.2';
+const String tomSecretsServiceVersion = '0.27.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -85,6 +85,8 @@ final class TomSecretsServiceConfig {
     this.rateLimitClock,
     this.sshAgent = true,
     this.agentPipe = TomSecretsRuntime.agentPipe,
+    this.identityStore,
+    this.identityKey,
     String? knownHostsFile,
   }) : knownHostsFile = knownHostsFile ?? tomSecretsDefaultKnownHosts(),
        clock = clock ?? DateTime.now,
@@ -217,6 +219,17 @@ final class TomSecretsServiceConfig {
   /// that run services side by side give each its own.
   final String agentPipe;
 
+  /// Where the identity key's secret is kept (tsm_d11): the binary passes
+  /// this platform's store (`tomSecretsPlatformIdentityStore`: the macOS
+  /// keychain, Windows' DPAPI); null (tests, Linux): the key file itself.
+  final TomSecretsIdentitySecretStore? identityStore;
+
+  /// The identity key read before the service dropped a system install's
+  /// group (`TomSecretsSystemMode`, Linux): used instead of the data
+  /// directory's, and never rotated by the service (it can no longer write
+  /// where the key is kept).
+  final TomSecretsServiceIdentityKey? identityKey;
+
   /// The user's `known_hosts`, read for the names of a destination in an
   /// agent prompt; null: none.
   final String? knownHostsFile;
@@ -329,9 +342,12 @@ final class TomSecretsService
       // Its identity key (protocol.md 6.1): made at the first start, the
       // same from then on; one that cannot be read stops the start, since
       // every admin has pinned it.
-      service._identityKey = await TomSecretsServiceIdentityKey.loadOrCreate(
-        config.bootstrap.dataDirectory,
-      );
+      service._identityKey =
+          config.identityKey ??
+          await TomSecretsServiceIdentityKey.loadOrCreate(
+            config.bootstrap.dataDirectory,
+            secretStore: config.identityStore,
+          );
       try {
         await service._githubApp.load();
       } on Object catch (e) {
@@ -405,6 +421,12 @@ final class TomSecretsService
   /// and this device's record in the primary names the new key. Answers
   /// the new public key.
   Future<Uint8List> rotateIdentityKey() async {
+    if (config.identityKey != null) {
+      throw const TomSecretsIdentityKeyUnavailable(
+        'a system-installed service cannot rewrite its identity key: an '
+        'administrator replaces it (the operator guide)',
+      );
+    }
     _identityKey = await _identityKey.rotate(now: now);
     log.info('identity_rotated');
     final primary = _vaults.primary;
@@ -1709,6 +1731,8 @@ final class TomSecretsService
     // The identity key the admins pinned (protocol.md 6.1).
     'identity': {
       'fingerprint': tomSecretsIdentityFingerprint(identityKey),
+      // Where its secret is kept: `keychain`, `dpapi`, `system`, `file`.
+      'kept': _identityKey.keptIn,
       'words': tomSecretsIdentityWords(identityKey),
       'since': _identityKey.created.toIso8601String(),
     },
@@ -6088,6 +6112,17 @@ final class _AdminSession {
         }
         if (service.isLocked) {
           connection.sendError(id, 'locked', 'unlock the service first');
+          return;
+        }
+        if (identity && service.config.identityKey != null) {
+          // A system install's key is where only an administrator writes.
+          connection.sendError(
+            id,
+            'unsupported',
+            'a system-installed service\'s identity key is replaced by an '
+                'administrator',
+            {'reason': 'system_install'},
+          );
           return;
         }
         final rotated = approver || link

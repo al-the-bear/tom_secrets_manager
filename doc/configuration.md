@@ -61,7 +61,7 @@ way.
 | `bootstrap.yaml` | the service's start configuration (below) | the First run, `tsm pair`, the service |
 | `device-settings.kdbx` | the device settings and trust material (KDBX) | the service |
 | `device-settings.kdbx.key` | the container's key in key-file mode (mode 0600) | the service |
-| `service-identity.json` | the service's identity key (mode 0600): the secret key, the public key, when it was made, and the statements of the keys it replaced | the service, at its first start; the First run and `tsm pair` when the machine is set up by pairing |
+| `service-identity.json` | the service's identity key (mode 0600): the public key, when it was made, the statements of the keys it replaced, and where the secret key is (`secret`: the macOS keychain item, the DPAPI blob on Windows) or the secret key itself (`secretKey`, on Linux, or where no store took it) | the service, at its first start; the First run and `tsm pair` when the machine is set up by pairing (with the secret key in it, which the service moves into its store at its next start) |
 | `cache/` | the offline cache, while `offlineCache` is on: `<owner>/<repository>/<path>` and `<path>.tsm-cache.json` beside each file (locator, head, blob id, fetch time) | the service |
 | `audit/<yyyy-mm-dd>.log` | the audit log, one encrypted record per line, kept 90 days | the service |
 | `service.log`, `service.log.1` to `.3` | the operational log, rotated at 1 MiB | the service |
@@ -142,6 +142,7 @@ Manager).
 | `tsm.github-token.<owner>:<repo>`, `tsm.github-token-expiry.<owner>:<repo>` | a pasted GitHub token and its expiry (ISO 8601) | the First run, the service |
 | `tsm.github-app.session` | the GitHub App's access and refresh tokens | the service |
 | `tsm.relay-token.<relay>` | a relay server's instance token (`<relay>` base64url, unpadded) | the service |
+| `tsm.service-identity.<id>` (macOS) | the service's identity key, an item only the service's code signature reads; `<id>` the first 16 hex digits of SHA-256 over the key file's path | the service |
 
 The OS unlock keeps `tom_secrets.os_unlock.<store>` in the store Touch ID or
 Windows Hello guards. The macOS AutoFill provider's keys are the items
@@ -165,6 +166,7 @@ value is a non-empty string, except `admin_executables`.
 | `host` | string | the OS host name | this machine's name (grants, overlays) |
 | `log_level` | `info`, `debug` | `info` | the operational log's level |
 | `admin_executables` | list of paths | none | further executables that may administer the service |
+| `identity_key` | `store`, `file` | `store` | where the identity key's secret is kept: this platform's store (the macOS keychain, DPAPI on Windows; Linux has none) or the key file itself |
 
 The device key modes: `keychain` refuses to start without a keychain;
 `vault` keeps the key in the primary's entry `@host:<host>/.tom-secrets/device`;
@@ -306,6 +308,30 @@ Every vault has a metadata entry, `.tom-secrets`, in its root group.
 | `@host:<host>/.tom-secrets/device` | the device key (vault mode) | the device settings container's key |
 
 A share is a JSON document of the format `tsm.share`, version 1.
+
+## The system install (Linux)
+
+`tsm install --system` (as root) installs the service for every user of a
+Linux machine. It writes:
+
+| Path | Holds | Owner, mode |
+| --- | --- | --- |
+| `/opt/tom-secrets-manager/bin/` | the service, `tsm` and the browser host | root's; the service `root:tsm-identity`, mode 2755 (set-group-ID) |
+| `/opt/tom-secrets-manager/lib/` | the native libraries | root's |
+| `/var/lib/tom-secrets-manager/identity/` | each user's identity key, `<uid>.json` | `root:tsm-identity`, mode 2770: no user reaches it |
+| `/etc/tom-secrets-manager/system.json` | the record: `version`, `prefix`, `group`, `identityDirectory`, `installed` | root's, 0644; a record root does not own, or that others may write, is ignored |
+| `/usr/local/bin/tsm` | a link to the installed `tsm` | made only where no other file is |
+
+The group is `tsm-identity` (made by the install when missing). A
+system-installed service takes the user's data directory and runtime
+directory from the account: `~/.local/share/tom-secrets-manager` and
+`/run/user/<uid>/tsm` (else `/tmp/tsm-<uid>`). It ignores `TSM_DATA_DIR`,
+`TSM_RUNTIME_DIR`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR` and the bootstrap's
+`runtime_dir`.
+
+`tsm` and the app start the system install's service and expect it beside
+their own. `tsm uninstall --system` removes all of it but the identity keys
+(`--purge`: those and the group too).
 
 ## Environment variables
 

@@ -96,7 +96,7 @@ tsm status
 | 4 | the runtime directory is refused (wrong owner or mode) |
 | 5 | the keychain holding the device key is not available |
 | 8 | the data directory is refused (no folder, another user's, or it cannot be made the user's alone) |
-| 9 | the identity key in the data directory (`service-identity.json`) cannot be read |
+| 9 | the identity key cannot be read: its file (`service-identity.json`), its store (the macOS keychain, DPAPI), or a system install's |
 
 Started with `{"identityHelper": 1}` as its first input line instead, the
 executable is an admin's **identity helper**: it answers one JSON line per
@@ -414,10 +414,17 @@ revokes the old one. Failed authentications delay the next one (1 s, 2 s,
 Before either, the service proves which service it is (`identify`,
 answered `identity`): it signs the admin's nonce, its own nonce and start
 time, and a one-time key made for the connection, with its **identity
-key**. That key (ML-DSA-65 with Ed25519) is made at the first start and
-kept in the data directory (`service-identity.json`, 0600); it is the same
-after every restart, and `keys.rotate {identity}` replaces it with a
-statement the old key signs. `status` names its fingerprint and words. A
+key**. That key (ML-DSA-65 with Ed25519) is made at the first start, its
+public half in the data directory (`service-identity.json`); the secret
+half is in a login-keychain item that trusts the service's code signature
+alone on macOS (`TomSecretsKeychainIdentityStore`), protected with DPAPI on
+Windows (`TomSecretsDpapiIdentityStore`), in the file (0600) on Linux, and
+with `tsm install --system` in a directory only the set-group-ID service
+reaches (`TomSecretsSystemMode`, which drops the group right after). The
+key is the same after every restart, and `keys.rotate {identity}` replaces
+it with a statement the old key signs (not on a system install).
+`identity_key: file` in the bootstrap keeps it in the file. `status` names
+its fingerprint, its words and where it is kept (`kept`). A
 `claim` carries the master password sealed to the one-time key (`sealed`);
 a claim in the clear is refused (`malformed`, reason `unsealed`).
 

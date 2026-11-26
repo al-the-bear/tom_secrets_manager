@@ -90,6 +90,42 @@ Future<Map<String, Object?>> tomSecretsIdentityHelperAnswer(
   }
 }
 
+/// Where the secret half of a service identity key is kept, beside the
+/// public half in its file (protocol.md 6.1): a store of the platform that
+/// only the service process opens (the macOS keychain item trusting the
+/// service's code signature, Windows' DPAPI). Without one the secret is in
+/// the file itself, which the file's mode protects.
+abstract interface class TomSecretsIdentitySecretStore {
+  /// Its name, in the key file and in `status` (`keychain`, `dpapi`).
+  String get name;
+
+  /// Keeps [secret], the secret key of the key whose file is [file], and
+  /// answers what the file records of it (`store` is added). Throws
+  /// [TomSecretsIdentityKeyUnavailable] when the store cannot take it now
+  /// (a locked keychain in an SSH session): the key stays in the file.
+  Future<Map<String, Object?>> seal(Uint8List secret, File file);
+
+  /// The secret [sealed] names. Throws [TomSecretsIdentityKeyUnavailable]
+  /// when the store does not give it (refused, locked, gone).
+  Future<Uint8List> open(Map<String, Object?> sealed, File file);
+
+  /// Removes what [sealed] names (a replaced key's secret).
+  Future<void> forget(Map<String, Object?> sealed, File file);
+}
+
+/// The secret of the service's identity key cannot be read where it is
+/// kept: the start stops (it is never replaced silently).
+final class TomSecretsIdentityKeyUnavailable implements Exception {
+  /// Why, for the operator.
+  const TomSecretsIdentityKeyUnavailable(this.message);
+
+  /// Why.
+  final String message;
+
+  @override
+  String toString() => 'TomSecretsIdentityKeyUnavailable: $message';
+}
+
 /// The service's identity key pair, with the statements of the keys it
 /// replaced.
 final class TomSecretsServiceIdentityKey {
@@ -97,11 +133,20 @@ final class TomSecretsServiceIdentityKey {
     this._pair,
     this.created,
     this.changes,
-    this._file,
-  );
+    this._file, {
+    TomSecretsIdentitySecretStore? store,
+    Map<String, Object?>? sealed,
+    String? kept,
+  }) : _store = store,
+       _sealed = sealed,
+       _kept = kept;
 
   final MlDsa65Ed25519KeyPair _pair;
   final File? _file;
+  final TomSecretsIdentitySecretStore? _store;
+  // What the file records of the secret when a store keeps it.
+  Map<String, Object?>? _sealed;
+  final String? _kept;
 
   /// When this key was made.
   final DateTime created;
@@ -115,6 +160,14 @@ final class TomSecretsServiceIdentityKey {
 
   /// The public key's words.
   String get words => tomSecretsIdentityWords(publicKey);
+
+  /// Where the secret key is kept: the store's name (`keychain`, `dpapi`)
+  /// while one keeps it, else the place the caller named for the file
+  /// (`system` for a system install), else `file`.
+  String get keptIn => _sealed != null ? _store!.name : (_kept ?? 'file');
+
+  /// The file of the key.
+  File? get file => _file;
 
   /// A new key pair, kept nowhere (a test, or a service without a data
   /// directory).
@@ -136,66 +189,176 @@ final class TomSecretsServiceIdentityKey {
   /// With [write] false a new key is not written yet ([store] does): a
   /// machine being set up names its key in the pairing and keeps it only
   /// once the set-up succeeded.
+  ///
+  /// With [secretStore] the secret key is kept there (a key whose secret is
+  /// in the file moves there, when the store takes it). A secret kept in a
+  /// store this call is not given, or that the store does not give, throws
+  /// [TomSecretsIdentityKeyUnavailable].
   static Future<TomSecretsServiceIdentityKey> loadOrCreate(
     String dataDirectory, {
     DateTime? now,
     bool write = true,
-  }) async {
-    final file = File(
+    TomSecretsIdentitySecretStore? secretStore,
+  }) => loadOrCreateFile(
+    File(
       '$dataDirectory${Platform.pathSeparator}$tomSecretsServiceIdentityFile',
-    );
+    ),
+    now: now,
+    write: write,
+    secretStore: secretStore,
+  );
+
+  /// As [loadOrCreate], for the key file [file] itself. [kept] names the
+  /// place for `status` when the secret is in the file (`system`: a
+  /// directory only the system-installed service reaches). With
+  /// [previous], the key file the service used before (its data
+  /// directory's, before a system install): when [file] is not there yet,
+  /// that key signs a new one kept in [file], so every admin that pinned it
+  /// follows, and the previous file is removed.
+  static Future<TomSecretsServiceIdentityKey> loadOrCreateFile(
+    File file, {
+    DateTime? now,
+    bool write = true,
+    TomSecretsIdentitySecretStore? secretStore,
+    String? kept,
+    File? previous,
+  }) async {
     if (file.existsSync()) {
-      try {
-        final json = jsonDecode(file.readAsStringSync()) as Map;
-        final secret = base64.decode(json['secretKey'] as String);
-        final pair = await MlDsa65Ed25519.keyPairFromSecretKey(
-          SecretBytes.fromBytes(secret),
-        );
-        secret.fillRange(0, secret.length, 0);
-        return TomSecretsServiceIdentityKey._(
-          pair,
-          DateTime.tryParse('${json['created']}')?.toUtc() ??
-              DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-          [
-            for (final c in json['changes'] as List? ?? const [])
-              ?TomSecretsIdentityChange.fromJson(c),
-          ],
-          file,
-        );
-      } on FileSystemException {
-        rethrow;
-      } on Object {
-        throw FileSystemException(
-          'the service\'s identity key cannot be read',
-          file.path,
-        );
-      }
+      return _read(file, secretStore, kept);
+    }
+    if (previous != null && previous.existsSync()) {
+      final old = await _read(previous, null, null);
+      final moved = await old._rotateInto(
+        file,
+        secretStore: secretStore,
+        kept: kept,
+        now: now,
+      );
+      previous.deleteSync();
+      return moved;
     }
     final key = TomSecretsServiceIdentityKey._(
       await MlDsa65Ed25519.generateKeyPair(),
       (now ?? DateTime.now()).toUtc(),
       const [],
       file,
+      store: secretStore,
+      kept: kept,
     );
-    if (write) key._write();
+    if (write) await key._save();
     return key;
   }
 
-  /// Writes the key into its data directory (a key of [loadOrCreate]
-  /// without `write`).
-  void store() => _write();
+  static Future<TomSecretsServiceIdentityKey> _read(
+    File file,
+    TomSecretsIdentitySecretStore? store,
+    String? kept,
+  ) async {
+    final Map json;
+    try {
+      json = jsonDecode(file.readAsStringSync()) as Map;
+    } on FileSystemException {
+      rethrow;
+    } on Object {
+      throw FileSystemException(
+        'the service\'s identity key cannot be read',
+        file.path,
+      );
+    }
+    final sealed = json['secret'];
+    final Uint8List secret;
+    try {
+      if (sealed is Map) {
+        final name = sealed['store'];
+        if (store == null || store.name != name) {
+          throw TomSecretsIdentityKeyUnavailable(
+            'the identity key is kept in the $name store, which this '
+            'program does not open',
+          );
+        }
+        secret = await store.open(sealed.cast(), file);
+      } else {
+        secret = base64.decode(json['secretKey'] as String);
+      }
+    } on TomSecretsIdentityKeyUnavailable {
+      rethrow;
+    } on Object {
+      throw FileSystemException(
+        'the service\'s identity key cannot be read',
+        file.path,
+      );
+    }
+    final MlDsa65Ed25519KeyPair pair;
+    try {
+      pair = await MlDsa65Ed25519.keyPairFromSecretKey(
+        SecretBytes.fromBytes(secret),
+      );
+    } on Object {
+      throw FileSystemException(
+        'the service\'s identity key cannot be read',
+        file.path,
+      );
+    } finally {
+      secret.fillRange(0, secret.length, 0);
+    }
+    final key = TomSecretsServiceIdentityKey._(
+      pair,
+      DateTime.tryParse('${json['created']}')?.toUtc() ??
+          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+      [
+        for (final c in json['changes'] as List? ?? const [])
+          ?TomSecretsIdentityChange.fromJson(c),
+      ],
+      file,
+      store: store,
+      sealed: sealed is Map ? sealed.cast() : null,
+      kept: kept,
+    );
+    // A secret still in the file moves into the store, when it takes it.
+    if (sealed is! Map && store != null) await key._save();
+    return key;
+  }
 
-  void _write() {
+  /// Writes the file; with a store, the secret goes there (when the store
+  /// cannot take it now, it stays in the file).
+  Future<void> _save() async {
     final file = _file;
     if (file == null) return;
+    final store = _store;
+    if (store != null) {
+      final secret = _pair.secretKey.extractBytes();
+      try {
+        final sealed = await store.seal(secret, file);
+        _writeFile(file, {...sealed, 'store': store.name});
+        _sealed = {...sealed, 'store': store.name};
+        return;
+      } on TomSecretsIdentityKeyUnavailable {
+        // The store cannot take it now: the file keeps it, as without one.
+      } finally {
+        secret.fillRange(0, secret.length, 0);
+      }
+    }
+    _writeFile(file, null);
+    _sealed = null;
+  }
+
+  /// Writes the key into its file with the secret in it (a key of
+  /// [loadOrCreate] without `write`). The service moves the secret into
+  /// its store at its next start.
+  void store() {
+    final file = _file;
+    if (file != null) _writeFile(file, null);
+  }
+
+  void _writeFile(File file, Map<String, Object?>? sealed) {
     file.parent.createSync(recursive: true);
-    final secret = _pair.secretKey.extractBytes();
+    final secret = sealed == null ? _pair.secretKey.extractBytes() : null;
     final temp = File('${file.path}.tmp');
     try {
       temp.writeAsStringSync(
         '${jsonEncode({
           'version': 1,
-          'secretKey': base64.encode(secret),
+          if (secret != null) 'secretKey': base64.encode(secret) else 'secret': sealed,
           'publicKey': base64.encode(publicKey),
           'created': created.toIso8601String(),
           'changes': [for (final c in changes) c.toJson()],
@@ -203,10 +366,13 @@ final class TomSecretsServiceIdentityKey {
         flush: true,
       );
     } finally {
-      secret.fillRange(0, secret.length, 0);
+      secret?.fillRange(0, secret.length, 0);
     }
-    // The user's alone before it carries its name.
-    if (!Platform.isWindows) Process.runSync('chmod', ['600', temp.path]);
+    // The user's alone before it carries its name (a system install's
+    // directory is the group's; the file keeps the group's read bit).
+    if (!Platform.isWindows) {
+      Process.runSync('chmod', [_kept == 'system' ? '640' : '600', temp.path]);
+    }
     temp.renameSync(file.path);
   }
 
@@ -242,7 +408,15 @@ final class TomSecretsServiceIdentityKey {
   /// A new key in this one's place: this key signs it (the statement an
   /// admin that pinned this key follows to the new one), the file is
   /// rewritten, and this key's secret is gone. Answers the new key.
-  Future<TomSecretsServiceIdentityKey> rotate({DateTime? now}) async {
+  Future<TomSecretsServiceIdentityKey> rotate({DateTime? now}) =>
+      _rotateInto(_file, secretStore: _store, kept: _kept, now: now);
+
+  Future<TomSecretsServiceIdentityKey> _rotateInto(
+    File? file, {
+    TomSecretsIdentitySecretStore? secretStore,
+    String? kept,
+    DateTime? now,
+  }) async {
     final next = await MlDsa65Ed25519.generateKeyPair();
     final statement = TomSecretsIdentityChange(
       from: publicKey,
@@ -256,8 +430,26 @@ final class TomSecretsServiceIdentityKey {
       all.length > tomSecretsIdentityChangesKept
           ? all.sublist(all.length - tomSecretsIdentityChangesKept)
           : all,
-      _file,
-    ).._write();
+      file,
+      store: secretStore,
+      kept: kept,
+    );
+    await rotated._save();
+    // The replaced key's secret leaves its store once the new one is kept
+    // (the new one may be in the same item: then it was replaced already).
+    final oldSealed = _sealed;
+    final oldStore = _store;
+    final sameItem =
+        rotated._sealed != null &&
+        oldStore?.name == secretStore?.name &&
+        _file?.path == file?.path;
+    if (oldSealed != null && oldStore != null && !sameItem) {
+      try {
+        await oldStore.forget(oldSealed, _file!);
+      } on Object {
+        // A leftover item names a key no longer presented.
+      }
+    }
     dispose();
     return rotated;
   }

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.39
+
+- The identity key's secret can be kept outside its file
+  (`TomSecretsIdentitySecretStore`, given to `loadOrCreate` as
+  `secretStore`): the file then holds what names it (`secret`), and a key
+  whose secret is in the file moves into the store when the store takes it.
+  A secret the store does not give throws `TomSecretsIdentityKeyUnavailable`,
+  never a new key. `TomSecretsServiceIdentityKey.keptIn` says where it is.
+- `loadOrCreateFile` takes the key file itself, with `kept` (`system`) and
+  `previous`: a key in the previous file signs the new one, which every pin
+  of it follows, and the previous file is removed (a system install).
+
 ## 0.2.38
 
 - The service's identity key (protocol.md 6.1):

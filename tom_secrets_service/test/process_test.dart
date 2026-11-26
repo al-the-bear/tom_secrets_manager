@@ -47,6 +47,7 @@ void main() {
         'primary: ${demo.bootstrap.primary}\n'
         'runtime_dir: ${runtime.directory}\n'
         'device_key: keyfile\n'
+        'identity_key: file\n'
         // This test process is the admin here.
         'admin_executables:\n'
         '  - "${tomSecretsProcessInfo(pid)!.exe}"\n',
@@ -205,7 +206,8 @@ void main() {
       ..writeAsStringSync(
         'primary: ${demo.bootstrap.primary}\n'
         'runtime_dir: ${runtime.directory}\n'
-        'device_key: keyfile\n',
+        'device_key: keyfile\n'
+        'identity_key: file\n',
       );
     final started = await tomSecretsStartService(
       executable: exe,

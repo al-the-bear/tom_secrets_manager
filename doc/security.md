@@ -254,10 +254,11 @@ any other process of the user there is its identity key.
 ### The service's identity key
 
 Every service has a signing key pair of its own, made at its first start:
-ML-DSA-65 with Ed25519 as one composite signature (RFC 10073). The secret
-key is in the data directory (`service-identity.json`, mode 0600); it stays
-the same across restarts and updates, and a file that cannot be read stops
-the start. The key's fingerprint is shown as eight words.
+ML-DSA-65 with Ed25519 as one composite signature (RFC 10073). Its public
+half is in the data directory (`service-identity.json`); the secret half is
+kept as the next section says. The key stays the same across restarts and
+updates, and a key that cannot be read stops the start. The key's
+fingerprint is shown as eight words.
 
 The app and `tsm` **pin** the public key of each service they know, in one
 file they share (`~/.config/tsm/services`). A key is pinned:
@@ -298,6 +299,57 @@ show too. The words, compared once, are the one check a person makes.
 are run for it by the service executable beside it (its helper mode); the
 password never passes the helper. (`client/admin/service_identity.dart`,
 `core/service_identity.dart`, `protocol.md` 6.1, 6.2.)
+
+### Where the identity key is kept
+
+Whoever holds the identity key can answer as the service, so it is kept
+behind the strongest boundary each platform offers without a team
+signature. Every OS separates processes by user id; macOS also by code
+signature.
+
+| Form | Where the secret key is | What it stops | What it does not stop |
+| --- | --- | --- | --- |
+| macOS (default) | a login-keychain item the service makes itself (`SecItemAdd`), so its access list trusts the service's code signature alone | other users; a copied disk; other programs of the user (they get the system's prompt) | a user who answers that prompt with "Allow"; the ad-hoc signature changes with every build, so each update prompts once until the team-signed build (tsm_sec11) keeps it stable |
+| Windows (default) | DPAPI in the user's scope (`CryptProtectData`): the file holds the protected blob | other users; a copied disk | the user's own programs: DPAPI is per user, not per process |
+| Linux (default) | the file, mode 0600 in a 0700 folder | other users | the user's own programs |
+| Linux system install (`tsm install --system`) | `/var/lib/tom-secrets-manager/identity/<uid>.json`, a directory only the group `tsm-identity` reaches; the service is root's and set-group-ID to it | other users; the user's own programs: they cannot reach the directory, attach a debugger, read the service's memory or environment, or slip a library in with `LD_PRELOAD` (the kernel's secure mode for a set-group-ID start) | root; a user who replaces the installed service (only root can) |
+
+The system install (Linux only) works like this:
+
+1. The executable is root's and set-group-ID to `tsm-identity`. Started by
+   a user, it runs as that user with the group's rights.
+2. It reads that user's key, the file named by the real user id alone, or
+   makes it.
+3. It drops the group for good (real, effective and saved group), before it
+   reads the handover or the environment or starts any program.
+4. From then on it runs as the user alone, with the user's own data and
+   runtime directories, taken from the account, never from `TSM_DATA_DIR`,
+   `TSM_RUNTIME_DIR` or `XDG_*`.
+
+Its process stays not dumpable, so the user's other processes cannot read
+its memory.
+
+A key the user's service had in its data directory before the install
+signs the new one, so every pin follows, and the old file is removed. The
+service cannot replace a system-installed key itself (`keys.rotate` answers
+`unsupported`, reason `system_install`); an administrator removes the file,
+and the user's programs trust the new key by its words.
+
+A Windows form that keeps the key from the user's own programs needs the
+service to run under an account of its own. That is a second deployment
+model (its own setup and key store; the service control manager starts it),
+and it is designed with the standalone service install (tsm_d12).
+
+A store that cannot take the key at the first start (a locked keychain in
+an SSH session) leaves it in the file; the service moves it at a later
+start. The bootstrap's `identity_key: file` keeps it in the file on
+purpose.
+
+**Never a signing helper.** No small privileged program signs for the
+service: any process of the user could ask it to sign and pose as the
+service. The process that holds the key is the one that runs the session
+with the client. (`service/identity_store.dart`, `service/system_mode.dart`,
+`tsm/system_install.dart`.)
 
 ### Client tokens
 
@@ -875,9 +927,12 @@ are held in memory.
 **Residual risks the code names:**
 
 - the Windows clipboard history and the plain clipboard on Linux;
-- a process of the same user that reads the service's identity key from
-  the data directory can answer in its place; that is a compromised
-  session (above), which reads the app's memory as well;
+- on Linux without the system install and on Windows, a process of the
+  same user can read the service's identity key and answer in its place;
+  that is a compromised session (above), which reads the app's memory as
+  well;
+- on macOS a user who allows another program at the keychain prompt hands
+  it the identity key;
 - no screen-capture exclusion on Linux;
 - the gate-only Touch ID item on a Mac without the team-signed build;
 - a shared vault's old recipients files in the history until it is cut.

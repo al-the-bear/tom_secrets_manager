@@ -47,6 +47,7 @@ Future<int> tomSecretsRunPairingMode(
     String device,
   )?
   relayFor,
+  TomSecretsServiceIdentityKey? systemIdentityKey,
 }) async {
   void error(String code, String message, {String? failure}) => answer({
     'status': 'error',
@@ -105,12 +106,16 @@ Future<int> tomSecretsRunPairingMode(
   // device, and tsm pins it from the `setUp` line.
   // Written only once the machine is set up: a pairing that fails stores
   // nothing.
+  // A system install's key exists already, where only the installed
+  // service reaches it ([systemIdentityKey]).
   final TomSecretsServiceIdentityKey identityKey;
   try {
-    identityKey = await TomSecretsServiceIdentityKey.loadOrCreate(
-      firstRun.dataDirectory,
-      write: false,
-    );
+    identityKey =
+        systemIdentityKey ??
+        await TomSecretsServiceIdentityKey.loadOrCreate(
+          firstRun.dataDirectory,
+          write: false,
+        );
   } on FileSystemException catch (e) {
     error('setup', e.message);
     return 7;
@@ -218,7 +223,7 @@ Future<int> tomSecretsRunPairingMode(
           instanceToken,
         );
       }
-      identityKey.store();
+      if (systemIdentityKey == null) identityKey.store();
       answer({
         'status': 'setUp',
         'bootstrap': result.bootstrapPath,

@@ -8,7 +8,12 @@
 ///
 /// Exit codes: 0 stopped, 2 the handover or the bootstrap cannot be read,
 /// 3 already running, 4 the runtime directory is refused, 5 the device key's
-/// keychain is not available.
+/// keychain is not available, 8 the data directory is refused, 9 the
+/// identity key cannot be read (where it is kept, or a system install's).
+///
+/// Installed with `tsm install --system` (Linux: root's, set-group-ID to
+/// tsm-identity), it takes the real user's identity key first and drops
+/// the group (system_mode.dart).
 ///
 /// Started by `tsm pair` with a pairing handover instead, it runs the
 /// pairing mode (`tomSecretsRunPairingMode`): it receives a pairing, sets
@@ -22,7 +27,10 @@ import 'dart:io';
 
 import 'package:tom_core_storage/io.dart' show TomDesktopSecretStore;
 import 'package:tom_secrets_core/tom_secrets_core.dart'
-    show tomSecretsIdentityHelperAnswer;
+    show
+        TomSecretsIdentityKeyUnavailable,
+        TomSecretsServiceIdentityKey,
+        tomSecretsIdentityHelperAnswer;
 import 'package:tom_secrets_service/tom_secrets_service.dart';
 
 Future<void> main() async {
@@ -34,6 +42,22 @@ Future<void> main() async {
     stdout.writeln(jsonEncode(status));
     await stdout.flush();
     exit(code);
+  }
+
+  // A system install (Linux, set-group-ID to tsm-identity): the real
+  // user's identity key is taken with the group's rights, then the group
+  // is dropped for good, before the handover or the environment is read.
+  TomSecretsSystemMode? system;
+  TomSecretsServiceIdentityKey? systemKey;
+  try {
+    system = TomSecretsSystemMode.detect();
+    systemKey = await system?.takeIdentity();
+  } on TomSecretsSystemModeException catch (e) {
+    await answer({
+      'status': 'error',
+      'code': 'identity',
+      'message': e.message,
+    }, 9);
   }
 
   final lines = StreamIterator(
@@ -66,17 +90,33 @@ Future<void> main() async {
     // `tsm pair`: the pairing mode sets the machine up and ends.
     final pairing = TomSecretsPairingHandover.fromJson(first);
     if (pairing != null) {
+      if (system != null &&
+          !_samePath(pairing.dataDirectory, system.dataDirectory)) {
+        throw FormatException(
+          'a system-installed service sets up only the user\'s own data '
+          'directory (${system.dataDirectory})',
+        );
+      }
       final store = TomDesktopSecretStore(service: tomSecretsKeychainService);
       final code = await tomSecretsRunPairingMode(
         pairing,
         lines: lines,
         answer: (m) => stdout.writeln(jsonEncode(m)),
         keychain: await store.isAvailable() ? store : null,
+        systemIdentityKey: systemKey,
       );
       await stdout.flush();
       exit(code);
     }
     handover = TomSecretsHandover.parse(line);
+    // A system-installed service starts only with the user's own bootstrap
+    // in the user's own data directory (the environment does not move it).
+    if (system != null &&
+        !_samePath(handover.bootstrap, system.bootstrapPath)) {
+      throw FormatException(
+        'a system-installed service starts only with ${system.bootstrapPath}',
+      );
+    }
     bootstrap = await TomSecretsBootstrap.read(handover.bootstrap);
   } on Object catch (e) {
     await answer({
@@ -86,7 +126,10 @@ Future<void> main() async {
     }, 2);
   }
 
-  final runtime = bootstrap.runtimeDirectory == null
+  final runtime = system != null
+      // The user's own runtime directory, from the account.
+      ? system.runtime
+      : bootstrap.runtimeDirectory == null
       ? TomSecretsRuntime.current()
       : TomSecretsRuntime(
           bootstrap.runtimeDirectory!,
@@ -123,6 +166,13 @@ Future<void> main() async {
         groupClientSocket: tomSecretsAppGroupClientSocketFor(
           Platform.resolvedExecutable,
         ),
+        // The identity key's secret: a system install's, read before the
+        // group was dropped, else this platform's store (the macOS
+        // keychain, DPAPI on Windows, the file on Linux).
+        identityKey: systemKey,
+        identityStore: systemKey == null && !bootstrap.identityKeyInFile
+            ? tomSecretsPlatformIdentityStore()
+            : null,
       ),
     );
   } on TomSecretsAlreadyRunning {
@@ -145,6 +195,14 @@ Future<void> main() async {
       'code': 'data_directory',
       'message': e.message,
     }, 8);
+  } on TomSecretsIdentityKeyUnavailable catch (e) {
+    // Its store does not give it (a locked keychain, a refused prompt): it
+    // is never replaced silently.
+    await answer({
+      'status': 'error',
+      'code': 'identity',
+      'message': e.message,
+    }, 9);
   } on FileSystemException catch (e) {
     // The identity key in the data directory cannot be read: it is never
     // replaced silently (protocol.md 6.1).
@@ -178,3 +236,8 @@ Future<void> main() async {
   }
   exit(0);
 }
+
+/// Whether [a] and [b] name the same place.
+bool _samePath(String a, String b) =>
+    File(a).absolute.uri.normalizePath().path ==
+    File(b).absolute.uri.normalizePath().path;

@@ -1389,7 +1389,9 @@ The identity key pair of a secrets service (protocol.md 6.1): ML-DSA-65 with Ed2
 | Member | Type | Description |
 | --- | --- | --- |
 | `TomSecretsServiceIdentityKey.generate({now})` | static | A new key pair, kept nowhere. |
-| `TomSecretsServiceIdentityKey.loadOrCreate(dataDirectory, {now, write = true})` | static | The key of the service whose data directory this is: read from `service-identity.json` (`tomSecretsServiceIdentityFile`), made and written when there is none (`write` false: written by `store()`); a file that cannot be read throws `FileSystemException`. |
+| `TomSecretsServiceIdentityKey.loadOrCreate(dataDirectory, {now, write = true, secretStore})` | static | The key of the service whose data directory this is: read from `service-identity.json` (`tomSecretsServiceIdentityFile`), made and written when there is none (`write` false: written by `store()`); a file that cannot be read throws `FileSystemException`. With `secretStore` the secret key is kept there (a key whose secret is in the file moves there); a secret the store does not give throws `TomSecretsIdentityKeyUnavailable`. |
+| `TomSecretsServiceIdentityKey.loadOrCreateFile(file, {now, write = true, secretStore, kept, previous})` | static | As `loadOrCreate`, for the key file itself; `kept` names the place for `status` (`system`); a key in `previous` signs a new one kept in `file`, and `previous` is removed. |
+| `keptIn` | `String` | Where the secret key is: the store's name, else `kept`, else `file`. |
 | `publicKey` | `Uint8List` | The public key. |
 | `words` | `String` | The public key's words. |
 | `created` | `DateTime` | When this key was made. |
@@ -1397,10 +1399,10 @@ The identity key pair of a secrets service (protocol.md 6.1): ML-DSA-65 with Ed2
 | `sign(message, context)` | `Future<Uint8List>` | The composite signature. |
 | `present({clientNonce, serviceNonce, serviceStart, oneTimeKey})` | `Future<Map<String, Object?>>` | What the service answers an `identify` with. |
 | `rotate({now})` | `Future<TomSecretsServiceIdentityKey>` | A new key in this one's place: this key signs it, the file is rewritten, this key's secret is gone. |
-| `store()` | `void` | Writes a key made without `write`. |
+| `store()` | `void` | Writes a key made without `write`, its secret in the file (the service moves it into its store at its next start). |
 | `dispose()` | `void` | Wipes the secret key. |
 
-`TomSecretsOneTimeKey` is the one-time key of one admin connection (ML-KEM-768 with X25519): `generate()`, `publicKey`, `decapsulate(ciphertext)`, `dispose()`. `TomSecretsPqcIdentityCrypto` runs an admin's two identity primitives in this process; `tomSecretsIdentityHelperAnswer(request)` answers one request of the service executable's identity helper mode.
+`TomSecretsIdentitySecretStore` is where a store keeps the secret half (`name`, `seal(secret, file)`, `open(sealed, file)`, `forget(sealed, file)`; the service implements the macOS keychain and DPAPI); `TomSecretsIdentityKeyUnavailable` is the error a store answers when it cannot take or give the key. `TomSecretsOneTimeKey` is the one-time key of one admin connection (ML-KEM-768 with X25519): `generate()`, `publicKey`, `decapsulate(ciphertext)`, `dispose()`. `TomSecretsPqcIdentityCrypto` runs an admin's two identity primitives in this process; `tomSecretsIdentityHelperAnswer(request)` answers one request of the service executable's identity helper mode.
 
 ---
 

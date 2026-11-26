@@ -12,6 +12,7 @@
 /// device_container: /Users/me/.tsm/device.kdbx  # default <data>/device-settings.kdbx
 /// host: bigbeast                                 # default the host name
 /// log_level: info                               # info|debug, default info
+/// identity_key: store                           # store|file, default store
 /// admin_executables:                            # who may administer, besides
 ///   - /Applications/Tom Secrets Manager.app/Contents/MacOS/tom_secrets_app
 ///                                                # tsm and the app beside the service
@@ -55,6 +56,7 @@ final class TomSecretsBootstrap {
     this.host,
     this.logLevel = TomSecretsLogLevel.info,
     this.adminExecutables = const [],
+    this.identityKeyInFile = false,
   }) : cacheDirectory =
            cacheDirectory ?? '$dataDirectory${Platform.pathSeparator}cache',
        deviceContainer =
@@ -99,6 +101,13 @@ final class TomSecretsBootstrap {
       deviceContainer: text('device_container'),
       host: text('host'),
       logLevel: TomSecretsLogLevel.parse(text('log_level') ?? 'info'),
+      identityKeyInFile: switch (text('identity_key') ?? 'store') {
+        'store' => false,
+        'file' => true,
+        final other => throw FormatException(
+          'identity_key is store or file, not $other',
+        ),
+      },
       adminExecutables: switch (doc['admin_executables']) {
         null => const [],
         final YamlList list when list.every((e) => e is String) => [
@@ -139,6 +148,12 @@ final class TomSecretsBootstrap {
   /// where it is not installed beside the service, a development build),
   /// besides `tsm` and the app beside the service's own executable.
   final List<String> adminExecutables;
+
+  /// Whether the identity key's secret stays in its file in the data
+  /// directory (`identity_key: file`) instead of this platform's store
+  /// (the macOS keychain, DPAPI on Windows; Linux has none): for a service
+  /// that runs where the store cannot be reached (and tests).
+  final bool identityKeyInFile;
 
   /// The operational log's file, `<data>/service.log`.
   String get logFile => '$dataDirectory${Platform.pathSeparator}service.log';

@@ -25,6 +25,7 @@ tests, so they show what the service writes today).
 - [Who may ask: clients and approvals](#who-may-ask-clients-and-approvals)
 - [The approval link and relays](#the-approval-link-and-relays)
 - [The logs](#the-logs)
+- [The identity key and the system install](#the-identity-key-and-the-system-install)
 - [Upgrading and moving it](#upgrading-and-moving-it)
 - [Troubleshooting](#troubleshooting)
 
@@ -201,6 +202,8 @@ restarts and upgrades. Keep it with the data directory: a service that
 starts without it makes a new key, and the app and `tsm` then refuse the
 service until you compare the new words. The `tsm` user guide says how:
 [`tsm trust`](https://github.com/al-the-bear/tom_secrets_clients/blob/main/clients/dart/tsm/doc/tsm_user_guide.md#tsm-trust).
+Where the key's secret half is kept differs per platform; see
+[The identity key and the system install](#the-identity-key-and-the-system-install).
 
 After a while it also holds `bootstrap.yaml`, `audit/` (a file a day),
 `agent_keys.json` (the public keys the ssh-agent lists while locked) and,
@@ -354,6 +357,7 @@ $ tsm status --json
   },
   "identity": {
     "fingerprint": "5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e",
+    "kept": "file",
     "words": "harbor-violet-cedar-lantern-maple-orbit-pebble-quill",
     "since": "2026-11-24T09:00:00.000Z"
   },
@@ -504,6 +508,76 @@ cannot be read directly; files older than 90 days are deleted.
 `tsm audit` (the last 7 days; `--since`, `--until`, `--subject`, `--ref`,
 `--json`).
 
+## The identity key and the system install
+
+The identity key proves to the app and `tsm` that the service answering is
+yours. Whoever reads it can answer in the service's place, so its secret
+half is kept where the platform keeps other programs of the same user out
+as far as it can:
+
+| Where it runs | Where the secret key is | Who cannot read it | Who can |
+| --- | --- | --- | --- |
+| macOS | a login-keychain item that trusts the service's code signature alone | other users; other programs of yours, which get the system's prompt | a program you allow at that prompt |
+| Windows | in `service-identity.json`, protected with DPAPI for your account | other users; a copied disk | other programs of yours |
+| Linux | in `service-identity.json` (0600) | other users | other programs of yours |
+| Linux, system install | `/var/lib/tom-secrets-manager/identity/<uid>.json`, reached only by the installed service | other users; other programs of yours | root |
+
+`tsm status --json` names where it is (`identity.kept`: `keychain`,
+`dpapi`, `file`, `system`).
+
+**macOS prompts.** The keychain trusts the service's signature. The ad-hoc
+signature of today's builds changes with every update, so after an update
+the service asks once for the keychain ("tom_secrets_service wants to use
+your confidential information"). Choose "Always Allow". The service waits
+for that answer. Started over SSH, where no prompt can be shown, it stops
+with exit code 9 and says to start it once from the desktop session (or to
+unlock the keychain). A keychain that is locked at the very first start
+leaves the key in the file; the service moves it into the keychain at a
+later start. To keep the key in the file on purpose (a Mac reached only
+over SSH), set `identity_key: file` in `bootstrap.yaml`.
+
+**Shared Linux servers: the system install.** On a server several people
+use, an administrator installs the service for every user once, as root:
+
+```sh
+sudo ./bin/tsm install --system      # from the unpacked tools archive
+```
+
+The installed service is root's and set-group-ID to the group
+`tsm-identity`. Only that group reaches the directory of the identity
+keys. A user starts it as before (`tsm start --unlock`):
+
+1. it reads that user's key, made at the first start, with the group's
+   rights;
+2. it drops the group;
+3. it runs as the user.
+
+The kernel then keeps the user's other programs out of its memory and
+ignores `LD_PRELOAD`. A key the user's service had before the install signs
+the new one, so the app and `tsm` follow without a question.
+
+What changes for the users:
+
+- the service uses the default directories: `~/.local/share/tom-secrets-manager`
+  and `/run/user/<uid>/tsm` (else `/tmp/tsm-<uid>`); `TSM_DATA_DIR`,
+  `TSM_RUNTIME_DIR` and the bootstrap's `runtime_dir` do not move it;
+- `tsm start` and the app start the installed service;
+- the key cannot be replaced from the app (Keys, "New key…" answers
+  `unsupported`). To replace a user's key, an administrator removes
+  `/var/lib/tom-secrets-manager/identity/<uid>.json`; the user's programs
+  then trust the new key by its words (`tsm trust`).
+
+Updating is the same command with the new release, as root; the keys stay.
+`sudo tsm uninstall --system` removes the install and keeps the keys;
+`--purge` removes them and the group too. The `tsm` user guide lists every
+step the install makes:
+[`tsm install`](https://github.com/al-the-bear/tom_secrets_clients/blob/main/clients/dart/tsm/doc/tsm_user_guide.md#tsm-install).
+
+There is no system install on macOS (the keychain already binds the key to
+the service) or yet on Windows. On Windows only a service under an account
+of its own keeps the key from your other programs, and that form comes with
+the standalone service install.
+
 ## Upgrading and moving it
 
 **To upgrade:**
@@ -545,7 +619,7 @@ old one revoke it in the app (Pairing › Revoke) once it is retired.
 | `tsm` or the app says `service_untrusted` ("This is not your secrets service") | what answers on the admin endpoint is not this user's service: the runtime directory or socket is someone else's (`owner`) or open to others (`mode`), or the process answering runs as another user (`peer_user`) or is another program (`peer_executable`); nothing was sent | follow what the message says; for `mode`, `chmod 700` the runtime directory and `chmod 600` its sockets; for `peer_executable` with a service of yours installed elsewhere, name it in `TSM_SERVICE` |
 | `tsm` or the app says `service_untrusted` with `unpinned` ("Is this your secrets service?") | a service runs that this program did not start and has no identity key pinned for; nothing was sent | compare the words shown with the ones another of your devices shows for this machine (the app's Pairing screen), then `tsm trust <words>` or the app's "The words are the same: trust it" |
 | `tsm` or the app says `service_key_changed` | the service presents another identity key than the one pinned: its data directory was replaced or set up anew, or something else answers in its place; nothing was sent | if you replaced it: `tsm trust --remove`, start the service with `tsm start` or compare the new words; if not, do not enter the master password and find out what answers |
-| the service exits with code 9 | `service-identity.json` in the data directory cannot be read | restore the file from the data directory's backup; without one, remove it (the service makes a new key, and `tsm` and the app then ask you to compare its words) |
+| the service exits with code 9 | `service-identity.json` in the data directory cannot be read, its store does not give the key (a locked macOS keychain over SSH, a refused prompt, DPAPI in another account), or a system install's key cannot be read or made | the message says which: start it once from the desktop session and choose "Always Allow" (macOS); start it in your own logon (Windows); run `sudo tsm install --system` again (system install); for a file that cannot be read, restore it from the data directory's backup, or remove it (the service makes a new key, and `tsm` and the app then ask you to compare its words) |
 | the service exits with code 8 | the data directory belongs to another user, is no folder, or cannot be made the user's alone | fix its owner (`chown -R <user>`), or point `TSM_DATA_DIR` at a folder of the service's user |
 | `denied` with `other_user` or `unidentifiable` | the asking process runs as another user, or the OS would not say who it is | run the program as the service's user |
 | `denied` with `wrong_executable` | an admin command from a program the service does not admit | use the `tsm` or app beside the service |

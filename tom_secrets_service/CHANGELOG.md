@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.27.0
+
+- The identity key's secret is kept behind the platform's boundary
+  (tsm_d11): on macOS a login-keychain item the service makes itself, whose
+  access list trusts its code signature alone
+  (`TomSecretsKeychainIdentityStore`); on Windows DPAPI in the user's scope
+  (`TomSecretsDpapiIdentityStore`); on Linux the file. A key from before
+  moves into the store at the next start; a store that cannot take it now
+  leaves it in the file; one that does not give it stops the start (exit
+  code 9). `identity_key: file` in the bootstrap keeps it in the file.
+  `status` names where it is (`identity.kept`).
+- The system install on Linux (`tsm install --system`): started
+  set-group-ID to `tsm-identity`, the service reads the real user's key from
+  `/var/lib/tom-secrets-manager/identity/<uid>.json` (or makes it; a key
+  from the data directory signs the new one) and drops the group for good
+  before it reads the handover or the environment (`TomSecretsSystemMode`).
+  It then uses the user's default data and runtime directories, whatever
+  the variables say, and starts only with that bootstrap.
+  `keys.rotate {identity}` answers `unsupported` (reason
+  `system_install`).
+- `tool/demo_installation.dart`: a demo installation in a user's data
+  directory (the system install's container check).
+
 ## 0.26.2
 
 - The service writes its identity key into this device's record before it

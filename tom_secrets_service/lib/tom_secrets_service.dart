@@ -20,6 +20,7 @@ export 'src/github_app.dart';
 export 'src/github_opener.dart';
 export 'src/hardening.dart';
 export 'src/identity.dart';
+export 'src/identity_store.dart';
 export 'src/key_expiry.dart';
 export 'src/link_client.dart';
 export 'src/link_server.dart';
@@ -31,6 +32,7 @@ export 'src/rate_limits.dart';
 export 'src/relay_links.dart';
 export 'src/secret_frame.dart';
 export 'src/service.dart';
+export 'src/system_mode.dart';
 export 'src/token_check.dart';
 export 'src/vault_set.dart';
 
