@@ -451,8 +451,8 @@ not dumpable on Linux, a process DACL on Windows).
 - **To point ssh at the agent:** `tsm integrations install ssh`, or by
   hand `export SSH_AUTH_SOCK=` and the path `tsm status` shows as `agent`.
 - **The App Group socket** is offered only when the service runs from the
-  team-signed manager app that names its App Group; it is removed at the
-  stop.
+  team-signed manager app that names its App Group, or is installed on its
+  own for that app; it is removed at the stop.
 - Nothing listens on the network except the approval link, and that only
   on the address set in `approvalLink`.
 

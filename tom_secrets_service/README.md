@@ -189,7 +189,8 @@ single-instance lock, released by the OS when the process dies;
 | ssh-agent [B] | `agent.sock` | the named pipe `\\.\pipe\tsm-ssh-agent` |
 
 **[C]** On macOS, when the service runs from the manager app's tools folder
-and the app names its App Group (`TSMAppGroup` in its `Info.plist`, the
+(or is installed on its own for an app its `install.json` names) and the
+app names its App Group (`TSMAppGroup` in its `Info.plist`, the
 team-signed build; `tomSecretsAppGroupClientSocketFor`), the client
 endpoint is also offered at
 `~/Library/Group Containers/<group>/tsm/client.sock`, for the sandboxed

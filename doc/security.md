@@ -605,9 +605,10 @@ server goes to approval. The provider holds no key; it asks for one field
 per request. (`tom_secrets_provider`, `protocol.md` 5.)
 
 **The App Group socket.** Safari's extension and its host run sandboxed.
-When the service runs from the team-signed macOS app, it also offers its
-client endpoint at `~/Library/Group Containers/<group>/tsm/client.sock`,
-with the same measurement and grants. (`service/app_group.dart`.)
+When the service runs from the team-signed macOS app (or is installed on
+its own for it), it also offers its client endpoint at
+`~/Library/Group Containers/<group>/tsm/client.sock`, with the same
+measurement and grants. (`service/app_group.dart`.)
 
 ## Trust between machines and people
 

@@ -10,10 +10,15 @@
 /// the team-signed build's `TSM_TEAM_ID`), the service offers its client
 /// endpoint there too: `~/Library/Group Containers/<group>/tsm/client.sock`.
 /// It is the same endpoint: the same protocol, the same measurement of the
-/// peer and the same grants.
+/// peer and the same grants. A service installed on its own (`tsm install`)
+/// takes the group from the app bundles its install record names.
 library;
 
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:tom_secrets_client/admin.dart'
+    show tomSecretsServiceCandidates, tomSecretsUserInstallRecord;
 
 /// The `Info.plist` key naming the app's App Group.
 const String tomSecretsAppGroupKey = 'TSMAppGroup';
@@ -67,6 +72,35 @@ String? tomSecretsAppGroupClientSocketFor(
   if ((operatingSystem ?? Platform.operatingSystem) != 'macos') return null;
   final home = (environment ?? Platform.environment)['HOME'];
   if (home == null || home.isEmpty) return null;
-  final group = tomSecretsAppGroupOf(serviceExecutable);
+  final group =
+      tomSecretsAppGroupOf(serviceExecutable) ??
+      _installedAppsGroup(serviceExecutable);
   return group == null ? null : tomSecretsAppGroupClientSocket(group, home);
+}
+
+/// The App Group of the first app bundle the install record beside
+/// [serviceExecutable]'s `bin/` names (a service installed on its own), or
+/// null.
+String? _installedAppsGroup(String serviceExecutable) {
+  final bin = File(serviceExecutable).parent;
+  final record = File('${bin.parent.path}/$tomSecretsUserInstallRecord');
+  List<Object?> apps;
+  try {
+    final json = jsonDecode(record.readAsStringSync());
+    apps = json is Map && json['apps'] is List ? json['apps'] as List : [];
+  } on Object {
+    return null;
+  }
+  for (final app in apps) {
+    for (final tools in tomSecretsServiceCandidates(
+      File('$app').parent.path,
+      operatingSystem: 'macos',
+    )) {
+      // `<App>.app/Contents/MacOS/../Resources/tsm/bin/…` without the `..`.
+      final normal = Uri.file(tools).normalizePath().toFilePath();
+      final group = tomSecretsAppGroupOf(normal);
+      if (group != null) return group;
+    }
+  }
+  return null;
 }

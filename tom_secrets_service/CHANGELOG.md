@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.27.2
+
+- A service installed on its own on macOS offers its client endpoint in
+  the App Group container of the app bundle its `install.json` names, as
+  the service in the app's tools folder does (the Safari extension's
+  socket).
+
 ## 0.27.1
 
 - A service installed on its own for one user (`tsm install`, tsm_d12)

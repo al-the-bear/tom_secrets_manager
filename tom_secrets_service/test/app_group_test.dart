@@ -74,6 +74,41 @@ void main() {
       expect(tomSecretsAppGroupOf(_bundle(root, null)), isNull);
       expect(tomSecretsAppGroupOf('/opt/tsm/bin/tom_secrets_service'), isNull);
     });
+
+    test('a service installed on its own takes it from the app bundle its '
+        'install record names', () {
+      final inBundle = _bundle(root, 'ABCDE12345.tom.secrets');
+      final app =
+          '${File(inBundle).parent.parent.parent.parent.path}'
+          '/MacOS/tom_secrets_app';
+      final installed = Directory('${root.path}/installed/bin')
+        ..createSync(recursive: true);
+      final service = '${installed.path}/tom_secrets_service';
+      expect(
+        tomSecretsAppGroupClientSocketFor(
+          service,
+          environment: const {'HOME': '/Users/demo'},
+          operatingSystem: 'macos',
+        ),
+        isNull,
+        reason: 'no record',
+      );
+      TomSecretsUserInstall(
+        directory: installed.parent.path,
+        version: '0.2.19',
+        installed: DateTime.utc(2026, 11, 26),
+        apps: ['/elsewhere/tsm', app],
+      ).writeRecord();
+      expect(
+        tomSecretsAppGroupClientSocketFor(
+          service,
+          environment: const {'HOME': '/Users/demo'},
+          operatingSystem: 'macos',
+        ),
+        '/Users/demo/Library/Group Containers/ABCDE12345.tom.secrets/tsm/'
+        'client.sock',
+      );
+    });
   });
 
   test('the service offers its client endpoint in the group container too: '

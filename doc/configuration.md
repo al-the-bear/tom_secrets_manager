@@ -117,8 +117,9 @@ On Windows the ssh-agent is the named pipe `\\.\pipe\tsm-ssh-agent`.
 
 ### The App Group container (macOS)
 
-When the service runs from the team-signed app's `tsm/bin` folder and the
-app's `Info.plist` names a group (`TSMAppGroup`), the service also offers its
+When the service runs from the team-signed app's `tsm/bin` folder (or is
+installed on its own for an app its `install.json` names) and the app's
+`Info.plist` names a group (`TSMAppGroup`), the service also offers its
 client endpoint at `~/Library/Group Containers/<group>/tsm/client.sock`. The
 AutoFill provider's files are there too:
 `TomSecretsAutofill/snapshot.tsmaf` and
