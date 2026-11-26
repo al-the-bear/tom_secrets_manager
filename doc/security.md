@@ -228,10 +228,10 @@ The service expected is `tom_secrets_service` beside the app or `tsm`, the
 one in the app's `tsm/bin`, the one installed on its own for the user
 (`tsm install`), or the one `TSM_SERVICE` (or `tsm start --service`) names:
 the mirror of the service admitting only the `tsm` and app beside it (an
-installed service: and the apps its `install.json` names). A check that fails ends the connection with
-`service_untrusted` and its reason (`owner`, `mode`, `peer_user`,
-`peer_executable`); nothing was sent, and the app and `tsm` say what is
-wrong and what to do.
+installed service: and the programs its `install.json` names). A check
+that fails ends the connection with `service_untrusted` and its reason
+(`owner`, `mode`, `peer_user`, `peer_executable`); nothing was sent, and
+the app and `tsm` say what is wrong and what to do.
 
 The service installed on its own lives in a folder of the user's, like an
 app the user installed in their home folder: a program of the user can

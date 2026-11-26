@@ -357,8 +357,9 @@ records the install:
 }
 ```
 
-`apps` are the manager apps the installed service admits as admins (the
-app adds itself when missing); on Windows an app of the same package in
+`apps` are the programs the installed service admits as admins: the
+manager apps (the app adds itself when missing) and the `tsm` that
+installed it; on Windows an app of the same package in
 another version is admitted too, so an update of the app's MSIX stays
 admitted. The service takes the browser host, the helpers and the Windows
 passkey plugin from those apps' tools folders as well.

@@ -143,8 +143,10 @@ yours, starts at login and keeps running whatever happens to the app.
 
 **To install it:** in the app, Settings › This machine › "Run the service
 on its own" › Install; or `tsm install` from the app's tools folder or the
-unpacked tools archive. The folder's `install.json` names the apps the
-installed service takes as admins; the app adds itself there.
+unpacked tools archive. The folder's `install.json` names the programs the
+installed service takes as admins: the `tsm` that installed it, and the
+app, which adds itself there. Another copy of `tsm` is refused
+(`wrong_executable`) and told to run the installed one.
 
 What changes then:
 
