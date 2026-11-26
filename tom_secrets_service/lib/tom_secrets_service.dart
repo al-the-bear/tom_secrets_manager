@@ -26,6 +26,7 @@ export 'src/link_client.dart';
 export 'src/link_server.dart';
 export 'src/lock_policy.dart';
 export 'src/log.dart';
+export 'src/quick_unlock.dart';
 export 'src/pairing_mode.dart';
 export 'src/peer_identity.dart';
 export 'src/rate_limits.dart';

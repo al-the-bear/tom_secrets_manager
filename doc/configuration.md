@@ -206,6 +206,7 @@ next unlock. Read by `TomSecretsDeviceSettings` (`tom_secrets_core`).
 | `primaryKeyAgeMonths` | int | 24 | rotation age a new key file or repository key of the primary gets |
 | `vaultKeyAgeMonths` | int | 12 | rotation age a new key file or repository key of every other vault gets |
 | `memberKeyAgeMonths` | int | 24 | rotation age of the member key |
+| `quickUnlockPin` | bool | off | quick unlock with a PIN is on; set by `quickUnlock.set` and `.remove`, never by `settings.set`. The PIN and the keys it seals live in the service's memory only |
 
 A lock policy holds:
 
@@ -564,6 +565,7 @@ Kept by the mobile app in its preferences.
 | `mobile.lockSeconds` | 30 | 0 or more (0, 30, 60, 300 offered) | the lock after going to the background |
 | `mobile.clipboardSeconds` | 30 | 15, 30, 60, 120 offered | when a copied value is cleared |
 | `mobile.biometric` | on | `off` | the biometric unlock |
+| `mobile.quickUnlockPin` | — | `on` | quick unlock with a PIN is on (the PIN lives in the app's memory only) |
 | `mobile.primary` | set at setup | — | the primary vault's location |
 | `mobile.device` | set at setup | — | this device's name |
 | `mobile.tokenExpires` | — | JSON of `owner/repo` to date | the GitHub tokens' expiry, for the reminder two weeks ahead |
@@ -584,5 +586,6 @@ Kept in `app-preferences.json` in the data directory.
 | `health.breachRecord` | — | when each password was checked |
 | `quickAccess.hotkey`, `autoType.hotkey` | the defaults | the global hotkeys (`off` disables) |
 | `osUnlock.items` | — | which vaults the OS unlock keeps |
+| `osUnlock.quick` | on | `off`: Touch ID or Windows Hello does not undo a lock (the quick unlock's token is not kept) |
 | `relays.list`, `relays.pairing` | — | the relays and the one used for pairing |
 | `reminders.snoozed`, `reminders.notifiedOn` | — | the key reminders' state |

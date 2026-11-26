@@ -7,6 +7,7 @@
 /// of it.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -914,6 +915,39 @@ final class TomSecretsHeldKeys {
         : TomSecretsSecretSlot.ofBytes(compositeKey!)),
   };
 
+  /// The keys as bytes, for the quick unlock to seal in memory (never
+  /// written anywhere): JSON with each key base64; the caller wipes them.
+  Uint8List encode() {
+    String? b64(TomProtectedValue? v) =>
+        v?.withRevealed((b) => base64.encode(b));
+    return Uint8List.fromList(
+      utf8.encode(
+        jsonEncode({
+          'v': 1,
+          'password': ?b64(password),
+          'keyFile': ?b64(keyFile),
+          'outerKey': ?b64(outerKey),
+          'compositeKey': ?b64(compositeKey),
+        }),
+      ),
+    );
+  }
+
+  /// The keys of [encode]'s bytes.
+  factory TomSecretsHeldKeys.decode(List<int> bytes) {
+    final json = (jsonDecode(utf8.decode(bytes)) as Map)
+        .cast<String, Object?>();
+    TomProtectedValue? value(String key) => json[key] is String
+        ? TomProtectedValue.fromBytes(base64.decode(json[key]! as String))
+        : null;
+    return TomSecretsHeldKeys(
+      password: value('password'),
+      keyFile: value('keyFile'),
+      outerKey: value('outerKey'),
+      compositeKey: value('compositeKey'),
+    );
+  }
+
   /// Zeroes every key.
   void dispose() {
     password?.dispose();
@@ -1160,6 +1194,10 @@ final class TomSecretsVaultSet {
   /// **[C]** Called with the primary's keys when the set took up its next
   /// keys (the service keeps them in the keychain).
   Future<void> Function(TomSecretsHeldKeys keys)? onPrimaryKeysChanged;
+
+  /// The primary's keys as the quick unlock seals them (the caller wipes
+  /// them), or null while locked.
+  Uint8List? encodedPrimaryKeys() => _primaryKeys?.encode();
 
   /// **[C]** The primary's keys held now with [next] taken up: its key file
   /// (else the one held) and its repository keys (the next one, and the

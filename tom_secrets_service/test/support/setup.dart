@@ -232,6 +232,11 @@ final class Demo {
     String? knownHostsFile,
     String agentPipe = TomSecretsRuntime.agentPipe,
     TomSecretsRelay Function(String relay, String? token)? linkRelayFor,
+    // A small Argon2id for the quick unlock's PIN, so tests run quickly.
+    TomSecretsPinKdf quickUnlockKdf = const TomSecretsPinKdf(
+      memoryKiB: 256,
+      iterations: 1,
+    ),
   }) async {
     final service = await TomSecretsService.launch(
       TomSecretsServiceConfig(
@@ -267,6 +272,7 @@ final class Demo {
         knownHostsFile: knownHostsFile,
         agentPipe: agentPipe,
         linkRelayFor: linkRelayFor,
+        quickUnlockKdf: quickUnlockKdf,
       ),
     );
     addTearDown(service.stop);

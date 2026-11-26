@@ -40,6 +40,7 @@ import 'link_server.dart';
 import 'lock_policy.dart';
 import 'log.dart';
 import 'peer_identity.dart';
+import 'quick_unlock.dart';
 import 'relay_links.dart';
 import 'rate_limits.dart';
 import 'secret_frame.dart';
@@ -47,7 +48,7 @@ import 'token_check.dart';
 import 'vault_set.dart';
 
 /// The service's version, sent in `welcome` and `challenge`.
-const String tomSecretsServiceVersion = '0.27.2';
+const String tomSecretsServiceVersion = '0.28.0';
 
 /// What a service is started with.
 final class TomSecretsServiceConfig {
@@ -79,6 +80,7 @@ final class TomSecretsServiceConfig {
     this.passkeyPluginExecutables,
     this.groupClientSocket,
     this.lastUsedInterval,
+    this.quickUnlockKdf = const TomSecretsPinKdf(),
     this.approverLinkRetry = const Duration(seconds: 5),
     this.linkRelayFor,
     this.rateLimits = const TomSecretsRateLimitSettings(),
@@ -196,6 +198,10 @@ final class TomSecretsServiceConfig {
   /// the refresh interval (`refreshMinutes`, so a `github:` primary is not
   /// committed more often than it is fetched), or an hour with refresh off.
   final Duration? lastUsedInterval;
+
+  /// The Argon2id parameters of the quick unlock's PIN (tests take smaller
+  /// ones).
+  final TomSecretsPinKdf quickUnlockKdf;
 
   /// The first pause before a session to a paired host is opened again
   /// (doubling up to five minutes); tests make it short.
@@ -582,6 +588,82 @@ final class TomSecretsService
   @override
   TomSecretsDeviceSettings get settings =>
       _device?.settings ?? const TomSecretsDeviceSettings();
+
+  /// The quick unlock (protocol.md 6.4): the primary's keys sealed in this
+  /// process's memory under the PIN and the biometric's token.
+  late final TomSecretsQuickUnlock quickUnlock = TomSecretsQuickUnlock(
+    kdf: config.quickUnlockKdf,
+    now: () => now,
+  );
+
+  /// Unlocks with [keys] the user typed (the master password) or the app
+  /// remembered for them: the quick unlock's age limit counts from now.
+  Future<void> unlockWithPassword(TomSecretsHeldKeys keys) async {
+    await unlock(keys);
+    _notePasswordUnlock();
+  }
+
+  void _notePasswordUnlock() {
+    final encoded = _vaults.encodedPrimaryKeys();
+    if (encoded == null) return;
+    try {
+      quickUnlock.passwordUnlocked(encoded);
+    } finally {
+      encoded.fillRange(0, encoded.length, 0);
+    }
+  }
+
+  /// Unlocks with the keys the quick unlock opened ([encoded], wiped here).
+  /// Keys the vault no longer takes (re-keyed elsewhere) end the quick
+  /// unlock; the error is rethrown.
+  Future<void> unlockQuick(Uint8List encoded, String via) async {
+    final keys = TomSecretsHeldKeys.decode(encoded);
+    encoded.fillRange(0, encoded.length, 0);
+    try {
+      await unlock(keys);
+    } on KdbxInvalidKeyException {
+      quickUnlock.wipe();
+      rethrow;
+    }
+    log.info('unlock', {'via': via});
+  }
+
+  /// Seals the primary's keys under [pin] and turns the switch on in the
+  /// device settings.
+  Future<void> setQuickPin(String pin) async {
+    final encoded = _vaults.encodedPrimaryKeys()!;
+    try {
+      await quickUnlock.setPin(pin, encoded);
+    } finally {
+      encoded.fillRange(0, encoded.length, 0);
+    }
+    if (!settings.quickUnlockPin) {
+      await _device!.write(settings.withQuickUnlockPin(true));
+    }
+    log.info('quick_unlock', {'pin': 'set'});
+  }
+
+  /// Forgets the PIN and turns the switch off.
+  Future<void> removeQuickPin() async {
+    quickUnlock.removePin();
+    if (settings.quickUnlockPin) {
+      await _device!.write(settings.withQuickUnlockPin(false));
+    }
+    log.info('quick_unlock', {'pin': 'removed'});
+  }
+
+  /// Seals the primary's keys under a new token for the biometric and
+  /// answers it (the caller wipes it).
+  Future<Uint8List> newQuickToken() async {
+    final encoded = _vaults.encodedPrimaryKeys()!;
+    try {
+      final token = await quickUnlock.newToken(encoded);
+      log.info('quick_unlock', {'token': 'set'});
+      return token;
+    } finally {
+      encoded.fillRange(0, encoded.length, 0);
+    }
+  }
 
   /// The offline cache, under the bootstrap's cache directory.
   TomSecretsOfflineCache get _offlineCache =>
@@ -1686,6 +1768,20 @@ final class TomSecretsService
   /// Locks: drops the vaults, the index, the device settings and every
   /// protected value the service holds; the admin key survives.
   Future<void> lock({String reason = 'admin'}) async {
+    // "Lock completely" and a stop end the quick unlock; another lock keeps
+    // it, unless the keys sealed are no longer the primary's (re-keyed).
+    if (reason == 'completely' || reason == 'stop') {
+      quickUnlock.wipe();
+    } else {
+      final encoded = _vaults.encodedPrimaryKeys();
+      if (encoded != null) {
+        if (!quickUnlock.matches(encoded)) {
+          quickUnlock.wipe();
+          log.info('quick_unlock', {'ended': 'rekeyed'});
+        }
+        encoded.fillRange(0, encoded.length, 0);
+      }
+    }
     if (isLocked) return;
     _lockTimer.stop();
     _refreshTimer?.cancel();
@@ -1768,6 +1864,9 @@ final class TomSecretsService
     },
     'protocol': 1,
     'service': {'version': tomSecretsServiceVersion, 'start': startedAt},
+    // The quick unlock (protocol.md 6.4): never a key or a PIN. The switch
+    // is the device settings' (read while unlocked; locked, the slots tell).
+    'quickUnlock': quickUnlock.toStatus(pinOn: settings.quickUnlockPin),
     // The identity key the admins pinned (protocol.md 6.1).
     'identity': {
       'fingerprint': tomSecretsIdentityFingerprint(identityKey),
@@ -5323,7 +5422,9 @@ final class _AdminSession {
 
     if (service.isLocked) {
       try {
-        await service.unlock(keys);
+        // The bundle is the master password remembered (BP-37): it counts as
+        // an unlock with it for the quick unlock's age.
+        await service.unlockWithPassword(keys);
       } on KdbxInvalidKeyException {
         // A re-keyed vault: not a failed authentication, the bundle opened.
         return refusedKey();
@@ -5358,10 +5459,206 @@ final class _AdminSession {
     }
   }
 
+  /// Refuses a quick-unlock message from anything but the manager app
+  /// (`tsm` takes the master password only) or over a connection without
+  /// a bundle key (a claim); answers the bundle key otherwise.
+  Uint8List? _quickKey(int id) {
+    if (!isApp) {
+      connection.sendError(id, 'denied', 'only the manager app', {
+        'reason': 'wrong_executable',
+      });
+      return null;
+    }
+    final key = _bundleKey;
+    if (key == null) {
+      connection.sendError(
+        id,
+        'unsupported',
+        'a connection that claimed the service sends no sealed fields',
+      );
+    }
+    return key;
+  }
+
+  /// The field [field] of [op] in [m], opened with [key]; null (answered)
+  /// when it is missing or does not open.
+  Future<Uint8List?> _sealedField(
+    int id,
+    Uint8List key,
+    String op,
+    String field,
+    Map<String, Object?> m,
+  ) async {
+    try {
+      return await tomSecretsOpenField(
+        bundleKey: key,
+        op: op,
+        field: field,
+        serviceStart: service.startedAt,
+        sealed: m[field],
+      );
+    } on TomSecretsBundleException {
+      service._authFailures++;
+      connection.sendError(id, 'denied', 'the sealed $field does not open', {
+        'reason': 'bad_bundle',
+      });
+      return null;
+    }
+  }
+
+  /// `unlock {pin}` / `unlock {quick}` (protocol.md 6.4): the quick unlock,
+  /// the PIN or the biometric's token sealed under the bundle key.
+  Future<void> _unlockQuick(int id, Map<String, Object?> m) async {
+    final key = _quickKey(id);
+    if (key == null) return;
+    final pin = m['pin'] != null;
+    final field = pin ? 'pin' : 'quick';
+    final secret = await _sealedField(id, key, 'unlock', field, m);
+    if (secret == null) return;
+    if (!service.isLocked) {
+      secret.fillRange(0, secret.length, 0);
+      connection.send({'op': 'ok', 'id': id});
+      return;
+    }
+    final Uint8List keys;
+    try {
+      keys = pin
+          ? await service.quickUnlock.openWithPin(utf8.decode(secret))
+          : await service.quickUnlock.openWithToken(secret);
+    } on TomSecretsQuickUnlockException catch (e) {
+      service.log.info('unlock_refused', {
+        'reason': e.refusal.reason,
+        'via': field,
+      });
+      connection.sendError(
+        id,
+        'denied',
+        switch (e.refusal) {
+          TomSecretsQuickRefusal.badPin => 'the PIN is wrong',
+          TomSecretsQuickRefusal.wiped =>
+            'too many wrong PINs: unlock with the master password',
+          TomSecretsQuickRefusal.expired =>
+            'the quick unlock ended: unlock with the master password',
+          TomSecretsQuickRefusal.badToken => 'the token does not open',
+          TomSecretsQuickRefusal.none =>
+            'no quick unlock: unlock with the master password',
+        },
+        {'reason': e.refusal.reason, 'attemptsLeft': ?e.attemptsLeft},
+      );
+      return;
+    } on FormatException {
+      connection.sendError(id, 'malformed', 'the PIN is not UTF-8', {
+        'reason': 'pin',
+      });
+      return;
+    } finally {
+      secret.fillRange(0, secret.length, 0);
+    }
+    try {
+      await service.unlockQuick(keys, pin ? 'pin' : 'biometric');
+      connection.send({'op': 'ok', 'id': id});
+    } on KdbxInvalidKeyException {
+      service.log.info('unlock_refused', {'reason': 'rekeyed', 'via': field});
+      connection.sendError(
+        id,
+        'denied',
+        'the vault was re-keyed: unlock with the master password',
+        {'reason': 'rekeyed'},
+      );
+    } on Object catch (e) {
+      _unlockFailed(service, connection, id, e);
+    }
+  }
+
+  /// `quickUnlock.set {pin}`: seals the primary's keys under the PIN.
+  Future<void> _quickUnlockSet(int id, Map<String, Object?> m) async {
+    final key = _quickKey(id);
+    if (key == null) return;
+    if (service.isLocked) {
+      connection.sendError(id, 'locked', 'unlock the service first');
+      return;
+    }
+    final secret = await _sealedField(id, key, 'quickUnlock.set', 'pin', m);
+    if (secret == null) return;
+    try {
+      await service.setQuickPin(utf8.decode(secret));
+      connection.send({'op': 'ok', 'id': id});
+    } on ArgumentError catch (e) {
+      connection.sendError(id, 'malformed', '${e.message}', {'reason': 'pin'});
+    } on StateError catch (e) {
+      connection.sendError(id, 'denied', e.message, {
+        'reason': 'password_first',
+      });
+    } on FormatException {
+      connection.sendError(id, 'malformed', 'the PIN is not UTF-8', {
+        'reason': 'pin',
+      });
+    } finally {
+      secret.fillRange(0, secret.length, 0);
+    }
+  }
+
+  /// `quickUnlock.token`: a new token for the biometric, sealed back.
+  Future<void> _quickUnlockToken(int id) async {
+    final key = _quickKey(id);
+    if (key == null) return;
+    if (service.isLocked) {
+      connection.sendError(id, 'locked', 'unlock the service first');
+      return;
+    }
+    final Uint8List token;
+    try {
+      token = await service.newQuickToken();
+    } on StateError catch (e) {
+      connection.sendError(id, 'denied', e.message, {
+        'reason': 'password_first',
+      });
+      return;
+    }
+    try {
+      connection.send({
+        'op': 'quickToken',
+        'id': id,
+        'token': await tomSecretsSealField(
+          bundleKey: key,
+          op: 'quickUnlock.token',
+          field: 'token',
+          serviceStart: service.startedAt,
+          plaintext: token,
+        ),
+      });
+    } finally {
+      token.fillRange(0, token.length, 0);
+    }
+  }
+
+  /// `quickUnlock.remove {pin?, token?}`: forgets the PIN (the switch off)
+  /// and/or the token.
+  Future<void> _quickUnlockRemove(int id, Map<String, Object?> m) async {
+    if (_quickKey(id) == null) return;
+    if (m['pin'] == true) {
+      if (service.isLocked || service.deviceContainer == null) {
+        connection.sendError(id, 'locked', 'unlock the service first');
+        return;
+      }
+      await service.removeQuickPin();
+    }
+    if (m['token'] == true) service.quickUnlock.removeToken();
+    connection.send({'op': 'ok', 'id': id});
+  }
+
   Future<void> _request(int id, String op, Map<String, Object?> m) async {
     switch (op) {
       case 'unlock' when m['bundle'] != null:
         await _unlockWithBundle(id, m);
+      case 'unlock' when m['pin'] != null || m['quick'] != null:
+        await _unlockQuick(id, m);
+      case 'quickUnlock.set':
+        await _quickUnlockSet(id, m);
+      case 'quickUnlock.token':
+        await _quickUnlockToken(id);
+      case 'quickUnlock.remove':
+        await _quickUnlockRemove(id, m);
       case 'unlock':
         final keys = _keysOf(m);
         if (keys == null) {
@@ -5376,7 +5673,7 @@ final class _AdminSession {
           return;
         }
         try {
-          await service.unlock(keys);
+          await service.unlockWithPassword(keys);
           connection.send({'op': 'ok', 'id': id});
         } on KdbxInvalidKeyException {
           service._authFailures++;
@@ -5724,7 +6021,10 @@ final class _AdminSession {
           retentionDays: retention as int?,
         );
       case 'lock':
-        await service.lock();
+        // `completely` ends the quick unlock too (protocol.md 6.4).
+        await service.lock(
+          reason: m['completely'] == true ? 'completely' : 'admin',
+        );
         connection.send({'op': 'ok', 'id': id});
       case 'shutdown':
         connection.send({'op': 'ok', 'id': id});
@@ -6279,9 +6579,11 @@ final class _AdminSession {
           });
           return;
         }
+        // The quick unlock's switch follows the PIN (quickUnlock.set and
+        // .remove), never settings.set.
         final value = TomSecretsDeviceSettings.fromJson(
           (device! as Map).cast<String, Object?>(),
-        );
+        ).withQuickUnlockPin(service.settings.quickUnlockPin);
         final later = await service.writeSettings(value);
         service.log.info('settings', {'nextUnlock': later.length});
         connection.send({'op': 'ok', 'id': id, 'nextUnlock': later});

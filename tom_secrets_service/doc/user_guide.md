@@ -274,9 +274,9 @@ modes. Locking drops every vault from memory; the service keeps running.
 
 | Mode | Locks | Unlocked again with |
 | --- | --- | --- |
-| (a) `never` | only when asked | the master password |
-| (b) `idle` (the default, 30 minutes) | after the user's input was idle that long | the master password |
-| (c) `osUnlock` | when idle, or at the screen lock the app senses | Touch ID or Windows Hello, through the app |
+| (a) `never` | only when asked | the master password, or the app's quick unlock |
+| (b) `idle` (the default, 30 minutes) | after the user's input was idle that long | the master password, or the app's quick unlock |
+| (c) `osUnlock` | when idle, or at the screen lock the app senses | the master password, or the app's quick unlock |
 
 In every mode a longest unlocked time can be set besides. The idle time is
 read from the desktop session (CoreGraphics on macOS, `GetLastInputInfo`
@@ -284,6 +284,17 @@ on Windows, logind on Linux). **On a server without a desktop session the
 service never locks itself**, the longest unlocked time included: lock it
 with `tsm lock` or stop it. Mode (c) without the app, and on Linux, acts
 as (b).
+
+**The quick unlock.** After an unlock with the master password the app can
+have the service keep the primary's keys sealed in its memory, under a PIN
+and under a token the app keeps behind Touch ID or Windows Hello. A lock
+then drops the vaults but keeps the sealed keys, and the app's PIN or
+biometric undoes it. They end with the process (a restart asks for the
+master password once), at "Lock completely" (`lock {completely}`), after 5
+wrong PINs and 7 days after the last unlock with the master password.
+Nothing of it is written but the device settings' switch `quickUnlockPin`;
+`status` shows its state under `quickUnlock`. `tsm` takes the master
+password only.
 
 ## The device settings
 
@@ -397,6 +408,12 @@ $ tsm status --json
   "service": {
     "version": "<version>",
     "start": 1795510800000
+  },
+  "quickUnlock": {
+    "pin": false,
+    "pinArmed": false,
+    "token": false,
+    "attemptsLeft": 5
   },
   "identity": {
     "fingerprint": "5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e5c1e",

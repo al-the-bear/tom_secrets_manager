@@ -552,7 +552,8 @@ subscribed admins; an admin that subscribes gets those due at that moment.
 Unlocking opens the primary file first, then the device settings container,
 then the further vaults the primary names; a vault whose key does not open is
 `needs_unlock` and the others are still served. Locking drops the vaults, the
-index and the device settings; the admin key survives.
+index and the device settings; the admin key and the quick unlock's sealed
+keys survive.
 
 The lock modes (`TomSecretsLockPolicy`; `status.lockMode` names them by the
 protocol's letter): (a) never relock, (b) relock after the user's input has
@@ -563,6 +564,17 @@ maximum unlocked time.
 The idle time comes from CoreGraphics on macOS, `GetLastInputInfo` on Windows
 and logind's idle hint on Linux; where it cannot be measured (no desktop
 session) the service never locks itself, the maximum unlocked time included.
+
+**The quick unlock** (`TomSecretsQuickUnlock`, protocol.md 6.4): after an
+unlock with the master password the manager app may have the primary's keys
+sealed in the service's memory, under a PIN (`quickUnlock.set`, Argon2id
+over the PIN) and under a random token the app keeps behind the biometric
+(`quickUnlock.token`, HKDF), both salted with a secret that exists only in
+memory. A lock keeps them; `unlock {pin}` or `unlock {quick}` (sealed under
+the connection's bundle key, from the app only, never `tsm`) opens them.
+They end with the process, at `lock {completely}`, after 5 wrong PINs, when
+the primary was re-keyed, and 7 days after the last unlock with the master
+password. Only the device settings' switch `quickUnlockPin` is written.
 
 ### Hardening and memory hygiene
 

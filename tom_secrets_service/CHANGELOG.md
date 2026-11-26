@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.28.0
+
+- The quick unlock (protocol.md 6.4, part-app Unlocking): after an unlock
+  with the master password the primary's keys are kept sealed in the
+  service's memory under a PIN (`quickUnlock.set`, Argon2id 64 MiB) and a
+  token for the biometric (`quickUnlock.token`), salted with a secret that
+  exists only in memory. `unlock {pin}` and `unlock {quick}` (sealed under
+  the bundle key, from the manager app only) undo a lock; 5 wrong PINs,
+  `lock {completely}`, a re-keyed primary, the end of the process and 7
+  days after the last master-password unlock end them
+  (`TomSecretsQuickUnlock`). Only the device settings' switch
+  `quickUnlockPin` is written; `status` reports `quickUnlock`.
+
 ## 0.27.2
 
 - A service installed on its own on macOS offers its client endpoint in

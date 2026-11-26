@@ -167,12 +167,14 @@ the finish removes it and the history is cut. (`core/outer.dart`,
 
 ### The composite key and the OS unlock
 
-The app can keep the primary's **composite key** and repository key (never
-the password) in a store gated by Touch ID or Windows Hello
-(`tom_biometric_storage`, under `tom_secrets.os_unlock.<store>`), and
-unlock the service with them: a session item, forgotten at a service stop,
-at "Lock completely" and at a new start, or a saved one when the user
-chose "Remember the master password". Linux has no gated store. On its way
+The app keeps an item in a store gated by Touch ID or Windows Hello
+(`tom_biometric_storage`, under `tom_secrets.os_unlock.<store>`). A
+**session item** holds only the quick unlock's token (below), never a key:
+it is forgotten at a service stop, at "Lock completely", at a new start and
+when the service no longer holds the token. A **saved item**, when the user
+chose "Remember the master password", holds the primary's **composite
+key** and repository key (never the password) and unlocks after restarts
+too. Linux has no gated store. On its way
 to the service the bundle is sealed with AES-256-GCM under a key derived by
 HKDF-SHA-256 from the admin key and both nonces of the admin connection
 (info `tsm-bundle-v1`), the vault name and the service start in the
@@ -181,6 +183,49 @@ changed enrolment) is forgotten, and the master password is asked again.
 On macOS without the team-signed build the gate is Touch ID's prompt, not
 a key bound to the biometric; Windows Hello's key is bound.
 (`client/admin/unlock_bundle.dart`, `ui/state/os_unlock.dart`.)
+
+### The quick unlock: the PIN and the biometric
+
+After an unlock with the master password the service can keep the
+primary's keys **sealed in its own memory**, so a PIN or the biometric
+undoes a later idle or screen lock. The keys are sealed with AES-256-GCM
+under a key from Argon2id (64 MiB) over the PIN, and under a key from
+HKDF over a 32-byte random token the app keeps behind the biometric; both
+use a 32-byte random secret that exists only in the service's memory as the
+salt. The PIN and the token reach the service sealed under the admin
+connection's bundle key, and only from the manager app: `tsm` takes the
+master password alone. Only the switch "quick unlock with a PIN is on" is
+written, in the device settings. (`service/quick_unlock.dart`,
+`ui/state/os_unlock.dart`, protocol.md 6.4.)
+
+**What a PIN protects against.**
+
+- Someone at the unlocked-then-locked machine: they get 5 tries, then the
+  sealed keys are wiped and only the master password unlocks.
+- A copy of the disk, a backup or a stolen powered-off machine: nothing
+  about the PIN is on the disk (no PIN, no verifier, no sealed keys), so
+  there is nothing to try PINs against offline.
+- A program on the machine that is not the manager app: the service takes
+  quick-unlock messages from the app alone.
+- A forgotten master password: a restart (reboot, update) and "Lock
+  completely" end the quick unlock, and so do 7 days after the last unlock
+  with the master password; the master password is then typed once, which
+  keeps it in memory.
+
+**What it does not protect against.**
+
+- A PIN is short. Its strength is the attempt limit of the running service,
+  not its length: someone who can read the service's memory (root, or on
+  macOS and Windows a program running as the user that gets past the
+  process hardening) has the secret and the sealed keys and can try every
+  PIN offline. Such a program can read the unlocked keys anyway while the
+  service is unlocked.
+- Someone who watches the PIN being typed gets the same as with the master
+  password until the next restart.
+- The biometric is as strong as the platform's: on the ad-hoc signed Mac the
+  Touch ID item is the gate-only form (a program running as the user reads
+  the token from the keychain); the token alone opens only what the running
+  service holds, and only until it stops.
 
 ### The device key and the device settings container
 
@@ -496,22 +541,24 @@ links. (`service/service.dart`.)
 
 - **(a) never:** the service stays unlocked until it is locked by hand.
 - **(b) idle:** it relocks when the user's input has been idle for a while
-  (30 minutes by default); the master password unlocks it again.
-- **(c) OS unlock:** it relocks when idle or when the screen locks (the app
-  senses the screen lock), and Touch ID or Windows Hello unlocks it. On
-  Linux, or without the app, it behaves as (b).
+  (30 minutes by default); the master password, the PIN or the biometric
+  (the quick unlock, above) unlocks it again.
+- **(c) OS unlock:** it also relocks when the screen locks (the app senses
+  the screen lock). On Linux, or without the app, it behaves as (b).
 
 In any mode a hard maximum unlocked time can be set, and the app can lock
 at sleep. The idle time comes from CoreGraphics on macOS,
 `GetLastInputInfo` on Windows and logind on Linux; where there is no
 desktop session (a server), the service never locks itself. **Locking**
 forgets the vaults, the index, the device settings and every key held in
-memory; only the admin key stays. The app forgets the AutoFill key.
+memory; only the admin key and the quick unlock's sealed keys stay ("Lock
+completely" ends those too). The app forgets the AutoFill key.
 
 **On a phone** the vaults are fetched at the unlock and held in memory
 only. The key files, repository keys and tokens a pairing delivered are in
 the iOS keychain or an Android Keystore-encrypted file, excluded from
-backups; the biometric check guards the composite key. The app locks 30
+backups; the biometric check guards the composite key. A PIN works as on
+the desktop, its sealed keys in the app's own memory. The app locks 30
 seconds after it goes to the background by default.
 (`tom_secrets_mobile/lib/src/mobile_keychain.dart`,
 `tom_secrets_mobile/lib/src/mobile_engine.dart`.)
